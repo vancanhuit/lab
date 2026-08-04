@@ -1,0 +1,54 @@
+[settings]
+lockfile = true
+pipx.uvx = true
+
+[tools]
+age = "1.3.1"
+sops = "3.13.3"
+python = "3.14.6"
+uv = { version = "0.12.1", depends = ["python"] }
+"pipx:ansible" = { version = "14.2.0", uvx_args = "--with-executables-from ansible-core --with-executables-from ansible-lint", depends = [
+  "uv",
+] }
+gh = "2.97.0"
+
+[tasks."ansible:deps"]
+description = "Install Ansible Galaxy collections from requirements.yml"
+dir = "ansible"
+run = "ansible-galaxy collection install -r requirements.yml"
+
+[tasks."ansible:lint"]
+description = "Lint a role/playbook (defaults to roles/), e.g. mise run ansible:lint stalwart.yaml"
+dir = "ansible"
+usage = '''
+arg <path> help="the path to lint, e.g. roles/stalwart or stalwart.yaml"
+'''
+run = "ansible-lint {{usage.path}}"
+
+[tasks."ansible:ping"]
+description = "Check connectivity to all lab hosts"
+dir = "ansible"
+run = "ansible lab -i inventory.yaml -m ping"
+
+[tasks."ansible:play"]
+description = "Run a playbook, e.g. mise run ansible:play step_ca.yaml"
+dir = "ansible"
+usage = '''
+arg <playbook> help="the playbook to run, e.g. step_ca.yaml"
+'''
+run = "ansible-playbook -i inventory.yaml {{usage.playbook}}"
+
+[tasks."secrets:edit"]
+description = "Edit the sops-encrypted secrets file"
+dir = "{{config_root}}"
+run = "sops ansible/group_vars/all/secrets.sops.yaml"
+
+[tasks."secrets:view"]
+description = "Decrypt and print the sops-encrypted secrets file"
+dir = "{{config_root}}"
+run = "sops --decrypt ansible/group_vars/all/secrets.sops.yaml"
+
+[tasks."stalwart:plan"]
+description = "Regenerate the Stalwart NDJSON apply plan from plan.yaml"
+dir = "{{config_root}}"
+run = "uv run --with pyyaml ansible/roles/stalwart/files/generate_plan.py ansible/roles/stalwart/files/plan.yaml -o ansible/roles/stalwart/templates/plan.ndjson.j2"

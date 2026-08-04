@@ -1,0 +1,77 @@
+config:
+  cloud-init.vendor-data: |
+    ## template: jinja
+    #cloud-config
+    package_update: true
+    package_upgrade: true
+    packages:
+      - openssh-server
+      - curl
+      - wget
+      - htop
+      - vim
+      - tar
+      - unzip
+      - gzip
+      - bash-completion
+      - gpg
+      - man-db
+      - sudo
+
+    disable_root: true
+    user:
+      name: admin
+      gecos: Lab Admin
+      groups:
+        - sudo
+      shell: /bin/bash
+      sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - <your-ssh-key>
+    timezone: Asia/Ho_Chi_Minh
+
+    write_files:
+      - path: /home/admin/.vimrc
+        source:
+          uri: https://raw.githubusercontent.com/amix/vimrc/refs/heads/master/vimrcs/basic.vim
+        defer: true
+
+      - path: /root/.vimrc
+        source:
+          uri: https://raw.githubusercontent.com/amix/vimrc/refs/heads/master/vimrcs/basic.vim
+
+      - path: /usr/local/sbin/incus-firstboot.sh
+        permissions: "0755"
+        content: |
+          #!/bin/bash
+
+          if ! systemd-detect-virt --quiet --container; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install --no-install-recommends -y chrony
+            systemctl enable --now chrony || true
+            echo "VM detected: chrony installed and started"
+          fi
+    runcmd:
+      - systemctl set-default multi-user.target
+      - mandb
+      - /usr/local/sbin/incus-firstboot.sh
+  limits.cpu: "1"
+  limits.memory: 2GiB
+  snapshots.expiry: 3H
+  snapshots.pattern: "{{ creation_date|date:'2006-01-02_15-04-05' }}"
+  snapshots.schedule: "@hourly"
+description: Debian Incus profile
+devices:
+  eth0:
+    name: eth0
+    network: incusbr0
+    type: nic
+  root:
+    path: /
+    pool: pool1
+    size: 5GiB
+    type: disk
+name: debian
+used_by: []
+project: default
