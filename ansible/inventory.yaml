@@ -2,3 +2,7 @@ lab:
   hosts:
     dns:
       ansible_host: dns.lab.canhdinh.com
+
+incus:
+  hosts:
+    debian-incus:

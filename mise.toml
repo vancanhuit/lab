@@ -15,28 +15,7 @@ gh = "2.97.0"
 [tasks."ansible:deps"]
 description = "Install Ansible Galaxy collections from requirements.yml"
 dir = "ansible"
-run = "ansible-galaxy collection install -r requirements.yml"
-
-[tasks."ansible:lint"]
-description = "Lint a role/playbook (defaults to roles/), e.g. mise run ansible:lint stalwart.yaml"
-dir = "ansible"
-usage = '''
-arg <path> help="the path to lint, e.g. roles/stalwart or stalwart.yaml"
-'''
-run = "ansible-lint {{usage.path}}"
-
-[tasks."ansible:ping"]
-description = "Check connectivity to all lab hosts"
-dir = "ansible"
-run = "ansible lab -m ping"
-
-[tasks."ansible:play"]
-description = "Run a playbook, e.g. mise run ansible:play step_ca.yaml"
-dir = "ansible"
-usage = '''
-arg <playbook> help="the playbook to run, e.g. step_ca.yaml"
-'''
-run = "ansible-playbook -i {{usage.playbook}}"
+run = "ansible-galaxy collection install -r requirements.yaml"
 
 [tasks."secrets:edit"]
 description = "Edit the sops-encrypted secrets file"

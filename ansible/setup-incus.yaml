@@ -1,0 +1,103 @@
+- name: Setup Incus
+  hosts: debian-incus
+  remote_user: lab
+  become: true
+  become_user: root
+
+  tasks:
+    - name: Set timezone to Asia/Ho_Chi_Minh
+      community.general.timezone:
+        name: Asia/Ho_Chi_Minh
+
+    - name: Update system
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: true
+
+    - name: Install basic tools
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - vim
+          - tar
+          - gzip
+          - unzip
+          - bash-completion
+          - man-db
+          - systemd-timesyncd
+
+    - name: Add Zabbly Linux kernel respository
+      ansible.builtin.deb822_repository:
+        enabled: true
+        types: ['deb']
+        uris: ['https://pkgs.zabbly.com/kernel/stable']
+        name: zabbly-kernel-stable
+        suites: ['{{ ansible_facts["distribution_release"] }}']
+        components: ['main', 'zfs']
+        architectures: ['{{ ansible_facts["architecture"] | regex_replace("^x86_64$", "amd64") }}']
+        signed_by: https://pkgs.zabbly.com/key.asc
+
+    - name: Add Incus respository
+      ansible.builtin.deb822_repository:
+        name: zabbly-incus-stable
+        enabled: true
+        types: ['deb']
+        uris: ['https://pkgs.zabbly.com/incus/stable']
+        suites: ['{{ ansible_facts["distribution_release"] }}']
+        components: ['main']
+        architectures: ['{{ ansible_facts["architecture"] | regex_replace("^x86_64$", "amd64") }}']
+        signed_by: https://pkgs.zabbly.com/key.asc
+
+    - name: Install Zabbly Linux kernel and OpenZFS
+      ansible.builtin.apt:
+        name:
+          - linux-zabbly
+          - openzfs-zfsutils
+          - openzfs-zfs-dkms
+          - openzfs-zfs-initramfs
+          - incus
+        update_cache: true
+        state: present
+
+    - name: Add user 'lab' to 'incus-admin' group
+      ansible.builtin.user:
+        name: lab
+        groups: incus-admin
+        append: true
+
+    - name: Create /etc/security/limits.d/99-incus.conf
+      ansible.builtin.copy:
+        dest: /etc/security/limits.d/99-incus.conf
+        mode: '0644'
+        owner: root
+        group: root
+        content: |
+          *   soft  nofile  1048576
+          *   hard  nofile  1048576
+          root  soft  nofile  1048576
+          root  hard  nofile  1048576
+          *     soft  memlock unlimited
+          *     hard  memlock unlimited
+          root  soft  memlock unlimited
+          root  hard  memlock unlimited
+
+    - name: Create /etc/sysctl.d/99-incus.conf
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/99-incus.conf
+        mode: '0644'
+        owner: root
+        group: root
+        content: |
+          fs.aio-max-nr = 524288
+          fs.inotify.max_queued_events = 1048576
+          fs.inotify.max_user_instances = 1048576
+          fs.inotify.max_user_watches = 1048576
+          kernel.dmesg_restrict = 1
+          kernel.keys.maxbytes = 2000000
+          kernel.keys.maxkeys = 2000
+          net.core.bpf_jit_limit = 1000000000
+          net.ipv4.neigh.default.gc_thresh3 = 8192
+          net.ipv6.neigh.default.gc_thresh3 = 8192
+          vm.max_map_count = 262144
+          vm.overcommit_memory = 1
