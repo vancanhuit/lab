@@ -28,7 +28,7 @@ run = "ansible-lint {{usage.path}}"
 [tasks."ansible:ping"]
 description = "Check connectivity to all lab hosts"
 dir = "ansible"
-run = "ansible lab -i inventory.yaml -m ping"
+run = "ansible lab -m ping"
 
 [tasks."ansible:play"]
 description = "Run a playbook, e.g. mise run ansible:play step_ca.yaml"
@@ -36,19 +36,14 @@ dir = "ansible"
 usage = '''
 arg <playbook> help="the playbook to run, e.g. step_ca.yaml"
 '''
-run = "ansible-playbook -i inventory.yaml {{usage.playbook}}"
+run = "ansible-playbook -i {{usage.playbook}}"
 
 [tasks."secrets:edit"]
 description = "Edit the sops-encrypted secrets file"
-dir = "{{config_root}}"
-run = "sops ansible/group_vars/all/secrets.sops.yaml"
+dir = "ansible"
+run = "sops group_vars/all/secrets.sops.yaml"
 
 [tasks."secrets:view"]
 description = "Decrypt and print the sops-encrypted secrets file"
-dir = "{{config_root}}"
-run = "sops --decrypt ansible/group_vars/all/secrets.sops.yaml"
-
-[tasks."stalwart:plan"]
-description = "Regenerate the Stalwart NDJSON apply plan from plan.yaml"
-dir = "{{config_root}}"
-run = "uv run --with pyyaml ansible/roles/stalwart/files/generate_plan.py ansible/roles/stalwart/files/plan.yaml -o ansible/roles/stalwart/templates/plan.ndjson.j2"
+dir = "ansible"
+run = "sops --decrypt group_vars/all/secrets.sops.yaml"
