@@ -275,6 +275,46 @@ ip -4 route show 10.205.234.0/24
 
 Confirm that the `10.205.234.0/24` route is advertised and approved in the Tailscale admin console before deploying services.
 
+### Configure Instance SSH Keys
+
+Tailscale SSH manages access to the Incus host as the local `lab` user. Internal Debian instances do not run Tailscale and use standard OpenSSH instead. This lab uses the default Ed25519 identity at `$HOME/.ssh/id_ed25519`. If it does not already exist, generate it on the administrator workstation:
+
+```sh
+ssh-keygen -t ed25519 -a 100 \
+   -f "$HOME/.ssh/id_ed25519" \
+   -C "homelab"
+```
+
+Do not overwrite an existing key pair. Protect the private key at `$HOME/.ssh/id_ed25519` and never add it to the repository or the Incus profile. Display the public key:
+
+```sh
+cat "$HOME/.ssh/id_ed25519.pub"
+```
+
+Replace `<your-ssh-key>` under `ssh_authorized_keys` in [`incus-debian-profile.yaml`](incus-debian-profile.yaml) with the complete, single-line public key. Apply the updated profile from the Incus host or a workstation configured to manage it as an Incus remote:
+
+```sh
+incus profile edit debian < incus-debian-profile.yaml
+```
+
+> [!IMPORTANT]
+> Replace the placeholder and apply the profile before deployment. Cloud-init injects the key when an instance is first created; changing the profile later does not update `authorized_keys` in existing instances.
+
+The profile creates the internal instance account as `admin`, which differs from the Incus host's `lab` account. After the instance starts and is reachable through the Tailscale subnet route, connect with:
+
+```sh
+ssh admin@<instance-hostname-or-ip>
+```
+
+OpenSSH and Ansible discover the default `id_ed25519` identity automatically. If a non-default key name is used and the key is not loaded into an SSH agent or selected by SSH client configuration, set its path explicitly in `ansible/ansible.cfg`:
+
+```ini
+[defaults]
+private_key_file = ~/.ssh/homelab-incus
+```
+
+The setting applies to all hosts using that Ansible configuration. For a one-time run, use `--private-key ~/.ssh/homelab-incus`; when different hosts require different keys, prefer the host variable `ansible_ssh_private_key_file` in inventory instead of a global default.
+
 ### Create Incus Instances
 
 Use [`create-incus-instance.py`](create-incus-instance.py) through `uv` to create containers or virtual machines with the required image, profiles, bridge, and network mode. View all supported options:
