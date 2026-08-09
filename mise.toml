@@ -6,6 +6,7 @@ pipx.uvx = true
 age = "1.3.1"
 cocogitto = "7.0.0"
 gitleaks = "8.30.1"
+trufflehog = "3.96.0"
 sops = "3.13.3"
 python = "3.14.7"
 uv = { version = "0.12.2", depends = ["python"] }
@@ -35,4 +36,16 @@ run = "sops --decrypt group_vars/all/secrets.sops.yaml"
 
 [tasks."security:secrets"]
 description = "Scan Git history for leaked secrets"
-run = "gitleaks git --redact --no-banner --log-opts='--all --full-history'"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+gitleaks git --redact --no-banner --log-opts='--all --full-history'
+trufflehog git file://. \
+  --results=verified,unknown \
+  --fail \
+  --fail-on-scan-errors \
+  --no-update \
+  --json | \
+  python scripts/sanitize_trufflehog_output.py
+'''

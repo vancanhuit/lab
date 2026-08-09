@@ -65,7 +65,9 @@ mise run ansible:deps
 mise run hooks:install
 ```
 
-The one-time hook installation configures Cocogitto to reject non-conventional commit messages and runs Gitleaks before every push. Run the secret scan directly with `mise run security:secrets`.
+The one-time hook installation configures Cocogitto to reject non-conventional commit messages and runs Gitleaks plus [TruffleHog](https://github.com/trufflesecurity/trufflehog) before every push. Run both secret scanners directly with `mise run security:secrets`.
+
+Gitleaks performs a redacted full-history pattern scan. TruffleHog blocks credentials that are verified as active and candidates whose verification could not complete because of a provider or network error. TruffleHog may contact credential-provider APIs during verification; its repository wrapper reports only detector, status, file, line, and commit metadata so matched values are not printed.
 
 List the available repository tasks:
 
