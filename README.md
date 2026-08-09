@@ -71,6 +71,98 @@ ansible-playbook setup-incus.yaml --ask-become-pass
 cd ..
 ```
 
+### Incus Network Bridge
+
+The Debian profile in [`incus-debian-profile.yaml`](incus-debian-profile.yaml) connects each instance's `eth0` device to `incusbr0`. The [Incus bridge network](https://linuxcontainers.org/incus/docs/main/reference/network_bridge/) itself is configured on the Incus host and is not created by the current Ansible playbook.
+
+Expected `incusbr0` network configuration:
+
+```yaml
+config:
+ dns.mode: none
+ ipv4.address: 10.205.234.1/24
+ ipv4.dhcp: "false"
+ ipv4.firewall: "false"
+ ipv4.nat: "true"
+ ipv6.address: none
+ ipv6.dhcp: "false"
+```
+
+This configuration has the following operational implications:
+
+- `10.205.234.1` is the bridge gateway for the `10.205.234.0/24` instance network.
+- Incus DHCP is disabled. The [built-in DHCP server in Technitium](https://technitium.com/dns/help.html#dhcp-server) provides dynamic leases for instances that use DHCP mode.
+- Incus does not register DNS records for instances on the bridge. Static-mode instances receive the Technitium DNS address through cloud-init; DHCP-mode instances receive it from the Technitium scope.
+- IPv4 NAT provides outbound connectivity through the Incus host.
+- Incus bridge firewalling is disabled. Enforce access through host firewall rules and Tailscale access controls.
+- IPv6 addressing and DHCP are disabled.
+- The Incus host advertises `10.205.234.0/24` through its Tailscale subnet router so tailnet clients can reach instances directly.
+
+The lab [disables SNAT for Tailscale subnet routes](https://tailscale.com/docs/features/subnet-routers#disable-snat) with `--snat-subnet-routes=false`. This preserves each connecting device's original Tailscale client IP, allowing services, logs, and access controls to identify the real client instead of the Incus subnet router.
+
+Tailscale normally requires devices behind a non-SNAT subnet router to return `100.64.0.0/10` traffic through that router. No additional route-table entry is required inside these instances: their existing default route already uses `10.205.234.1`, which is the Incus host and Tailscale subnet router, so reply traffic follows the correct path.
+
+Configure a Technitium DHCP scope for the Incus network with:
+
+- Network: `10.205.234.0/24`
+- Address pool: `10.205.234.100` through `10.205.234.200`
+- Router (default gateway): `10.205.234.1`
+- DNS server: the IPv4 address of `dns.lab.canhdinh.com`
+- Domain name: `lab.canhdinh.com`
+
+Keep static instance addresses outside `10.205.234.100` through `10.205.234.200`. The static-mode instance script checks addresses reported by Incus but does not inspect active or reserved Technitium DHCP leases.
+
+Inspect the bridge on the Incus host:
+
+```sh
+incus network show incusbr0
+ip -4 address show dev incusbr0
+ip -4 route show 10.205.234.0/24
+```
+
+Confirm that the `10.205.234.0/24` route is advertised and approved in the Tailscale admin console before deploying services.
+
+### Create Incus Instances
+
+Use [`create-incus-instance.py`](create-incus-instance.py) through `uv` to create containers or virtual machines with the required image, profiles, bridge, and network mode. View all supported options:
+
+```sh
+uv run --with pyyaml create-incus-instance.py --help
+```
+
+Static IPv4 configuration is the default. This command creates a container, selects the first IPv4 address on `incusbr0` that is not reported by an existing instance, and writes the address, gateway, and DNS settings to cloud-init:
+
+```sh
+uv run --with pyyaml create-incus-instance.py app01 \
+   --nameserver 1.1.1.1 \
+   --search-domain lab.canhdinh.com
+```
+
+Use the Technitium DNS server address instead of `1.1.1.1` when the instance must resolve private `lab.canhdinh.com` records. Repeat `--nameserver` or `--search-domain` to configure multiple values.
+
+To skip static cloud-init networking and let the guest request DHCP configuration, add `--dhcp`:
+
+```sh
+uv run --with pyyaml create-incus-instance.py app02 --dhcp
+```
+
+> [!IMPORTANT]
+> Incus DHCP is disabled on `incusbr0`. Before using `--dhcp`, enable the Technitium DHCP scope for `10.205.234.100` through `10.205.234.200` and ensure the instance can reach that DHCP service on the bridge; otherwise, it will not receive an IPv4 address.
+
+Additional options include:
+
+- `--image` selects the image; the default is `images:debian/13/cloud`.
+- `--profile` adds an Incus profile and can be repeated; the `debian` profile is included by default.
+- `--vm` creates a virtual machine instead of a container.
+- `--incus-bridge` selects the bridge inspected for static address allocation; the applied profiles still determine which network the instance NIC uses.
+
+The script uses `incus create`, so the new instance remains stopped. Inspect its configuration, then start it explicitly:
+
+```sh
+incus config show app01 --expanded
+incus start app01
+```
+
 ## Deployment Sequence
 
 Run these stages in order. DNS must resolve the service hostnames before PostgreSQL or Gitea requests certificates and starts accepting connections.
