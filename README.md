@@ -49,6 +49,138 @@ List the available repository tasks:
 mise task ls
 ```
 
+## Secret Management with SOPS and age
+
+This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets encrypted in Git. SOPS encrypts the values in structured files while preserving enough YAML structure for useful reviews. age provides the asymmetric key pair that controls who can decrypt the file.
+
+### Repository Configuration
+
+The secret-management configuration consists of:
+
+- `mise.toml`, which pins the `sops` and `age` versions and defines the `secrets:edit` and `secrets:view` tasks.
+- [`ansible/.sops.yaml`](ansible/.sops.yaml), which applies its age recipient to files ending in `.sops.yaml`.
+- [`ansible/group_vars/all/secrets.sops.yaml`](ansible/group_vars/all/secrets.sops.yaml), which contains the encrypted Ansible variables.
+- `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
+- `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
+
+The age recipient in `ansible/.sops.yaml` is a public key and is safe to commit. The corresponding age identity is the private key and must never be committed, pasted into tickets or chat, or stored in shell history.
+
+### How Encryption Works
+
+SOPS uses envelope encryption for each file:
+
+1. SOPS generates a random data key for the file.
+2. It encrypts the YAML values with that data key. YAML keys remain readable, which keeps diffs understandable without revealing their values.
+3. SOPS encrypts a copy of the data key to every configured age recipient and stores those encrypted copies under the top-level `sops` metadata block.
+4. SOPS stores a message authentication code in the metadata so unauthorized value additions, removals, or modifications are detected during decryption.
+5. A matching age identity decrypts the file data key, after which SOPS can decrypt and authenticate the values.
+
+The encrypted data key and metadata can be committed safely, but losing every matching age identity makes the secrets unrecoverable. Possession of a matching private identity grants access to every file encrypted for that recipient.
+
+### Configure an Operator Identity
+
+SOPS looks for age identities at `${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt` by default. Create a new identity only if one has not already been provisioned:
+
+```sh
+identity_dir="${XDG_CONFIG_HOME:-$HOME/.config}/sops/age"
+mkdir -p "$identity_dir"
+chmod 700 "$identity_dir"
+umask 077
+age-keygen -o "$identity_dir/keys.txt"
+```
+
+> [!CAUTION]
+> Do not overwrite an existing identity file. Before relying on it for production secrets, store the complete private identity in a protected [Bitwarden Secure Note](https://bitwarden.com/help/managing-items/#item-types) or an encrypted [Proton Pass](https://proton.me/pass) note. Losing the only copy makes the encrypted secrets unrecoverable and blocks deployments, maintenance, and disaster recovery.
+
+[Proton Pass security](https://proton.me/pass/security) uses zero-knowledge, end-to-end encryption, and its free plan includes unlimited notes and devices. It is a good free alternative when Bitwarden is not used.
+
+Treat the password-manager copy as an operational continuity requirement:
+
+- Protect the selected password-manager account with a strong, unique master password and multi-factor authentication, such as [Bitwarden two-step login](https://bitwarden.com/help/setup-two-step-login/).
+- Restrict the vault item or organization collection to operators authorized to decrypt homelab secrets.
+- Preserve the complete identity file content and label it with the matching public age recipient.
+- After storing or updating the item, restore it temporarily on a trusted system, verify decryption to `/dev/null`, and securely remove the temporary copy.
+- Review access and recovery procedures when operators or devices change.
+
+The local identity file remains the working copy for SOPS. Bitwarden or Proton Pass holds the recovery copy that prevents loss of one workstation from interrupting Ansible operations.
+
+Print only the public recipient derived from the private identity:
+
+```sh
+age-keygen -y "${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt"
+```
+
+The resulting `age1...` recipient must match the recipient in `ansible/.sops.yaml`. For a non-default identity location, set `SOPS_AGE_KEY_FILE` for direct SOPS commands and `ANSIBLE_SOPS_AGE_KEYFILE` for the Ansible vars plugin:
+
+```sh
+export SOPS_AGE_KEY_FILE=/secure/path/keys.txt
+export ANSIBLE_SOPS_AGE_KEYFILE=/secure/path/keys.txt
+```
+
+Environment variables containing private key material, such as `SOPS_AGE_KEY`, are supported but are less suitable for interactive use because environment contents can leak through process inspection, debugging output, or shell configuration.
+
+### Edit and Inspect Secrets
+
+Edit the encrypted file through SOPS rather than decrypting it to a persistent plaintext file:
+
+```sh
+mise run secrets:edit
+```
+
+SOPS decrypts the values for the editor process, then validates and re-encrypts the file when the editor exits. Git continues to see only encrypted values.
+
+Inspect decrypted values only when necessary:
+
+```sh
+mise run secrets:view
+```
+
+> [!WARNING]
+> `secrets:view` prints every plaintext secret to the terminal. Do not run it in recorded terminals, CI logs, shared sessions, or commands whose output is redirected to an unencrypted file.
+
+Test key access without displaying plaintext:
+
+```sh
+sops --decrypt ansible/group_vars/all/secrets.sops.yaml >/dev/null
+```
+
+After editing, review the encrypted diff and ensure no plaintext file was created:
+
+```sh
+git diff --check
+git diff -- ansible/group_vars/all/secrets.sops.yaml
+git status --short
+```
+
+### Ansible Decryption Flow
+
+The `community.sops.sops` vars plugin runs on the Ansible controller:
+
+1. Ansible discovers `group_vars/all/secrets.sops.yaml` while loading inventory variables.
+2. The plugin invokes the local `sops` binary and obtains the age identity from the default key file or the configured environment override.
+3. SOPS authenticates and decrypts the YAML values in memory.
+4. Ansible merges those values into the normal `all` group variable set before roles and templates use them.
+5. Only values required by a task are sent to managed hosts. The age private identity stays on the controller.
+
+The encrypted file naming convention matters: the vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files, while this repository's creation rule targets `.sops.yaml` files. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
+
+### Add or Rotate Recipients
+
+When onboarding another operator or rotating a key:
+
+1. Generate or obtain the operator's public age recipient. Never exchange the private identity.
+2. Add the recipient to the matching creation rule in `ansible/.sops.yaml`.
+3. Update the existing encrypted file's recipient metadata so its data key is wrapped for the new recipient:
+
+   ```sh
+   sops updatekeys ansible/group_vars/all/secrets.sops.yaml
+   ```
+
+4. Confirm the new identity can decrypt to `/dev/null` before removing the old recipient.
+5. Revoke and securely delete the old private identity only after every encrypted file has been updated and recovery access has been tested.
+
+Changing `ansible/.sops.yaml` alone affects new encryption operations; it does not automatically rewrite recipient metadata in files that are already encrypted. Keep at least one tested recovery identity until rotation is complete.
+
 ## Bootstrap the Incus Host
 
 The NVMe disk reserves approximately 1.8 TB for the Incus ZFS pool and keeps the host root filesystem small:
