@@ -1,5 +1,11 @@
 # Homelab Tailscale
 
+Installing the [`mise`](https://mise.jdx.dev/) tool:
+
+```sh
+curl https://mise.run | sh
+```
+
 ```sh
 mise task ls
 ```
