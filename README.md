@@ -26,6 +26,27 @@ The Incus host uses Zabbly builds for:
 - Configure the Ansible inventory hosts in `ansible/inventory.yaml`.
 - Add the required Cloudflare, PostgreSQL, Gitea, [IDrive e2](https://www.idrive.com/s3-storage-e2/), and [Brevo](https://developers.brevo.com/docs/send-a-transactional-email) secrets to `ansible/group_vars/all/secrets.sops.yaml`.
 
+### Enable Tailscale SSH
+
+Enable [Tailscale SSH](https://tailscale.com/docs/features/tailscale-ssh) on the Incus host so administrators can manage it remotely over the tailnet without distributing separate SSH user keys:
+
+```sh
+sudo tailscale set --ssh
+```
+
+> [!WARNING]
+> Enabling Tailscale SSH can cause an existing SSH connection to the host's Tailscale IP to hang. Run the command from a local console or ensure another recovery path is available.
+
+Enabling the host is only one half of the setup. The tailnet policy must also permit both network access to the Incus host and Tailscale SSH access from the authorized administrator identities to the existing local `lab` user. Tailscale SSH authenticates the tailnet identity but does not create local operating-system accounts.
+
+With MagicDNS enabled and the policy applied, connect from another tailnet device:
+
+```sh
+ssh lab@debian-incus
+```
+
+Use a narrowly scoped SSH policy and require check mode for interactive administrative access where practical. If Ansible connects through Tailscale SSH, ensure the selected policy supports non-interactive automation; check mode can require browser re-authentication and interrupt unattended runs.
+
 Commands in this runbook are executed from the repository root unless a step changes directory.
 
 ## Install Tooling
