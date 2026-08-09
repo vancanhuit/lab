@@ -86,7 +86,9 @@
       ansible.builtin.assert:
         that:
           - gitea_config_text is search('INSTALL_LOCK\\s*=\\s*true')
-          - gitea_config_text is search('DISABLE_REGISTRATION\\s*=\\s*true')
+          - gitea_config_text is search('DISABLE_REGISTRATION\\s*=\\s*false')
+          - gitea_config_text is search('SHOW_REGISTRATION_BUTTON\\s*=\\s*true')
+          - gitea_config_text is search('REGISTER_EMAIL_CONFIRM\\s*=\\s*true')
           - gitea_config_text is search('PROTOCOL\\s*=\\s*https')
           - gitea_config_text is search('DISABLE_SSH\\s*=\\s*true')
           - gitea_config_text is not search('PASSWORD_HASH_ALGO\\s*=\\s*argon2')
