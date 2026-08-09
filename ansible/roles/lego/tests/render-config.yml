@@ -1,0 +1,102 @@
+---
+- name: Validate LEGO configuration template with optional values
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    lego_domain_names:
+      - dns.lab.example.com
+      - dns-alt.lab.example.com
+    lego_certificate_name: dns
+    lego_renew_days: null
+    lego_pfx:
+      password: test-password
+      format: PBMAC1
+    lego_hooks:
+      deploy:
+        script: |
+          #!/bin/sh
+          set -eu
+          install /source/certificate.pfx /target/certificate.pfx
+          systemctl reload technitium-dns
+        timeout: 30s
+  tasks:
+    - name: Create temporary configuration file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .yaml
+      register: lego_test_config
+
+    - name: Render configuration
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/config.yaml.j2' }}"
+        dest: "{{ lego_test_config.path }}"
+        mode: '0600'
+
+    - name: Read rendered configuration
+      ansible.builtin.slurp:
+        src: "{{ lego_test_config.path }}"
+      register: lego_rendered_config
+
+    - name: Parse rendered configuration
+      ansible.builtin.set_fact:
+        lego_rendered_values: "{{ lego_rendered_config.content | b64decode | from_yaml }}"
+
+    - name: Assert native optional sections render
+      ansible.builtin.assert:
+        that:
+          - lego_rendered_values.certificates.dns.domains == ['dns.lab.example.com', 'dns-alt.lab.example.com']
+          - lego_rendered_values.certificates.dns.pfx.password == 'test-password'
+          - lego_rendered_values.certificates.dns.pfx.format == 'PBMAC1'
+          - lego_rendered_values.hooks.deploy.command == '/etc/lego/hooks/deploy'
+          - lego_rendered_values.hooks.deploy.timeout == '30s'
+
+    - name: Remove temporary configuration file
+      ansible.builtin.file:
+        path: "{{ lego_test_config.path }}"
+        state: absent
+
+- name: Validate LEGO configuration template without optional values
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    lego_domain_names:
+      - service.lab.example.com
+    lego_certificate_name: dns
+    lego_renew_days: null
+    lego_pfx: {}
+    lego_hooks: {}
+  tasks:
+    - name: Create temporary configuration file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .yaml
+      register: lego_test_config
+
+    - name: Render configuration
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/config.yaml.j2' }}"
+        dest: "{{ lego_test_config.path }}"
+        mode: '0600'
+
+    - name: Read rendered configuration
+      ansible.builtin.slurp:
+        src: "{{ lego_test_config.path }}"
+      register: lego_rendered_config
+
+    - name: Parse rendered configuration
+      ansible.builtin.set_fact:
+        lego_rendered_values: "{{ lego_rendered_config.content | b64decode | from_yaml }}"
+
+    - name: Assert optional sections are omitted
+      ansible.builtin.assert:
+        that:
+          - lego_rendered_values.certificates.dns.domains == ['service.lab.example.com']
+          - lego_rendered_values.certificates.dns.pfx is not defined
+          - lego_rendered_values.hooks is not defined
+
+    - name: Remove temporary configuration file
+      ansible.builtin.file:
+        path: "{{ lego_test_config.path }}"
+        state: absent

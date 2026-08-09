@@ -26,7 +26,7 @@ certificates:
     challenge: cloudflare
     keyType: EC256
     domains:
-      - {{ lego_domain_name | to_json }}
+{{ lego_domain_names | to_nice_yaml(indent=2) | indent(6, true) }}
 {% if lego_renew_days is not none %}
     renew:
       days: {{ lego_renew_days }}
@@ -44,7 +44,7 @@ certificates:
 hooks:
 {% for hook_name, hook in lego_hooks.items() %}
   {{ hook_name }}:
-    command: {{ hook.command | to_json }}
+    command: {{ (('/etc/lego/hooks/' ~ hook_name) if hook.script is defined else hook.command) | to_json }}
 {% if hook.timeout is defined %}
     timeout: {{ hook.timeout | to_json }}
 {% endif %}

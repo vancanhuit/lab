@@ -2,16 +2,21 @@
   hosts: dns
   become: true
   vars:
-    lego_domain_name: dns.lab.canhdinh.com
+    lego_domain_names:
+      - dns.lab.canhdinh.com
     lego_certificate_name: dns
     lego_pfx:
       password: "{{ technitium_pfx_password }}"
       format: SHA256
     lego_hooks:
       deploy:
-        command: >-
-          install -o dns-server -g dns-server -m 0600
-          /var/lib/lego/certificates/dns.pfx /etc/dns/dns.pfx
+        script: |
+          #!/bin/sh
+          set -eu
+
+          install -o dns-server -g dns-server -m 0600 \
+            /var/lib/lego/certificates/dns.pfx /etc/dns/dns.pfx
+          systemctl restart dns.service
 
   roles:
     - lego

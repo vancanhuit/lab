@@ -1,10 +1,21 @@
-- name: Assert that the domain name is set
+- name: Assert that domain names are set
   ansible.builtin.assert:
     that:
-      - lego_domain_name is string
-      - lego_domain_name | trim | length > 0
-      - not lego_domain_name.startswith('*.')
-    fail_msg: "The 'lego_domain_name' variable must be a non-empty, non-wildcard hostname."
+      - lego_domain_names is sequence
+      - lego_domain_names is not string
+      - lego_domain_names | length > 0
+    fail_msg: "The 'lego_domain_names' variable must be a non-empty list of hostnames."
+
+- name: Assert that each domain name is valid
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item | trim | length > 0
+      - not item.startswith('*.')
+    fail_msg: "Each 'lego_domain_names' entry must be a non-empty, non-wildcard hostname."
+  loop: "{{ lego_domain_names }}"
+  loop_control:
+    label: "{{ item }}"
 
 - name: Assert that the certificate name is set
   ansible.builtin.assert:
@@ -55,10 +66,13 @@
     that:
       - item.key in ['pre', 'deploy', 'post']
       - item.value is mapping
-      - item.value.command is defined
-      - item.value.command is string
-      - item.value.command | trim | length > 0
-    fail_msg: "Each 'lego_hooks' entry must be pre, deploy, or post and contain a non-empty command."
+      - item.value.command is defined or item.value.script is defined
+      - not (item.value.command is defined and item.value.script is defined)
+      - item.value.command is not defined or (item.value.command is string and item.value.command | trim | length > 0)
+      - item.value.script is not defined or (item.value.script is string and item.value.script | trim | length > 0)
+    fail_msg: >-
+      Each 'lego_hooks' entry must be pre, deploy, or post and contain exactly
+      one non-empty command or script.
   loop: "{{ lego_hooks | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
@@ -92,6 +106,27 @@
     owner: root
     group: root
     mode: '0750'
+
+- name: Create lego hooks directory
+  ansible.builtin.file:
+    path: /etc/lego/hooks
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+  when: lego_hooks | dict2items | selectattr('value.script', 'defined') | length > 0
+
+- name: Create lego hook scripts
+  ansible.builtin.copy:
+    content: "{{ item.value.script }}"
+    dest: "/etc/lego/hooks/{{ item.key }}"
+    owner: root
+    group: root
+    mode: '0750'
+  loop: "{{ lego_hooks | dict2items | selectattr('value.script', 'defined') }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
 
 - name: Create lego configuration file
   ansible.builtin.template:
