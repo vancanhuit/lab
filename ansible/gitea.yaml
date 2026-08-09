@@ -1,0 +1,48 @@
+---
+- name: Provision Gitea PostgreSQL database
+  hosts: postgres
+  become: true
+  tasks:
+    - name: Install PostgreSQL Python adapter
+      ansible.builtin.apt:
+        name: python3-psycopg
+        state: present
+        update_cache: true
+
+    - name: Create Gitea PostgreSQL login role
+      community.postgresql.postgresql_user:
+        name: "{{ gitea_database_user | default('gitea') }}"
+        password: "{{ gitea_database_password }}"
+        role_attr_flags: LOGIN,NOSUPERUSER,NOCREATEDB,NOCREATEROLE,NOINHERIT,NOREPLICATION
+        state: present
+      become: true
+      become_user: postgres
+      environment:
+        PGOPTIONS: -c password_encryption=scram-sha-256
+      no_log: true
+
+    - name: Create Gitea PostgreSQL database
+      community.postgresql.postgresql_db:
+        name: "{{ gitea_database_name | default('gitea') }}"
+        owner: "{{ gitea_database_user | default('gitea') }}"
+        encoding: UTF8
+        template: template0
+        state: present
+      become: true
+      become_user: postgres
+
+- name: Deploy Gitea with built-in HTTPS
+  hosts: gitea
+  become: true
+  vars:
+    gitea_tls_cert_path: /etc/gitea/tls/server.crt
+    gitea_tls_key_path: /etc/gitea/tls/server.key
+    lego_domain_names:
+      - gitea.lab.canhdinh.com
+    lego_certificate_name: gitea
+    lego_hooks:
+      deploy:
+        script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/gitea/templates/lego-deploy-hook.sh.j2') }}"
+  roles:
+    - gitea
+    - lego

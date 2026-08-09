@@ -1,0 +1,20 @@
+[Unit]
+Description=Gitea (Git with a cup of tea)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ gitea_user }}
+Group={{ gitea_group }}
+WorkingDirectory={{ gitea_work_directory }}
+Environment=USER={{ gitea_user }} HOME={{ gitea_home }} GITEA_WORK_DIR={{ gitea_work_directory }}
+ExecStart={{ gitea_binary_path }} web --config {{ gitea_config_path }}
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=2s
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

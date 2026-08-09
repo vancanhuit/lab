@@ -1,0 +1,83 @@
+APP_NAME = Gitea
+RUN_USER = {{ gitea_user | to_json }}
+RUN_MODE = prod
+WORK_PATH = {{ gitea_work_directory | to_json }}
+
+[server]
+PROTOCOL = https
+DOMAIN = {{ gitea_domain | to_json }}
+ROOT_URL = {{ gitea_root_url | to_json }}
+PUBLIC_URL_DETECTION = never
+HTTP_ADDR = 0.0.0.0
+HTTP_PORT = {{ gitea_https_port }}
+DISABLE_SSH = true
+START_SSH_SERVER = false
+SSH_CREATE_AUTHORIZED_KEYS_FILE = false
+SSH_CREATE_AUTHORIZED_PRINCIPALS_FILE = false
+CERT_FILE = {{ gitea_tls_cert_path | to_json }}
+KEY_FILE = {{ gitea_tls_key_path | to_json }}
+SSL_MIN_VERSION = TLSv1.2
+LFS_START_SERVER = true
+LFS_ALLOW_PURE_SSH = false
+LFS_JWT_SECRET = {{ gitea_lfs_jwt_secret | to_json }}
+ALLOW_GRACEFUL_RESTARTS = true
+
+[database]
+DB_TYPE = postgres
+HOST = {{ gitea_database_host | to_json }}
+NAME = {{ gitea_database_name | to_json }}
+USER = {{ gitea_database_user | to_json }}
+PASSWD = {{ gitea_database_password | to_json }}
+SSL_MODE = verify-full
+LOG_SQL = false
+
+[repository]
+DISABLE_HTTP_GIT = false
+GO_GET_CLONE_URL_PROTOCOL = https
+
+[storage]
+STORAGE_TYPE = minio
+MINIO_ENDPOINT = {{ gitea_s3_endpoint | to_json }}
+MINIO_ACCESS_KEY_ID = {{ gitea_s3_access_key | to_json }}
+MINIO_SECRET_ACCESS_KEY = {{ gitea_s3_secret_key | to_json }}
+MINIO_BUCKET = {{ gitea_s3_bucket | to_json }}
+MINIO_LOCATION = {{ gitea_s3_region | to_json }}
+MINIO_USE_SSL = true
+MINIO_INSECURE_SKIP_VERIFY = false
+MINIO_CHECKSUM_ALGORITHM = default
+MINIO_BUCKET_LOOKUP_TYPE = auto
+
+[mailer]
+ENABLED = true
+SMTP_ADDR = {{ gitea_smtp_host | to_json }}
+SMTP_PORT = {{ gitea_smtp_port }}
+FROM = {{ gitea_smtp_from | to_json }}
+USER = {{ gitea_smtp_user | to_json }}
+PASSWD = {{ gitea_smtp_password | to_json }}
+FORCE_TRUST_SERVER_CERT = false
+
+[session]
+PROVIDER = db
+COOKIE_SECURE = true
+SAME_SITE = lax
+
+[security]
+INSTALL_LOCK = true
+SECRET_KEY = {{ gitea_secret_key | to_json }}
+INTERNAL_TOKEN = {{ gitea_internal_token | to_json }}
+IMPORT_LOCAL_PATHS = false
+DISABLE_GIT_HOOKS = true
+REVERSE_PROXY_LIMIT = 0
+
+[oauth2]
+JWT_SECRET = {{ gitea_oauth2_jwt_secret | to_json }}
+
+[service]
+DISABLE_REGISTRATION = true
+SHOW_REGISTRATION_BUTTON = false
+REQUIRE_SIGNIN_VIEW = true
+ENABLE_NOTIFY_MAIL = true
+
+[log]
+MODE = console
+LEVEL = Info

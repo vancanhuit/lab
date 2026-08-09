@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+umask 077
+
+# Source certificate paths from lego
+SRC_CRT="/var/lib/lego/certificates/gitea.crt"
+SRC_KEY="/var/lib/lego/certificates/gitea.key"
+
+# Destination paths from Ansible role
+DST_CRT="{{ gitea_tls_cert_path }}"
+DST_KEY="{{ gitea_tls_key_path }}"
+
+# Staging paths
+NEW_CRT="${DST_CRT}.new"
+NEW_KEY="${DST_KEY}.new"
+
+# Cleanup trap for staging files only
+cleanup() {
+    rm -f "$NEW_CRT" "$NEW_KEY"
+}
+trap cleanup EXIT HUP INT TERM
+
+# Validate certificate is not expired
+if ! openssl x509 -in "$SRC_CRT" -checkend 0 -noout; then
+    echo "ERROR: Certificate is expired or invalid" >&2
+    exit 1
+fi
+
+# Verify certificate and key match
+cert_digest="$(openssl x509 -in "$SRC_CRT" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+key_digest="$(openssl pkey -in "$SRC_KEY" -pubout -outform DER | sha256sum | awk '{print $1}')"
+
+if [ "$cert_digest" != "$key_digest" ]; then
+    echo "ERROR: Certificate and key do not match" >&2
+    exit 1
+fi
+
+# Stage new certificate and key with correct ownership and permissions
+install -o root -g git -m 0644 "$SRC_CRT" "$NEW_CRT"
+install -o root -g git -m 0640 "$SRC_KEY" "$NEW_KEY"
+
+# Atomic replacement
+mv -f "$NEW_CRT" "$DST_CRT"
+mv -f "$NEW_KEY" "$DST_KEY"
+
+# Reload Gitea to use new certificate
+systemctl reload-or-restart gitea.service
+
+echo "Successfully deployed Gitea TLS certificate"

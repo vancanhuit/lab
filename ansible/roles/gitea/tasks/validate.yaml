@@ -1,0 +1,136 @@
+---
+- name: Assert Debian 13 is required for Gitea 1.27
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+    fail_msg: >-
+      Gitea 1.27 role requires Debian 13.
+      Current distribution: {{ ansible_facts.distribution | default('unknown') }}
+      {{ ansible_facts.distribution_major_version | default('') }}
+    quiet: true
+
+- name: Assert supported architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.architecture in ['x86_64', 'aarch64']
+    fail_msg: >-
+      Gitea 1.27 role requires x86_64 or aarch64 architecture.
+      Current architecture: {{ ansible_facts.architecture | default('unknown') }}
+    quiet: true
+
+- name: Assert Gitea version 1.27.1
+  ansible.builtin.assert:
+    that:
+      - gitea_version == '1.27.1'
+    fail_msg: >-
+      This role is validated only for Gitea 1.27.1.
+      Specified version: {{ gitea_version }}
+    quiet: true
+
+- name: Assert HTTPS port 443
+  ansible.builtin.assert:
+    that:
+      - gitea_https_port | int == 443
+    fail_msg: >-
+      Gitea HTTPS port must be 443.
+      Specified port: {{ gitea_https_port }}
+    quiet: true
+
+- name: Assert root URL is HTTPS and ends with slash
+  ansible.builtin.assert:
+    that:
+      - gitea_root_url is string
+      - gitea_root_url is match('^https://')
+      - gitea_root_url is match('.*/$')
+    fail_msg: >-
+      gitea_root_url must start with https:// and end with /.
+      Current value: {{ gitea_root_url }}
+    quiet: true
+
+- name: Assert database configuration is non-empty
+  ansible.builtin.assert:
+    that:
+      - gitea_database_host is string
+      - gitea_database_host | length > 0
+      - gitea_database_name is string
+      - gitea_database_name | length > 0
+      - gitea_database_user is string
+      - gitea_database_user | length > 0
+    fail_msg: Database configuration values must be non-empty strings
+    quiet: true
+
+- name: Assert admin configuration is non-empty
+  ansible.builtin.assert:
+    that:
+      - gitea_admin_username is string
+      - gitea_admin_username | length > 0
+      - gitea_admin_email is string
+      - gitea_admin_email | length > 0
+    fail_msg: Admin configuration values must be non-empty strings
+    quiet: true
+
+- name: Assert S3 endpoint does not contain URL scheme
+  ansible.builtin.assert:
+    that:
+      - gitea_s3_endpoint is string
+      - gitea_s3_endpoint | length > 0
+      - gitea_s3_endpoint is not match('^https?://')
+    fail_msg: >-
+      gitea_s3_endpoint must be a host name without an http:// or https:// scheme.
+      Current value: {{ gitea_s3_endpoint }}
+    quiet: true
+
+- name: Assert SMTP port is positive
+  ansible.builtin.assert:
+    that:
+      - gitea_smtp_port | int > 0
+      - gitea_smtp_port | int <= 65535
+    fail_msg: >-
+      gitea_smtp_port must be a valid port number (1-65535).
+      Current value: {{ gitea_smtp_port }}
+    quiet: true
+
+- name: Assert secret variables are non-empty strings
+  ansible.builtin.assert:
+    that:
+      - gitea_database_password is string
+      - gitea_database_password | length > 0
+      - gitea_secret_key is string
+      - gitea_secret_key | length > 0
+      - gitea_internal_token is string
+      - gitea_internal_token | length > 0
+      - gitea_lfs_jwt_secret is string
+      - gitea_lfs_jwt_secret | length > 0
+      - gitea_oauth2_jwt_secret is string
+      - gitea_oauth2_jwt_secret | length > 0
+      - gitea_admin_password is string
+      - gitea_admin_password | length > 0
+      - gitea_s3_access_key is string
+      - gitea_s3_access_key | length > 0
+      - gitea_s3_secret_key is string
+      - gitea_s3_secret_key | length > 0
+      - gitea_smtp_password is string
+      - gitea_smtp_password | length > 0
+    fail_msg: All secret variables must be non-empty strings
+    quiet: true
+  no_log: true
+
+# Gitea 1.27 DecodeJwtSecretBase64 uses Go base64.RawURLEncoding
+# Requires exactly 43 chars of URL-safe base64 (32 bytes decoded)
+# Both LFS and OAuth2 JWT secrets use the same format requirement
+- name: Assert JWT secret format (raw URL-safe base64)
+  ansible.builtin.assert:
+    that:
+      - lookup('vars', item.var) is match('^[A-Za-z0-9_-]{43}$')
+    fail_msg: >-
+      {{ item.var }} must be exactly 43 characters of raw URL-safe base64
+      (Gitea 1.27 requires 32 bytes decoded, no padding, no newlines,
+      alphabet [A-Za-z0-9_-] only).
+    quiet: true
+  loop:
+    - { var: gitea_lfs_jwt_secret }
+    - { var: gitea_oauth2_jwt_secret }
+  loop_control:
+    label: "{{ item.var }}"
+  no_log: true

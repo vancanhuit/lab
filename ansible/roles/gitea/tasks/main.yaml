@@ -1,0 +1,217 @@
+---
+- name: Import validation task
+  ansible.builtin.import_tasks: validate.yaml
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - acl
+      - ca-certificates
+      - git
+      - gnupg
+      - openssl
+      - ssl-cert
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create Gitea system group
+  ansible.builtin.group:
+    name: "{{ gitea_group }}"
+    system: true
+    state: present
+
+- name: Create Gitea system user
+  ansible.builtin.user:
+    name: "{{ gitea_user }}"
+    group: "{{ gitea_group }}"
+    home: "{{ gitea_home }}"
+    shell: /bin/bash
+    comment: Git Version Control
+    system: true
+    create_home: true
+    state: present
+
+- name: Create Gitea working directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gitea_user }}"
+    group: "{{ gitea_group }}"
+    mode: '0750'
+  loop:
+    - "{{ gitea_work_directory }}/custom"
+    - "{{ gitea_work_directory }}/data"
+    - "{{ gitea_work_directory }}/log"
+
+- name: Create Gitea configuration directory
+  ansible.builtin.file:
+    path: "{{ gitea_config_directory }}"
+    state: directory
+    owner: root
+    group: "{{ gitea_group }}"
+    mode: '0750'
+
+- name: Create Gitea TLS directory
+  ansible.builtin.file:
+    path: "{{ gitea_tls_directory }}"
+    state: directory
+    owner: root
+    group: "{{ gitea_group }}"
+    mode: '0750'
+
+- name: Create keyring directory
+  ansible.builtin.file:
+    path: /usr/local/share/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Calculate release architecture and URLs
+  ansible.builtin.set_fact:
+    gitea_release_architecture: >-
+      {{ ansible_facts.architecture | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}
+
+- name: Calculate release filenames and URLs
+  ansible.builtin.set_fact:
+    gitea_release_filename: "gitea-{{ gitea_version }}-linux-{{ gitea_release_architecture }}"
+
+- name: Calculate release URL
+  ansible.builtin.set_fact:
+    gitea_release_url: "{{ gitea_release_base_url }}/{{ gitea_release_filename }}"
+
+- name: Download Gitea release key
+  ansible.builtin.get_url:
+    url: "{{ gitea_release_key_url }}"
+    dest: /var/tmp/gitea-release-key.asc
+    mode: '0644'
+  register: gitea_release_key_download
+
+- name: Verify release key fingerprint
+  ansible.builtin.command:
+    cmd: gpg --batch --show-keys --with-colons /var/tmp/gitea-release-key.asc
+  changed_when: false
+  register: gitea_release_key_fingerprint_check
+  failed_when: >-
+    'fpr:::::::::' ~ gitea_release_key_fingerprint ~ ':' not in gitea_release_key_fingerprint_check.stdout
+
+- name: Check if binary keyring exists
+  ansible.builtin.stat:
+    path: /usr/local/share/keyrings/gitea-release.gpg
+  register: gitea_binary_keyring_stat
+
+- name: Dearmor release key to binary keyring
+  ansible.builtin.shell:
+    cmd: gpg --batch --dearmor < /var/tmp/gitea-release-key.asc > /usr/local/share/keyrings/gitea-release.gpg
+  when: gitea_release_key_download.changed or not gitea_binary_keyring_stat.stat.exists
+  changed_when: true
+
+- name: Download Gitea binary
+  ansible.builtin.get_url:
+    url: "{{ gitea_release_url }}"
+    dest: "/var/tmp/{{ gitea_release_filename }}"
+    mode: '0755'
+  register: gitea_binary_download
+
+- name: Download Gitea binary signature
+  ansible.builtin.get_url:
+    url: "{{ gitea_release_url }}.asc"
+    dest: "/var/tmp/{{ gitea_release_filename }}.asc"
+    mode: '0644'
+
+- name: Verify Gitea binary signature
+  ansible.builtin.command:
+    cmd: >-
+      gpgv --keyring /usr/local/share/keyrings/gitea-release.gpg
+      /var/tmp/{{ gitea_release_filename }}.asc
+      /var/tmp/{{ gitea_release_filename }}
+  changed_when: false
+
+- name: Install verified Gitea binary
+  ansible.builtin.copy:
+    src: "/var/tmp/{{ gitea_release_filename }}"
+    dest: "{{ gitea_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart Gitea
+
+- name: Check TLS certificate status
+  ansible.builtin.stat:
+    path: "{{ gitea_tls_cert_path }}"
+  register: gitea_tls_cert_stat
+
+- name: Check TLS key status
+  ansible.builtin.stat:
+    path: "{{ gitea_tls_key_path }}"
+  register: gitea_tls_key_stat
+
+- name: Reject partial TLS state
+  ansible.builtin.fail:
+    msg: "TLS certificate and key must both exist or both be absent"
+  when: gitea_tls_cert_stat.stat.exists != gitea_tls_key_stat.stat.exists
+
+- name: Seed TLS certificate from Debian snake-oil
+  ansible.builtin.copy:
+    src: /etc/ssl/certs/ssl-cert-snakeoil.pem
+    dest: "{{ gitea_tls_cert_path }}"
+    remote_src: true
+    owner: root
+    group: "{{ gitea_group }}"
+    mode: '0644'
+  when: not gitea_tls_cert_stat.stat.exists
+
+- name: Seed TLS key from Debian snake-oil
+  ansible.builtin.copy:
+    src: /etc/ssl/private/ssl-cert-snakeoil.key
+    dest: "{{ gitea_tls_key_path }}"
+    remote_src: true
+    owner: root
+    group: "{{ gitea_group }}"
+    mode: '0640'
+  when: not gitea_tls_key_stat.stat.exists
+
+- name: Render Gitea configuration
+  ansible.builtin.template:
+    src: app.ini.j2
+    dest: "{{ gitea_config_path }}"
+    owner: root
+    group: "{{ gitea_group }}"
+    mode: '0640'
+  no_log: true
+  notify: Restart Gitea
+
+- name: Render Gitea systemd service
+  ansible.builtin.template:
+    src: gitea.service.j2
+    dest: /etc/systemd/system/gitea.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart Gitea
+
+- name: Flush handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Gitea service
+  ansible.builtin.systemd_service:
+    name: gitea.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for Gitea HTTPS readiness
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ gitea_https_port }}"
+    state: started
+    delay: 1
+    timeout: 120
+    connect_timeout: 5
+
+- name: Import admin bootstrap task
+  ansible.builtin.import_tasks: admin.yaml

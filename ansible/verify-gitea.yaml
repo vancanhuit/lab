@@ -1,0 +1,159 @@
+---
+- name: Verify Gitea deployment
+  hosts: gitea
+  become: true
+  vars:
+    gitea_binary_path: /usr/local/bin/gitea
+    gitea_config_path: /etc/gitea/app.ini
+    gitea_user: git
+    gitea_home: /home/git
+    gitea_work_directory: /var/lib/gitea
+    gitea_domain: gitea.lab.canhdinh.com
+    gitea_expected_version: "1.27.1"
+    gitea_admin_username: gitea-admin
+  tasks:
+    - name: Check Gitea version
+      ansible.builtin.command:
+        cmd: "{{ gitea_binary_path }} --version"
+      register: gitea_version_check
+      changed_when: false
+      failed_when: gitea_expected_version not in gitea_version_check.stdout
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert Gitea service is running and enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['gitea.service'] is defined
+          - ansible_facts.services['gitea.service'].state == 'running'
+          - ansible_facts.services['gitea.service'].status == 'enabled'
+        fail_msg: "Gitea service is not running or enabled"
+
+    - name: Check listening ports
+      ansible.builtin.command:
+        cmd: ss -H -ltnp
+      register: gitea_ports_check
+      changed_when: false
+
+    - name: Assert Gitea on :443, nothing on :3000, no Gitea on :22
+      ansible.builtin.assert:
+        that:
+          # ss output format: "LISTEN ... *:PORT ... users:(("process",...)))"
+          # Address precedes process name, so match :443 followed by gitea
+          - gitea_ports_check.stdout is regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
+          - gitea_ports_check.stdout is not regex(':3000\\b')
+          # Allow sshd on :22, but not gitea
+          - gitea_ports_check.stdout is not regex('(?m)^.*:22\\b.*users:\\(\\("gitea",')
+        fail_msg: "Port configuration incorrect"
+
+    - name: Check HTTPS endpoint
+      ansible.builtin.uri:
+        url: "https://{{ gitea_domain }}/"
+        validate_certs: true
+        follow_redirects: none
+        status_code:
+          - 200
+          - 303
+      register: gitea_https_check
+      changed_when: false
+
+    - name: Check certificate validity and subject alternative name
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          openssl s_client -connect {{ gitea_domain }}:443 \
+            -servername {{ gitea_domain }} </dev/null 2>/dev/null |
+            openssl x509 -checkend 604800 -noout -ext subjectAltName
+      register: gitea_cert_check
+      changed_when: false
+      failed_when: >-
+        gitea_cert_check.rc != 0 or
+        'DNS:' ~ gitea_domain not in gitea_cert_check.stdout
+
+    - name: Read Gitea configuration
+      ansible.builtin.slurp:
+        path: "{{ gitea_config_path }}"
+      register: gitea_config_content
+      no_log: true
+
+    - name: Decode Gitea configuration
+      ansible.builtin.set_fact:
+        gitea_config_text: "{{ gitea_config_content.content | b64decode }}"
+      no_log: true
+
+    - name: Assert Gitea configuration requirements
+      ansible.builtin.assert:
+        that:
+          - gitea_config_text is search('INSTALL_LOCK\\s*=\\s*true')
+          - gitea_config_text is search('DISABLE_REGISTRATION\\s*=\\s*true')
+          - gitea_config_text is search('PROTOCOL\\s*=\\s*https')
+          - gitea_config_text is search('DISABLE_SSH\\s*=\\s*true')
+          - gitea_config_text is not search('PASSWORD_HASH_ALGO\\s*=\\s*argon2')
+          - gitea_config_text is not search('ENABLE_SWAGGER\\s*=\\s*true')
+        fail_msg: "Configuration does not meet requirements"
+
+    # Gitea 1.27 `admin user list --admin` output format:
+    # Header: "ID Username Email IsActive"
+    # Rows: numeric_id <whitespace> username <whitespace> email <whitespace> boolean
+    - name: List Gitea administrators
+      ansible.builtin.command:
+        argv:
+          - "{{ gitea_binary_path }}"
+          - admin
+          - user
+          - list
+          - --admin
+          - --config
+          - "{{ gitea_config_path }}"
+      become: true
+      become_user: "{{ gitea_user }}"
+      environment:
+        USER: "{{ gitea_user }}"
+        HOME: "{{ gitea_home }}"
+        GITEA_WORK_DIR: "{{ gitea_work_directory }}"
+      register: gitea_admin_list
+      changed_when: false
+
+    - name: Assert admin user exists
+      ansible.builtin.assert:
+        that:
+          - gitea_admin_list.rc == 0
+          - >-
+            (gitea_admin_list.stdout_lines[1:] |
+             select('match', '^\\s*\\d+\\s+' ~ (gitea_admin_username | regex_escape) ~ '\\s+') |
+             list | length) > 0
+        fail_msg: "Admin user {{ gitea_admin_username }} not found"
+
+    - name: Run Gitea doctor check
+      ansible.builtin.command:
+        argv:
+          - "{{ gitea_binary_path }}"
+          - doctor
+          - check
+          - --default
+          - --config
+          - "{{ gitea_config_path }}"
+      become: true
+      become_user: "{{ gitea_user }}"
+      environment:
+        USER: "{{ gitea_user }}"
+        HOME: "{{ gitea_home }}"
+        GITEA_WORK_DIR: "{{ gitea_work_directory }}"
+      register: gitea_doctor_check
+      changed_when: false
+      failed_when: false
+
+    - name: Debug doctor check stdout
+      ansible.builtin.debug:
+        var: gitea_doctor_check.stdout_lines
+
+    - name: Debug doctor check stderr
+      ansible.builtin.debug:
+        var: gitea_doctor_check.stderr_lines
+
+    - name: Assert doctor check passed
+      ansible.builtin.assert:
+        that:
+          - gitea_doctor_check.rc == 0
+        fail_msg: "Gitea doctor check failed with exit code {{ gitea_doctor_check.rc }}"

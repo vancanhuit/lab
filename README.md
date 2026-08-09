@@ -11,15 +11,57 @@ cd ansible
 ansible-playbook setup-incus.yaml --ask-become-pass
 ```
 
+## Gitea Deploy And Verify
+
+```sh
+mise run ansible:deps
+
+cd ansible
+ansible-playbook gitea.yaml
+ansible-playbook verify-gitea.yaml
+ansible-playbook gitea.yaml
+```
+
+The third command should report `changed=0`.
+
+First login: `https://gitea.lab.canhdinh.com/`, username `gitea-admin`, password from SOPS key `gitea_admin_password`. A mandatory immediate password change is required on first login.
+
+## Gitea Health And Monitoring
+
+```sh
+sudo systemctl status gitea.service
+sudo journalctl -u gitea.service --since today
+sudo -u git /usr/local/bin/gitea doctor check --default --config /etc/gitea/app.ini
+sudo systemctl status lego-renew.timer
+```
+
+## Gitea Upgrade Warning
+
+Warning: stop Gitea and take a consistent backup before changing `gitea_version`.
+
+pgBackRest covers relational data and iDrive e2 covers configured object classes, but `/var/lib/gitea` repositories and generated state have no off-host backup. Host loss is not recoverable from this deployment.
+
+## Gitea Backup Boundary
+
+- **Relational data (PostgreSQL)**: covered by pgBackRest (local backups only, no off-host replication).
+- **Object storage**: covered by iDrive e2 for LFS, avatars, attachments, and packages.
+- **Repositories and generated state**: `/var/lib/gitea` has no off-host backup. Loss of the Gitea host means permanent repository loss.
+
+Recommended action before upgrading or destructive operations:
+
+```sh
+sudo systemctl stop gitea.service
+```
+
 ## PostgreSQL Deploy And Verify
 
 ```sh
 mise run ansible:deps
 
 cd ansible
-ansible-playbook postgres.yaml --ask-become-pass
-ansible-playbook verify-postgres.yaml --ask-become-pass
-ansible-playbook postgres.yaml --ask-become-pass
+ansible-playbook postgres.yaml
+ansible-playbook verify-postgres.yaml
+ansible-playbook postgres.yaml
 ```
 
 ## Manual Backup And Health Checks

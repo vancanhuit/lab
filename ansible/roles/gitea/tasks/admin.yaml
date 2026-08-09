@@ -1,0 +1,52 @@
+---
+# Gitea 1.27 `admin user list --admin` output format:
+# Header: "ID Username Email IsActive"
+# Rows: numeric_id <whitespace> username <whitespace> email <whitespace> boolean
+- name: List Gitea administrators
+  ansible.builtin.command:
+    argv:
+      - "{{ gitea_binary_path }}"
+      - admin
+      - user
+      - list
+      - --admin
+      - --config
+      - "{{ gitea_config_path }}"
+  become: true
+  become_user: "{{ gitea_user }}"
+  environment:
+    USER: "{{ gitea_user }}"
+    HOME: "{{ gitea_home }}"
+    GITEA_WORK_DIR: "{{ gitea_work_directory }}"
+  register: gitea_admin_list
+  changed_when: false
+
+- name: Create initial Gitea administrator
+  ansible.builtin.command:
+    argv:
+      - "{{ gitea_binary_path }}"
+      - admin
+      - user
+      - create
+      - --username
+      - "{{ gitea_admin_username }}"
+      - --password
+      - "{{ gitea_admin_password }}"
+      - --email
+      - "{{ gitea_admin_email }}"
+      - --admin
+      - --must-change-password=true
+      - --config
+      - "{{ gitea_config_path }}"
+  become: true
+  become_user: "{{ gitea_user }}"
+  environment:
+    USER: "{{ gitea_user }}"
+    HOME: "{{ gitea_home }}"
+    GITEA_WORK_DIR: "{{ gitea_work_directory }}"
+  when: >-
+    (gitea_admin_list.stdout_lines[1:] |
+     select('match', '^\\s*\\d+\\s+' ~ (gitea_admin_username | regex_escape) ~ '\\s+') |
+     list | length) == 0
+  changed_when: true
+  no_log: true

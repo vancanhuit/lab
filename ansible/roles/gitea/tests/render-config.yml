@@ -1,0 +1,427 @@
+---
+- name: Validate Gitea configuration templates
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    gitea_database_password: test-database-password
+    gitea_secret_key: test-secret-key
+    gitea_internal_token: test-internal-token
+    # Gitea 1.27 requires exactly 43-char raw URL-safe base64 (32 bytes decoded)
+    gitea_lfs_jwt_secret: __________________________________________8
+    gitea_oauth2_jwt_secret: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+    gitea_admin_password: test-admin-password
+    gitea_s3_endpoint: s3.example.invalid
+    gitea_s3_region: test-region-1
+    gitea_s3_bucket: test-gitea
+    gitea_s3_access_key: test-access-key
+    gitea_s3_secret_key: test-secret-access-key
+    gitea_smtp_host: smtp.example.invalid
+    gitea_smtp_port: 587
+    gitea_smtp_from: 'Gitea <gitea@example.invalid>'
+    gitea_smtp_user: gitea@example.invalid
+    gitea_smtp_password: test-smtp-password
+    ansible_facts:
+      distribution: Debian
+      distribution_major_version: '13'
+      architecture: x86_64
+  tasks:
+    - name: Load Gitea role defaults
+      ansible.builtin.include_vars:
+        file: "{{ (playbook_dir | dirname) ~ '/defaults/main.yaml' }}"
+        name: gitea_role_defaults
+
+    - name: Backfill unset values from role defaults
+      ansible.builtin.set_fact:
+        gitea_version: "{{ gitea_version | default(gitea_role_defaults.gitea_version) }}"
+        gitea_release_key_fingerprint: "{{ gitea_release_key_fingerprint | default(gitea_role_defaults.gitea_release_key_fingerprint) }}"
+        gitea_user: "{{ gitea_user | default(gitea_role_defaults.gitea_user) }}"
+        gitea_group: "{{ gitea_group | default(gitea_role_defaults.gitea_group) }}"
+        gitea_home: "{{ gitea_home | default(gitea_role_defaults.gitea_home) }}"
+        gitea_work_directory: "{{ gitea_work_directory | default(gitea_role_defaults.gitea_work_directory) }}"
+        gitea_config_directory: "{{ gitea_config_directory | default(gitea_role_defaults.gitea_config_directory) }}"
+        gitea_config_path: "{{ gitea_config_path | default(gitea_role_defaults.gitea_config_path) }}"
+        gitea_binary_path: "{{ gitea_binary_path | default(gitea_role_defaults.gitea_binary_path) }}"
+        gitea_domain: "{{ gitea_domain | default(gitea_role_defaults.gitea_domain) }}"
+        gitea_root_url: "{{ gitea_root_url | default(gitea_role_defaults.gitea_root_url) }}"
+        gitea_https_port: "{{ gitea_https_port | default(gitea_role_defaults.gitea_https_port) }}"
+        gitea_tls_directory: "{{ gitea_tls_directory | default(gitea_role_defaults.gitea_tls_directory) }}"
+        gitea_tls_cert_path: "{{ gitea_tls_cert_path | default(gitea_role_defaults.gitea_tls_cert_path) }}"
+        gitea_tls_key_path: "{{ gitea_tls_key_path | default(gitea_role_defaults.gitea_tls_key_path) }}"
+        gitea_database_host: "{{ gitea_database_host | default(gitea_role_defaults.gitea_database_host) }}"
+        gitea_database_name: "{{ gitea_database_name | default(gitea_role_defaults.gitea_database_name) }}"
+        gitea_database_user: "{{ gitea_database_user | default(gitea_role_defaults.gitea_database_user) }}"
+        gitea_admin_username: "{{ gitea_admin_username | default(gitea_role_defaults.gitea_admin_username) }}"
+        gitea_admin_email: "{{ gitea_admin_email | default(gitea_role_defaults.gitea_admin_email) }}"
+
+    - name: Compute release URLs from backfilled values
+      ansible.builtin.set_fact:
+        gitea_release_base_url: "{{ gitea_release_base_url | default('https://dl.gitea.com/gitea/' ~ gitea_version) }}"
+        gitea_release_key_url: "{{ gitea_release_key_url | default('https://keys.openpgp.org/vks/v1/by-fingerprint/' ~ gitea_release_key_fingerprint) }}"
+
+    - name: Validate release architecture mapping
+      ansible.builtin.assert:
+        that:
+          - mapped_architecture == item.expected
+          - release_filename == 'gitea-1.27.1-linux-' ~ item.expected
+      loop:
+        - source: x86_64
+          expected: amd64
+        - source: aarch64
+          expected: arm64
+      vars:
+        mapped_architecture: "{{ item.source | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}"
+        release_filename: "gitea-1.27.1-linux-{{ mapped_architecture }}"
+
+    - name: Validate release URLs
+      ansible.builtin.assert:
+        that:
+          - gitea_release_base_url == 'https://dl.gitea.com/gitea/1.27.1'
+          - gitea_release_key_url is search(gitea_release_key_fingerprint)
+          - gitea_release_key_fingerprint == '7C9E68152594688862D62AF62D9AE806EC1592E2'
+
+    - name: Run role validation task for positive fixture
+      ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+    - name: Create temporary directory for rendered templates
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: .gitea-test
+      register: gitea_test_dir
+
+    - name: Render app.ini template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/app.ini.j2' }}"
+        dest: "{{ gitea_test_dir.path }}/app.ini"
+        mode: '0600'
+
+    - name: Render gitea.service template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/gitea.service.j2' }}"
+        dest: "{{ gitea_test_dir.path }}/gitea.service"
+        mode: '0600'
+
+    - name: Render lego-deploy-hook.sh template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/lego-deploy-hook.sh.j2' }}"
+        dest: "{{ gitea_test_dir.path }}/lego-deploy-hook.sh"
+        mode: '0700'
+
+    - name: Read rendered app.ini
+      ansible.builtin.slurp:
+        src: "{{ gitea_test_dir.path }}/app.ini"
+      register: gitea_app_ini_slurp
+
+    - name: Read rendered gitea.service
+      ansible.builtin.slurp:
+        src: "{{ gitea_test_dir.path }}/gitea.service"
+      register: gitea_service_slurp
+
+    - name: Read rendered lego-deploy-hook.sh
+      ansible.builtin.slurp:
+        src: "{{ gitea_test_dir.path }}/lego-deploy-hook.sh"
+      register: gitea_hook_slurp
+
+    - name: Decode rendered content
+      ansible.builtin.set_fact:
+        gitea_app_ini_rendered: "{{ gitea_app_ini_slurp.content | b64decode }}"
+        gitea_service_rendered: "{{ gitea_service_slurp.content | b64decode }}"
+        gitea_hook_rendered: "{{ gitea_hook_slurp.content | b64decode }}"
+
+    - name: Assert app.ini required properties
+      ansible.builtin.assert:
+        that:
+          - gitea_app_ini_rendered is search('PROTOCOL = https')
+          - gitea_app_ini_rendered is search('ROOT_URL = "https://gitea\.lab\.canhdinh\.com/"')
+          - gitea_app_ini_rendered is search('PUBLIC_URL_DETECTION = never')
+          - gitea_app_ini_rendered is search('HTTP_PORT = 443')
+          - gitea_app_ini_rendered is search('DISABLE_SSH = true')
+          - gitea_app_ini_rendered is search('START_SSH_SERVER = false')
+          - gitea_app_ini_rendered is search('LFS_ALLOW_PURE_SSH = false')
+          - gitea_app_ini_rendered is search('SSL_MODE = verify-full')
+          - gitea_app_ini_rendered is search('MINIO_BUCKET = "test-gitea"')
+          - gitea_app_ini_rendered is search('MINIO_USE_SSL = true')
+          - gitea_app_ini_rendered is search('MINIO_INSECURE_SKIP_VERIFY = false')
+          - gitea_app_ini_rendered is search('SMTP_ADDR = "smtp\.example\.invalid"')
+          - gitea_app_ini_rendered is search('SMTP_PORT = 587')
+          - gitea_app_ini_rendered is search('FORCE_TRUST_SERVER_CERT = false')
+          - gitea_app_ini_rendered is search('PROVIDER = db')
+          - gitea_app_ini_rendered is search('COOKIE_SECURE = true')
+          - gitea_app_ini_rendered is search('INSTALL_LOCK = true')
+          - gitea_app_ini_rendered is search('DISABLE_REGISTRATION = true')
+          - gitea_app_ini_rendered is search('REQUIRE_SIGNIN_VIEW = true')
+          - gitea_app_ini_rendered is search('MODE = console')
+          - gitea_app_ini_rendered is search('\[oauth2\]')
+          - gitea_app_ini_rendered is search('JWT_SECRET = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"')
+          - gitea_app_ini_rendered is not regex('(?m)^MAILER_TYPE\s*=')
+          - gitea_app_ini_rendered is not regex('(?m)^IS_TLS_ENABLED\s*=')
+          - gitea_app_ini_rendered is not regex('(?m)^LFS_CONTENT_PATH\s*=')
+          - gitea_app_ini_rendered is not regex('(?m)^DISABLE_GRAVATAR\s*=')
+          - gitea_app_ini_rendered is not regex('(?m)^ENABLE_FEDERATED_AVATAR\s*=')
+          - gitea_app_ini_rendered is not regex('(?m)^SEND_BUFFER_LEN\s*=')
+
+    - name: Assert gitea.service required properties
+      ansible.builtin.assert:
+        that:
+          - gitea_service_rendered is search('User=git')
+          - gitea_service_rendered is search('ExecStart=/usr/local/bin/gitea web --config /etc/gitea/app.ini')
+          - gitea_service_rendered is search('ExecReload=/bin/kill -HUP \\$MAINPID')
+          - gitea_service_rendered is search('CapabilityBoundingSet=CAP_NET_BIND_SERVICE')
+          - gitea_service_rendered is search('AmbientCapabilities=CAP_NET_BIND_SERVICE')
+
+    - name: Assert lego-deploy-hook.sh required properties
+      ansible.builtin.assert:
+        that:
+          - gitea_hook_rendered is search('/var/lib/lego/certificates/gitea\.crt')
+          - gitea_hook_rendered is search('openssl x509')
+          - gitea_hook_rendered is search('openssl pkey')
+          - gitea_hook_rendered is search('install -o root -g git')
+          - gitea_hook_rendered is search('systemctl reload-or-restart gitea\.service')
+
+    - name: Remove temporary directory
+      ansible.builtin.file:
+        path: "{{ gitea_test_dir.path }}"
+        state: absent
+
+    - name: Test negative validation case for S3 endpoint with URL scheme
+      block:
+        - name: Override S3 endpoint with URL scheme
+          ansible.builtin.set_fact:
+            gitea_s3_endpoint: https://s3.example.invalid
+
+        - name: Run validation with invalid S3 endpoint
+          ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+        - name: Should have failed
+          ansible.builtin.fail:
+            msg: Validation should have failed with URL scheme in S3 endpoint
+      rescue:
+        - name: Assert correct error message
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.msg is search('gitea_s3_endpoint must be a host name without an http:// or https:// scheme')
+
+    # Test admin row matching logic from admin.yaml
+    - name: Test admin row matching - exact match gitea-admin
+      ansible.builtin.assert:
+        that:
+          - >-
+            (['ID Username Email IsActive', '1 gitea-admin admin@example.com true'] |
+             select('match', '^\\s*\\d+\\s+' ~ ('gitea-admin' | regex_escape) ~ '\\s+') |
+             list | length) == 1
+        fail_msg: "Admin row matching failed for exact gitea-admin username"
+
+    - name: Test admin row matching - no false positive for gitea-admin-test
+      ansible.builtin.assert:
+        that:
+          - >-
+            (['ID Username Email IsActive', '1 gitea-admin-test admin@example.com true'] |
+             select('match', '^\\s*\\d+\\s+' ~ ('gitea-admin' | regex_escape) ~ '\\s+') |
+             list | length) == 0
+        fail_msg: "Admin row matching false positive for gitea-admin-test"
+
+    - name: Test admin row matching - username with regex metacharacters
+      ansible.builtin.assert:
+        that:
+          - >-
+            (['ID Username Email IsActive', '1 git+admin admin@example.com true'] |
+             select('match', '^\\s*\\d+\\s+' ~ ('git+admin' | regex_escape) ~ '\\s+') |
+             list | length) == 1
+        fail_msg: "Admin row matching failed for username with regex metacharacters"
+
+    # Test package requirements
+    - name: Read main.yaml task file
+      ansible.builtin.slurp:
+        src: "{{ (playbook_dir | dirname) ~ '/tasks/main.yaml' }}"
+      register: gitea_main_tasks_slurp
+
+    - name: Parse main.yaml as YAML
+      ansible.builtin.set_fact:
+        gitea_main_tasks: "{{ gitea_main_tasks_slurp.content | b64decode | from_yaml }}"
+
+    - name: Find Install required packages task
+      ansible.builtin.set_fact:
+        gitea_install_packages_task: >-
+          {{ gitea_main_tasks |
+             selectattr('name', 'defined') |
+             selectattr('name', 'equalto', 'Install required packages') |
+             list | first }}
+
+    - name: Assert acl package is in required packages list
+      ansible.builtin.assert:
+        that:
+          - "'acl' in gitea_install_packages_task['ansible.builtin.apt']['name']"
+        fail_msg: "acl package must be in Install required packages list (required for become privilege escalation to git user)"
+
+    # Test JWT secret format validation (negative test)
+    - name: Test negative validation case for invalid JWT secret format
+      block:
+        - name: Reset S3 endpoint to valid value before JWT test
+          ansible.builtin.set_fact:
+            gitea_s3_endpoint: s3.example.invalid
+
+        - name: Override JWT secret with invalid standard base64 (padded/newline)
+          ansible.builtin.set_fact:
+            gitea_oauth2_jwt_secret: "dGVzdC1vYXV0aDItand0LXNlY3JldC1iYXNlNjQ=\n"
+
+        - name: Run validation with invalid JWT secret
+          ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+        - name: Should have failed
+          ansible.builtin.fail:
+            msg: Validation should have failed with invalid JWT secret format
+      rescue:
+        - name: Assert correct error message for invalid JWT
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result | to_json is search('gitea_oauth2_jwt_secret must be exactly 43 characters of raw URL-safe base64')
+
+    # Test LFS JWT secret format validation (negative test with old hex format)
+    - name: Test negative validation case for invalid LFS JWT secret (hex format)
+      block:
+        - name: Reset OAuth2 JWT secret to valid value before LFS test
+          ansible.builtin.set_fact:
+            gitea_oauth2_jwt_secret: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8
+
+        - name: Override LFS JWT secret with old-style 64 hex characters
+          ansible.builtin.set_fact:
+            gitea_lfs_jwt_secret: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+        - name: Run validation with invalid LFS JWT secret
+          ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+        - name: Should have failed
+          ansible.builtin.fail:
+            msg: Validation should have failed with invalid LFS JWT secret format
+      rescue:
+        - name: Assert correct error message for invalid LFS JWT
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result | to_json is search('gitea_lfs_jwt_secret must be exactly 43 characters of raw URL-safe base64')
+
+    # Test HTTPS readiness gate task ordering and structure
+    - name: Build task name index lookup from main.yaml
+      ansible.builtin.set_fact:
+        gitea_task_names: >-
+          {{ gitea_main_tasks |
+             map(attribute='name', default='') |
+             list }}
+
+    - name: Locate key task indices
+      ansible.builtin.set_fact:
+        gitea_service_start_idx: >-
+          {{ gitea_task_names.index('Enable and start Gitea service') }}
+        gitea_readiness_idx: >-
+          {{ gitea_task_names.index('Wait for Gitea HTTPS readiness') }}
+        gitea_admin_import_idx: >-
+          {{ gitea_task_names.index('Import admin bootstrap task') }}
+
+    - name: Assert HTTPS readiness task exists between service start and admin import
+      ansible.builtin.assert:
+        that:
+          - gitea_service_start_idx | int < gitea_readiness_idx | int
+          - gitea_readiness_idx | int < gitea_admin_import_idx | int
+        fail_msg: >-
+          Wait for Gitea HTTPS readiness must be between
+          Enable and start Gitea service (idx {{ gitea_service_start_idx }})
+          and Import admin bootstrap task (idx {{ gitea_admin_import_idx }});
+          found at idx {{ gitea_readiness_idx }}
+
+    - name: Extract HTTPS readiness task for parameter validation
+      ansible.builtin.set_fact:
+        gitea_readiness_task: >-
+          {{ gitea_main_tasks[gitea_readiness_idx | int] }}
+        gitea_expected_port_template: "{{ '{{' }} gitea_https_port {{ '}}' }}"
+
+    - name: Assert HTTPS readiness task uses wait_for module with correct parameters
+      ansible.builtin.assert:
+        that:
+          - gitea_readiness_task['ansible.builtin.wait_for'] is defined
+          - gitea_readiness_task['ansible.builtin.wait_for']['host'] == '127.0.0.1'
+          - gitea_readiness_task['ansible.builtin.wait_for']['port'] == gitea_expected_port_template
+          - gitea_readiness_task['ansible.builtin.wait_for']['state'] == 'started'
+          - gitea_readiness_task['ansible.builtin.wait_for']['delay'] == 1
+          - gitea_readiness_task['ansible.builtin.wait_for']['timeout'] == 120
+          - gitea_readiness_task['ansible.builtin.wait_for']['connect_timeout'] == 5
+        fail_msg: >-
+          Wait for Gitea HTTPS readiness task must use wait_for with
+          host=127.0.0.1, port={{ gitea_expected_port_template }},
+          state=started, delay=1, timeout=120, connect_timeout=5
+
+    # Test listener verification predicates (for verify-gitea.yaml)
+    # Fixture simulates actual ss -H -ltnp output where address precedes process name
+    - name: Define valid listener fixture - gitea on 443, sshd on 22
+      ansible.builtin.set_fact:
+        gitea_ss_valid_fixture: |
+          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
+          LISTEN 0      4096            [::]:22           [::]:*    users:(("sshd",pid=1234,fd=4))
+          LISTEN 0      4096               *:443             *:*    users:(("gitea",pid=5678,fd=5))
+
+    - name: Assert OLD predicate fails on valid fixture (demonstrates bug)
+      ansible.builtin.assert:
+        that:
+          # Old pattern: gitea[^\n]*:443 - expects gitea BEFORE :443
+          # This should NOT match because address comes BEFORE process name
+          - gitea_ss_valid_fixture is not regex('gitea[^\\n]*:443\\b')
+        fail_msg: "Old predicate incorrectly matched valid ss output"
+
+    - name: Assert NEW predicate succeeds on valid fixture
+      ansible.builtin.assert:
+        that:
+          # New pattern: :443 followed by users:((\"gitea\", on same line
+          - gitea_ss_valid_fixture is regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
+          # No listener on :3000
+          - gitea_ss_valid_fixture is not regex(':3000\\b')
+          # No gitea on :22 (sshd on 22 is allowed)
+          - gitea_ss_valid_fixture is not regex('(?m)^.*:22\\b.*users:\\(\\("gitea",')
+        fail_msg: "New predicate failed on valid ss output"
+
+    - name: Define counterexample - gitea only on 4430 (not 443)
+      ansible.builtin.set_fact:
+        gitea_ss_on_4430: |
+          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
+          LISTEN 0      4096               *:4430            *:*    users:(("gitea",pid=5678,fd=5))
+
+    - name: Assert counterexample - gitea on 4430 fails :443 check
+      ansible.builtin.assert:
+        that:
+          - gitea_ss_on_4430 is not regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
+        fail_msg: "Predicate should NOT match gitea on port 4430"
+
+    - name: Define counterexample - gitea on port 22 (security violation)
+      ansible.builtin.set_fact:
+        gitea_ss_on_22: |
+          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("gitea",pid=5678,fd=3))
+          LISTEN 0      4096               *:443             *:*    users:(("gitea",pid=5678,fd=5))
+
+    - name: Assert counterexample - gitea on 22 is detected
+      ansible.builtin.assert:
+        that:
+          - gitea_ss_on_22 is regex('(?m)^.*:22\\b.*users:\\(\\("gitea",')
+        fail_msg: "Predicate should detect gitea on port 22"
+
+    - name: Define counterexample - listener on port 3000
+      ansible.builtin.set_fact:
+        gitea_ss_with_3000: |
+          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
+          LISTEN 0      4096               *:443             *:*    users:(("gitea",pid=5678,fd=5))
+          LISTEN 0      4096         0.0.0.0:3000      0.0.0.0:*    users:(("node",pid=9999,fd=6))
+
+    - name: Assert counterexample - listener on 3000 is detected
+      ansible.builtin.assert:
+        that:
+          - gitea_ss_with_3000 is regex(':3000\\b')
+        fail_msg: "Predicate should detect any listener on port 3000"
+
+    - name: Define counterexample - process named gitea-wrapper on 443
+      ansible.builtin.set_fact:
+        gitea_ss_wrapper_on_443: |
+          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
+          LISTEN 0      4096               *:443             *:*    users:(("gitea-wrapper",pid=5678,fd=5))
+
+    - name: Assert counterexample - gitea-wrapper should NOT match exact gitea predicate
+      ansible.builtin.assert:
+        that:
+          # Pattern with comma requires exact "gitea" followed by comma
+          - gitea_ss_wrapper_on_443 is not regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
+        fail_msg: "Predicate should NOT match process gitea-wrapper"
