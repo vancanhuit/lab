@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily LEGO ACME certificate reconciliation
+
+[Timer]
+Persistent=true
+OnCalendar=daily
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

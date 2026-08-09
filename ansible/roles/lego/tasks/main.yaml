@@ -1,0 +1,141 @@
+- name: Assert that the domain name is set
+  ansible.builtin.assert:
+    that:
+      - lego_domain_name is string
+      - lego_domain_name | trim | length > 0
+      - not lego_domain_name.startswith('*.')
+    fail_msg: "The 'lego_domain_name' variable must be a non-empty, non-wildcard hostname."
+
+- name: Assert that the certificate name is set
+  ansible.builtin.assert:
+    that:
+      - lego_certificate_name is string
+      - lego_certificate_name | trim | length > 0
+    fail_msg: "The 'lego_certificate_name' variable must be a non-empty string."
+
+- name: Assert that renewal days is valid
+  ansible.builtin.assert:
+    that:
+      - lego_renew_days is none or (lego_renew_days | int > 0)
+    fail_msg: "The 'lego_renew_days' variable must be null or a positive integer."
+
+- name: Assert that PFX configuration is a mapping
+  ansible.builtin.assert:
+    that:
+      - lego_pfx is mapping
+    fail_msg: "The 'lego_pfx' variable must be a mapping."
+
+- name: Assert that PFX password is set
+  ansible.builtin.assert:
+    that:
+      - lego_pfx.password is defined
+      - lego_pfx.password is string
+      - lego_pfx.password | trim | length > 0
+    fail_msg: "The 'lego_pfx.password' variable must be a non-empty string when PFX output is configured."
+  when: lego_pfx | length > 0
+  no_log: true
+
+- name: Assert that PFX format is supported
+  ansible.builtin.assert:
+    that:
+      - lego_pfx.format in ['DES', 'RC2', 'SHA256', 'PBMAC1']
+    fail_msg: "The 'lego_pfx.format' variable must be DES, RC2, SHA256, or PBMAC1."
+  when:
+    - lego_pfx | length > 0
+    - lego_pfx.format is defined
+
+- name: Assert that hook configuration is a mapping
+  ansible.builtin.assert:
+    that:
+      - lego_hooks is mapping
+    fail_msg: "The 'lego_hooks' variable must be a mapping."
+
+- name: Assert that hooks are valid
+  ansible.builtin.assert:
+    that:
+      - item.key in ['pre', 'deploy', 'post']
+      - item.value is mapping
+      - item.value.command is defined
+      - item.value.command is string
+      - item.value.command | trim | length > 0
+    fail_msg: "Each 'lego_hooks' entry must be pre, deploy, or post and contain a non-empty command."
+  loop: "{{ lego_hooks | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Install lego ACME client binary from GitHub releases
+  ansible.builtin.unarchive:
+    src: >-
+      https://github.com/go-acme/lego/releases/download/v{{ lego_version }}/lego_v{{ lego_version }}_linux_{{ architecture }}.tar.gz
+    dest: /usr/local/bin
+    remote_src: true
+    include:
+      - lego
+    owner: root
+    group: root
+    mode: '0755'
+  vars:
+    architecture: "{{ ansible_facts['architecture'] | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
+
+- name: Create lego configuration directory
+  ansible.builtin.file:
+    path: /etc/lego
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Create lego data directory
+  ansible.builtin.file:
+    path: /var/lib/lego
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Create lego configuration file
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/lego/config.yaml
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Create cloudflare credentials file
+  ansible.builtin.template:
+    src: cloudflare.env.j2
+    dest: /etc/lego/cloudflare.env
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+
+- name: Reconcile TLS certificate state
+  ansible.builtin.command:
+    cmd: /usr/local/bin/lego --config /etc/lego/config.yaml
+  register: lego_reconcile
+  changed_when: "'Writing file.' in lego_reconcile.stdout"
+
+- name: Create systemd timer for automatic certificate renewal
+  ansible.builtin.copy:
+    src: lego-renew.timer
+    dest: /etc/systemd/system/lego-renew.timer
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create systemd service for automatic certificate renewal
+  ansible.builtin.copy:
+    src: lego-renew.service
+    dest: /etc/systemd/system/lego-renew.service
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable and start the lego-renew.timer
+  ansible.builtin.systemd:
+    name: lego-renew.timer
+    enabled: true
+    state: started
+    daemon_reload: true

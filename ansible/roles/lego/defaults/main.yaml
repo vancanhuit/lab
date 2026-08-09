@@ -1,0 +1,6 @@
+lego_domain_name: ""
+lego_certificate_name: "{{ lego_domain_name }}"
+lego_renew_days: null
+lego_pfx: {}
+lego_hooks: {}
+lego_version: "5.3.1"

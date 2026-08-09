@@ -1,0 +1,52 @@
+storage: /var/lib/lego
+
+log:
+  level: info
+  format: json
+
+accounts:
+  letsencrypt:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    keyType: EC256
+    acceptsTermsOfService: true
+
+challenges:
+  cloudflare:
+    dns:
+      provider: cloudflare
+      envFile: /etc/lego/cloudflare.env
+      resolvers:
+        - 1.1.1.1:53
+        - 1.0.0.1:53
+      dnsTimeout: 30
+
+certificates:
+  {{ lego_certificate_name | to_json }}:
+    account: letsencrypt
+    challenge: cloudflare
+    keyType: EC256
+    domains:
+      - {{ lego_domain_name | to_json }}
+{% if lego_renew_days is not none %}
+    renew:
+      days: {{ lego_renew_days }}
+      disableRandomSleep: true
+{% endif %}
+{% if lego_pfx | length > 0 %}
+    pfx:
+      password: {{ lego_pfx.password | to_json }}
+{% if lego_pfx.format is defined %}
+      format: {{ lego_pfx.format | to_json }}
+{% endif %}
+{% endif %}
+{% if lego_hooks | length > 0 %}
+
+hooks:
+{% for hook_name, hook in lego_hooks.items() %}
+  {{ hook_name }}:
+    command: {{ hook.command | to_json }}
+{% if hook.timeout is defined %}
+    timeout: {{ hook.timeout | to_json }}
+{% endif %}
+{% endfor %}
+{% endif %}
