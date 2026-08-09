@@ -1,5 +1,6 @@
 lego_domain_names: []
 lego_certificate_name: "{{ (lego_domain_names | first) | default('') }}"
+lego_server: letsencrypt
 lego_renew_days: null
 lego_pfx: {}
 lego_hooks: {}

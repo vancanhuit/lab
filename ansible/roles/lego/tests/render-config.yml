@@ -8,6 +8,7 @@
       - dns.lab.example.com
       - dns-alt.lab.example.com
     lego_certificate_name: dns
+    lego_server: letsencrypt-staging
     lego_renew_days: null
     lego_pfx:
       password: test-password
@@ -45,6 +46,7 @@
     - name: Assert native optional sections render
       ansible.builtin.assert:
         that:
+          - lego_rendered_values.accounts.letsencrypt.server == 'letsencrypt-staging'
           - lego_rendered_values.certificates.dns.domains == ['dns.lab.example.com', 'dns-alt.lab.example.com']
           - lego_rendered_values.certificates.dns.pfx.password == 'test-password'
           - lego_rendered_values.certificates.dns.pfx.format == 'PBMAC1'
@@ -64,6 +66,7 @@
     lego_domain_names:
       - service.lab.example.com
     lego_certificate_name: dns
+    lego_server: letsencrypt
     lego_renew_days: null
     lego_pfx: {}
     lego_hooks: {}
@@ -92,6 +95,7 @@
     - name: Assert optional sections are omitted
       ansible.builtin.assert:
         that:
+          - lego_rendered_values.accounts.letsencrypt.server == 'letsencrypt'
           - lego_rendered_values.certificates.dns.domains == ['service.lab.example.com']
           - lego_rendered_values.certificates.dns.pfx is not defined
           - lego_rendered_values.hooks is not defined

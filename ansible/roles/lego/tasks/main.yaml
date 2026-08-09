@@ -24,6 +24,13 @@
       - lego_certificate_name | trim | length > 0
     fail_msg: "The 'lego_certificate_name' variable must be a non-empty string."
 
+- name: Assert that the ACME server is set
+  ansible.builtin.assert:
+    that:
+      - lego_server is string
+      - lego_server | trim | length > 0
+    fail_msg: "The 'lego_server' variable must be a non-empty shortcode or URL."
+
 - name: Assert that renewal days is valid
   ansible.builtin.assert:
     that:

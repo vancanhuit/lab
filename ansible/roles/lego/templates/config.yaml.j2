@@ -6,7 +6,7 @@ log:
 
 accounts:
   letsencrypt:
-    server: https://acme-v02.api.letsencrypt.org/directory
+    server: {{ lego_server | to_json }}
     keyType: EC256
     acceptsTermsOfService: true
 
