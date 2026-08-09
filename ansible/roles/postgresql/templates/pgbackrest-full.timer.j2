@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly pgBackRest full backup timer
+
+[Timer]
+OnCalendar={{ postgresql_backup_full_calendar }}
+Persistent=true
+RandomizedDelaySec={{ postgresql_backup_randomized_delay }}
+Unit=pgbackrest-backup@full.service
+
+[Install]
+WantedBy=timers.target

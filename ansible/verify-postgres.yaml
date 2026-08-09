@@ -1,0 +1,88 @@
+---
+- name: Verify deployed PostgreSQL and backup timers
+  hosts: postgres
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Check PostgreSQL client version
+      ansible.builtin.command: psql --version
+      register: psql_version
+      changed_when: false
+
+    - name: Check PostgreSQL cluster status
+      ansible.builtin.command: pg_lsclusters --no-header
+      register: clusters
+      changed_when: false
+
+    - name: Read PostgreSQL SSL and auth settings
+      ansible.builtin.command: >-
+        psql -XAtqc "show ssl; show ssl_min_protocol_version; show password_encryption; show data_checksums"
+      become: true
+      become_user: postgres
+      register: pg_settings
+      changed_when: false
+
+    - name: Check pg_hba parse errors
+      ansible.builtin.command: >-
+        psql -XAtqc "select count(*) from pg_hba_file_rules where error is not null"
+      become: true
+      become_user: postgres
+      register: hba_errors
+      changed_when: false
+
+    - name: Run pgBackRest stanza check
+      ansible.builtin.command: pgbackrest --stanza=main check
+      become: true
+      become_user: postgres
+      register: pgbackrest_check
+      changed_when: false
+
+    - name: Check required timers are enabled # noqa command-instead-of-module
+      ansible.builtin.command: >-
+        systemctl is-enabled lego-renew.timer pgbackrest-full.timer pgbackrest-diff.timer
+      register: units_enabled
+      changed_when: false
+
+    - name: Check PostgreSQL and timers are active # noqa command-instead-of-module
+      ansible.builtin.command: >-
+        systemctl is-active postgresql lego-renew.timer pgbackrest-full.timer pgbackrest-diff.timer
+      register: units_active
+      changed_when: false
+
+    - name: Verify PostgreSQL TLS certificate hostname from controller # noqa: run-once[task]
+      ansible.builtin.shell: >-
+        openssl s_client -starttls postgres
+        -connect postgres.lab.canhdinh.com:5432
+        -servername postgres.lab.canhdinh.com
+        -verify_hostname postgres.lab.canhdinh.com
+        -verify_return_error </dev/null
+      delegate_to: localhost
+      run_once: true
+      become: false
+      register: tls_verify
+      changed_when: false
+
+    - name: Assert PostgreSQL TLS certificate verification from controller # noqa: run-once[task]
+      ansible.builtin.assert:
+        that:
+          - tls_verify.rc == 0
+          - (tls_verify.stdout ~ '\n' ~ tls_verify.stderr) is search('Verify return code:\\s+0\\s+\\(ok\\)')
+        fail_msg: PostgreSQL TLS certificate verification failed.
+        success_msg: PostgreSQL TLS certificate verification passed.
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Assert deployed PostgreSQL state
+      ansible.builtin.assert:
+        that:
+          - psql_version.stdout is search('^psql \(PostgreSQL\) 18(\\.|$)')
+          - clusters.stdout is search('^18\\s+main\\s+\\d+\\s+online\\b', multiline=True)
+          - pg_settings.stdout_lines == ['on', 'TLSv1.2', 'scram-sha-256', 'on']
+          - hba_errors.stdout | trim == '0'
+          - pgbackrest_check.rc == 0
+          - units_enabled.stdout_lines == ['enabled', 'enabled', 'enabled']
+          - units_active.stdout_lines == ['active', 'active', 'active', 'active']
+        fail_msg: One or more PostgreSQL deployment verification checks failed.
+        success_msg: PostgreSQL deployment verification checks passed.

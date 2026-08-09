@@ -1,0 +1,67 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  listen: Reload systemd daemon
+
+- name: Validate PostgreSQL configuration for reload
+  ansible.builtin.command:
+    argv:
+      - "/usr/lib/postgresql/{{ postgresql_version }}/bin/postgres"
+      - -D
+      - "{{ postgresql_data_directory }}"
+      - -c
+      - "config_file=/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/postgresql.conf"
+      - -C
+      - config_file
+  become: true
+  become_user: postgres
+  changed_when: false
+  listen: Reload PostgreSQL cluster
+
+- name: Reload PostgreSQL cluster
+  ansible.builtin.command:
+    argv:
+      - pg_ctlcluster
+      - "{{ postgresql_version }}"
+      - "{{ postgresql_cluster_name }}"
+      - reload
+  changed_when: true
+  listen: Reload PostgreSQL cluster
+
+- name: Validate PostgreSQL configuration for restart
+  ansible.builtin.command:
+    argv:
+      - "/usr/lib/postgresql/{{ postgresql_version }}/bin/postgres"
+      - -D
+      - "{{ postgresql_data_directory }}"
+      - -c
+      - "config_file=/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/postgresql.conf"
+      - -C
+      - config_file
+  become: true
+  become_user: postgres
+  changed_when: false
+  listen: Restart PostgreSQL cluster
+
+- name: Restart PostgreSQL cluster
+  ansible.builtin.command:
+    argv:
+      - pg_ctlcluster
+      - "{{ postgresql_version }}"
+      - "{{ postgresql_cluster_name }}"
+      - restart
+  changed_when: true
+  listen: Restart PostgreSQL cluster
+
+- name: Restart pgBackRest full backup timer
+  ansible.builtin.systemd_service:
+    name: pgbackrest-full.timer
+    state: restarted
+    daemon_reload: true
+
+- name: Restart pgBackRest differential backup timer
+  ansible.builtin.systemd_service:
+    name: pgbackrest-diff.timer
+    state: restarted
+    daemon_reload: true

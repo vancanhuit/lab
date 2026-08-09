@@ -2,6 +2,8 @@ lab:
   hosts:
     dns:
       ansible_host: dns.lab.canhdinh.com
+    postgres:
+      ansible_host: postgres.lab.canhdinh.com
 
 incus:
   hosts:

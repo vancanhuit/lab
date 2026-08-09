@@ -1,0 +1,355 @@
+---
+- name: Validate PostgreSQL configuration templates
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    postgresql_version: 18
+    postgresql_cluster_name: main
+    postgresql_port: 5432
+    postgresql_allowed_cidrs:
+      - 10.205.234.0/24
+      - 100.64.0.0/10
+    postgresql_tls_cert_path: /etc/postgresql/18/main/tls/server.crt
+    postgresql_tls_key_path: /etc/postgresql/18/main/tls/server.key
+    postgresql_shared_buffers_mb: 1024
+    postgresql_effective_cache_size_mb: 3072
+    postgresql_maintenance_work_mem_mb: 256
+    postgresql_max_worker_processes: 8
+    postgresql_max_parallel_workers: 4
+    postgresql_backup_retention_full: 2
+    postgresql_backup_full_calendar: 'Sun *-*-* 02:00:00'
+    postgresql_backup_diff_calendar: 'Mon..Sat *-*-* 02:00:00'
+    postgresql_backup_randomized_delay: 30m
+    ansible_facts:
+      distribution: Debian
+      distribution_major_version: '13'
+      distribution_release: trixie
+      architecture: x86_64
+      memtotal_mb: 4096
+      processor_vcpus: 4
+  tasks:
+    - name: Load PostgreSQL role defaults
+      ansible.builtin.include_vars:
+        file: "{{ (playbook_dir | dirname) ~ '/defaults/main.yaml' }}"
+        name: postgresql_role_defaults
+
+    - name: Backfill unset values from role defaults
+      ansible.builtin.set_fact:
+        postgresql_listen_addresses: "{{ postgresql_listen_addresses | default(postgresql_role_defaults.postgresql_listen_addresses) }}"
+        postgresql_backup_stanza: "{{ postgresql_backup_stanza | default(postgresql_role_defaults.postgresql_backup_stanza) }}"
+        postgresql_backup_repository: "{{ postgresql_backup_repository | default(postgresql_role_defaults.postgresql_backup_repository) }}"
+        postgresql_data_directory: "{{ postgresql_data_directory | default(postgresql_role_defaults.postgresql_data_directory) }}"
+        postgresql_log_min_duration_statement_ms: >-
+          {{ postgresql_log_min_duration_statement_ms |
+          default(postgresql_role_defaults.postgresql_log_min_duration_statement_ms) }}
+
+    - name: Assert PostgreSQL role preconditions for test fixture
+      ansible.builtin.assert:
+        that:
+          - postgresql_version | int == 18
+          - postgresql_cluster_name is string
+          - postgresql_cluster_name | length > 0
+          - postgresql_allowed_cidrs | length > 0
+          - postgresql_backup_retention_full | int >= 2
+
+    - name: Validate IPv4 CIDR format for each allowed network in fixture
+      ansible.builtin.assert:
+        that:
+          - item is string
+          - item | length > 0
+          - cidr_parts | length == 2
+          - ip_octets | length == 4
+          - ip_octets[0] is match('^[0-9]+$')
+          - ip_octets[1] is match('^[0-9]+$')
+          - ip_octets[2] is match('^[0-9]+$')
+          - ip_octets[3] is match('^[0-9]+$')
+          - ip_octets[0] | int >= 0
+          - ip_octets[0] | int <= 255
+          - ip_octets[1] | int >= 0
+          - ip_octets[1] | int <= 255
+          - ip_octets[2] | int >= 0
+          - ip_octets[2] | int <= 255
+          - ip_octets[3] | int >= 0
+          - ip_octets[3] | int <= 255
+          - prefix is match('^[0-9]+$')
+          - prefix | int >= 0
+          - prefix | int <= 32
+      loop: "{{ postgresql_allowed_cidrs }}"
+      vars:
+        cidr_parts: "{{ item.split('/') }}"
+        ip_octets: "{{ cidr_parts[0].split('.') if cidr_parts | length == 2 else [] }}"
+        prefix: "{{ cidr_parts[1] if cidr_parts | length == 2 else '' }}"
+
+    - name: Run role validation task for positive fixture
+      ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+    - name: Assert check-mode bootstrap gate logic for fresh and deployed hosts
+      ansible.builtin.assert:
+        that:
+          - bootstrap_gate_result == item.expected
+        fail_msg: >-
+          Unexpected gate result for {{ item.name }}:
+          got={{ bootstrap_gate_result }}, expected={{ item.expected }}
+      loop:
+        - name: fresh host check mode
+          ansible_check_mode: true
+          python3_apt_importable: false
+          postgres_runtime_present: false
+          expected: false
+        - name: deployed host check mode
+          ansible_check_mode: true
+          python3_apt_importable: true
+          postgres_runtime_present: true
+          expected: true
+        - name: normal mode bootstrap
+          ansible_check_mode: false
+          python3_apt_importable: false
+          postgres_runtime_present: false
+          expected: true
+      vars:
+        bootstrap_gate_result: >-
+          {{
+            (not item.ansible_check_mode)
+            or (item.python3_apt_importable and item.postgres_runtime_present)
+          }}
+
+    - name: Confirm role validation fails for empty CIDR list
+      block:
+        - name: Invoke validation with invalid empty CIDR list
+          ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+          vars:
+            postgresql_allowed_cidrs: []
+
+        - name: Force failure when validation unexpectedly passes
+          ansible.builtin.fail:
+            msg: Expected validation failure did not occur for empty CIDR list
+      rescue:
+        - name: Assert expected validation error for empty CIDR list
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.msg is search('postgresql_allowed_cidrs must contain at least one IPv4 CIDR')
+
+    - name: Confirm role validation fails for malformed CIDR
+      block:
+        - name: Invoke validation with malformed CIDR value
+          ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+          vars:
+            postgresql_allowed_cidrs:
+              - 300.10.10.0/24
+
+        - name: Force failure when malformed CIDR validation unexpectedly passes
+          ansible.builtin.fail:
+            msg: Expected validation failure did not occur for malformed CIDR
+      rescue:
+        - name: Assert expected validation error for malformed CIDR
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result | to_nice_json is search("postgresql_allowed_cidrs contains invalid IPv4 CIDR '300.10.10.0/24'")
+
+    - name: Create temporary postgresql.conf file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .conf
+      register: postgresql_conf_tmp
+      check_mode: false
+
+    - name: Create temporary pg_hba.conf file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .conf
+      register: postgresql_hba_tmp
+      check_mode: false
+
+    - name: Create temporary pgbackrest.conf file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .conf
+      register: postgresql_pgbackrest_conf_tmp
+      check_mode: false
+
+    - name: Create temporary pgBackRest backup service file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .service
+      register: postgresql_pgbackrest_service_tmp
+      check_mode: false
+
+    - name: Create temporary pgBackRest full timer file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .timer
+      register: postgresql_pgbackrest_full_timer_tmp
+      check_mode: false
+
+    - name: Create temporary pgBackRest diff timer file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .timer
+      register: postgresql_pgbackrest_diff_timer_tmp
+      check_mode: false
+
+    - name: Render and validate PostgreSQL configuration templates
+      block:
+        - name: Render postgresql.conf
+          ansible.builtin.template:
+            src: "{{ (playbook_dir | dirname) ~ '/templates/postgresql.conf.j2' }}"
+            dest: "{{ postgresql_conf_tmp.path }}"
+            mode: "0600"
+          check_mode: false
+
+        - name: Render pg_hba.conf
+          ansible.builtin.template:
+            src: "{{ (playbook_dir | dirname) ~ '/templates/pg_hba.conf.j2' }}"
+            dest: "{{ postgresql_hba_tmp.path }}"
+            mode: "0600"
+          check_mode: false
+
+        - name: Render pgbackrest.conf
+          ansible.builtin.template:
+            src: "{{ (playbook_dir | dirname) ~ '/templates/pgbackrest.conf.j2' }}"
+            dest: "{{ postgresql_pgbackrest_conf_tmp.path }}"
+            mode: "0600"
+          check_mode: false
+
+        - name: Render pgBackRest backup service
+          ansible.builtin.template:
+            src: "{{ (playbook_dir | dirname) ~ '/templates/pgbackrest-backup@.service.j2' }}"
+            dest: "{{ postgresql_pgbackrest_service_tmp.path }}"
+            mode: "0600"
+          check_mode: false
+
+        - name: Render pgBackRest full backup timer
+          ansible.builtin.template:
+            src: "{{ (playbook_dir | dirname) ~ '/templates/pgbackrest-full.timer.j2' }}"
+            dest: "{{ postgresql_pgbackrest_full_timer_tmp.path }}"
+            mode: "0600"
+          check_mode: false
+
+        - name: Render pgBackRest differential backup timer
+          ansible.builtin.template:
+            src: "{{ (playbook_dir | dirname) ~ '/templates/pgbackrest-diff.timer.j2' }}"
+            dest: "{{ postgresql_pgbackrest_diff_timer_tmp.path }}"
+            mode: "0600"
+          check_mode: false
+
+        - name: Read rendered postgresql.conf
+          ansible.builtin.slurp:
+            src: "{{ postgresql_conf_tmp.path }}"
+          register: postgresql_conf_content
+
+        - name: Read rendered pg_hba.conf
+          ansible.builtin.slurp:
+            src: "{{ postgresql_hba_tmp.path }}"
+          register: postgresql_hba_content
+
+        - name: Read rendered pgbackrest.conf
+          ansible.builtin.slurp:
+            src: "{{ postgresql_pgbackrest_conf_tmp.path }}"
+          register: postgresql_pgbackrest_conf_content
+
+        - name: Read rendered pgBackRest backup service
+          ansible.builtin.slurp:
+            src: "{{ postgresql_pgbackrest_service_tmp.path }}"
+          register: postgresql_pgbackrest_service_content
+
+        - name: Read rendered pgBackRest full backup timer
+          ansible.builtin.slurp:
+            src: "{{ postgresql_pgbackrest_full_timer_tmp.path }}"
+          register: postgresql_pgbackrest_full_timer_content
+
+        - name: Read rendered pgBackRest differential backup timer
+          ansible.builtin.slurp:
+            src: "{{ postgresql_pgbackrest_diff_timer_tmp.path }}"
+          register: postgresql_pgbackrest_diff_timer_content
+
+        - name: Set rendered content facts # noqa: var-naming[no-role-prefix]
+          ansible.builtin.set_fact:
+            postgresql_rendered: "{{ postgresql_conf_content.content | b64decode }}"
+            pg_hba_rendered: "{{ postgresql_hba_content.content | b64decode }}"
+            postgresql_pgbackrest_rendered: "{{ postgresql_pgbackrest_conf_content.content | b64decode }}"
+            postgresql_pgbackrest_service_rendered: "{{ postgresql_pgbackrest_service_content.content | b64decode }}"
+            postgresql_pgbackrest_full_timer_rendered: "{{ postgresql_pgbackrest_full_timer_content.content | b64decode }}"
+            postgresql_pgbackrest_diff_timer_rendered: "{{ postgresql_pgbackrest_diff_timer_content.content | b64decode }}"
+
+        - name: Assert required configuration and HBA ordering
+          ansible.builtin.assert:
+            that:
+              - postgresql_rendered is search('port = 5432')
+              - postgresql_rendered is search("listen_addresses = '\\*'")
+              - postgresql_rendered is search('ssl = on')
+              - postgresql_rendered is search("ssl_cert_file = '/etc/postgresql/18/main/tls/server.crt'")
+              - postgresql_rendered is search("ssl_key_file = '/etc/postgresql/18/main/tls/server.key'")
+              - postgresql_rendered is search("ssl_min_protocol_version = 'TLSv1.2'")
+              - postgresql_rendered is search("password_encryption = 'scram-sha-256'")
+              - postgresql_rendered is search("archive_command = 'pgbackrest --stanza=main archive-push %p'")
+              - postgresql_rendered is search('logging_collector = on')
+              - postgresql_rendered is search('log_connections = on')
+              - postgresql_rendered is search('log_disconnections = on')
+              - postgresql_rendered is search('log_lock_waits = on')
+              - postgresql_rendered is search('log_checkpoints = on')
+              - postgresql_rendered is search('log_min_duration_statement = 1000')
+              - postgresql_rendered is search('shared_buffers = 1024MB')
+              - postgresql_rendered is search('effective_cache_size = 3072MB')
+              - postgresql_rendered is search('maintenance_work_mem = 256MB')
+              - postgresql_rendered is search('max_worker_processes = 8')
+              - postgresql_rendered is search('max_parallel_workers = 4')
+              - postgresql_pgbackrest_rendered is search('\\[global\\]')
+              - postgresql_pgbackrest_rendered is search('repo1-path=/var/lib/pgbackrest')
+              - postgresql_pgbackrest_rendered is search('repo1-retention-full=2')
+              - postgresql_pgbackrest_rendered is search('start-fast=y')
+              - postgresql_pgbackrest_rendered is search('process-max=2')
+              - postgresql_pgbackrest_rendered is search('\\[main\\]')
+              - postgresql_pgbackrest_rendered is search('pg1-path=/var/lib/postgresql/18/main')
+              - postgresql_pgbackrest_rendered is search('pg1-port=5432')
+              - postgresql_pgbackrest_service_rendered is search('ExecStartPre=/usr/bin/pgbackrest --stanza=main check')
+              - postgresql_pgbackrest_service_rendered is search('ExecStart=/usr/bin/pgbackrest --stanza=main --type=%i backup')
+              - postgresql_pgbackrest_full_timer_rendered is search('Persistent=true')
+              - postgresql_pgbackrest_full_timer_rendered is search('OnCalendar=Sun \*\-\*\-\* 02:00:00')
+              - postgresql_pgbackrest_full_timer_rendered is search('RandomizedDelaySec=30m')
+              - postgresql_pgbackrest_full_timer_rendered is search('Unit=pgbackrest-backup@full.service')
+              - postgresql_pgbackrest_diff_timer_rendered is search('Persistent=true')
+              - postgresql_pgbackrest_diff_timer_rendered is search('OnCalendar=Mon\.\.Sat \*\-\*\-\* 02:00:00')
+              - postgresql_pgbackrest_diff_timer_rendered is search('RandomizedDelaySec=30m')
+              - postgresql_pgbackrest_diff_timer_rendered is search('Unit=pgbackrest-backup@diff.service')
+              - pg_hba_rendered.index('host all postgres 0.0.0.0/0 reject') < pg_hba_rendered.index('hostssl all all 10.205.234.0/24 scram-sha-256')
+              - pg_hba_rendered.index('host all postgres ::0/0 reject') < pg_hba_rendered.index('hostssl all all 10.205.234.0/24 scram-sha-256')
+              - pg_hba_rendered.index('hostssl all all 10.205.234.0/24 scram-sha-256') < pg_hba_rendered.index('hostnossl all all 0.0.0.0/0 reject')
+              - pg_hba_rendered is search('hostssl all all 100.64.0.0/10 scram-sha-256')
+              - pg_hba_rendered is search('host all all ::0/0 reject')
+      always:
+        - name: Remove temporary postgresql.conf file
+          ansible.builtin.file:
+            path: "{{ postgresql_conf_tmp.path }}"
+            state: absent
+          check_mode: false
+
+        - name: Remove temporary pg_hba.conf file
+          ansible.builtin.file:
+            path: "{{ postgresql_hba_tmp.path }}"
+            state: absent
+          check_mode: false
+
+        - name: Remove temporary pgbackrest.conf file
+          ansible.builtin.file:
+            path: "{{ postgresql_pgbackrest_conf_tmp.path }}"
+            state: absent
+          check_mode: false
+
+        - name: Remove temporary pgBackRest backup service file
+          ansible.builtin.file:
+            path: "{{ postgresql_pgbackrest_service_tmp.path }}"
+            state: absent
+          check_mode: false
+
+        - name: Remove temporary pgBackRest full timer file
+          ansible.builtin.file:
+            path: "{{ postgresql_pgbackrest_full_timer_tmp.path }}"
+            state: absent
+          check_mode: false
+
+        - name: Remove temporary pgBackRest differential backup timer file
+          ansible.builtin.file:
+            path: "{{ postgresql_pgbackrest_diff_timer_tmp.path }}"
+            state: absent
+          check_mode: false

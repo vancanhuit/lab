@@ -1,0 +1,56 @@
+---
+- name: Validate PostgreSQL role inputs and deployment assumptions
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version | int == 13
+      - postgresql_version | int == 18
+      - postgresql_cluster_name is string
+      - postgresql_cluster_name | length > 0
+      - postgresql_port | int >= 1
+      - postgresql_port | int <= 65535
+      - postgresql_backup_retention_full | int >= 2
+      - postgresql_backup_full_calendar is string
+      - postgresql_backup_full_calendar | length > 0
+      - postgresql_backup_diff_calendar is string
+      - postgresql_backup_diff_calendar | length > 0
+      - postgresql_backup_randomized_delay is string
+      - postgresql_backup_randomized_delay | length > 0
+    fail_msg: Invalid PostgreSQL role configuration or unsupported deployment host.
+
+- name: Require at least one allowed IPv4 CIDR
+  ansible.builtin.assert:
+    that:
+      - postgresql_allowed_cidrs | length > 0
+    fail_msg: postgresql_allowed_cidrs must contain at least one IPv4 CIDR
+
+- name: Validate each allowed CIDR is IPv4 with prefix /0-/32
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item | length > 0
+      - cidr_parts | length == 2
+      - ip_octets | length == 4
+      - ip_octets[0] is match('^[0-9]+$')
+      - ip_octets[1] is match('^[0-9]+$')
+      - ip_octets[2] is match('^[0-9]+$')
+      - ip_octets[3] is match('^[0-9]+$')
+      - ip_octets[0] | int >= 0
+      - ip_octets[0] | int <= 255
+      - ip_octets[1] | int >= 0
+      - ip_octets[1] | int <= 255
+      - ip_octets[2] | int >= 0
+      - ip_octets[2] | int <= 255
+      - ip_octets[3] | int >= 0
+      - ip_octets[3] | int <= 255
+      - prefix is match('^[0-9]+$')
+      - prefix | int >= 0
+      - prefix | int <= 32
+    fail_msg: >-
+      postgresql_allowed_cidrs contains invalid IPv4 CIDR '{{ item }}';
+      expected dotted-quad/prefix with octets 0-255 and prefix 0-32
+  loop: "{{ postgresql_allowed_cidrs }}"
+  vars:
+    cidr_parts: "{{ item.split('/') }}"
+    ip_octets: "{{ cidr_parts[0].split('.') if cidr_parts | length == 2 else [] }}"
+    prefix: "{{ cidr_parts[1] if cidr_parts | length == 2 else '' }}"

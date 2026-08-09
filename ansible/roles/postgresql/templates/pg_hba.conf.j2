@@ -1,0 +1,11 @@
+local all postgres peer
+local all all peer
+host all postgres 0.0.0.0/0 reject
+host all postgres ::0/0 reject
+{% for cidr in postgresql_allowed_cidrs %}
+hostssl all all {{ cidr }} scram-sha-256
+{% endfor %}
+hostnossl all all 0.0.0.0/0 reject
+hostnossl all all ::0/0 reject
+host all all 0.0.0.0/0 reject
+host all all ::0/0 reject

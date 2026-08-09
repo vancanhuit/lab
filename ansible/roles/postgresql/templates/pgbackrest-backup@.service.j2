@@ -1,0 +1,11 @@
+[Unit]
+Description=pgBackRest %i backup for stanza {{ postgresql_backup_stanza }}
+Wants=postgresql@{{ postgresql_version }}-{{ postgresql_cluster_name }}.service
+After=postgresql@{{ postgresql_version }}-{{ postgresql_cluster_name }}.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStartPre=/usr/bin/pgbackrest --stanza={{ postgresql_backup_stanza }} check
+ExecStart=/usr/bin/pgbackrest --stanza={{ postgresql_backup_stanza }} --type=%i backup

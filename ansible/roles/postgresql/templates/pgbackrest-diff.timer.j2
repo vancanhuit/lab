@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily pgBackRest differential backup timer
+
+[Timer]
+OnCalendar={{ postgresql_backup_diff_calendar }}
+Persistent=true
+RandomizedDelaySec={{ postgresql_backup_randomized_delay }}
+Unit=pgbackrest-backup@diff.service
+
+[Install]
+WantedBy=timers.target

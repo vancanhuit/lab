@@ -1,0 +1,328 @@
+---
+- name: Import PostgreSQL role validation tasks
+  ansible.builtin.import_tasks: validate.yaml
+
+- name: Check whether python3-apt module is importable during check mode
+  ansible.builtin.command: python3 -c "import apt_pkg"
+  register: postgresql_python3_apt_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: ansible_check_mode
+
+- name: Check whether PostgreSQL runtime binary is present before check-mode drift inspection
+  ansible.builtin.stat:
+    path: "/usr/lib/postgresql/{{ postgresql_version }}/bin/postgres"
+  register: postgresql_runtime_binary
+  when: ansible_check_mode
+
+- name: Determine whether check mode can inspect PostgreSQL drift on this host
+  ansible.builtin.set_fact:
+    postgresql_check_mode_bootstrap_ready: >-
+      {{
+        (postgresql_python3_apt_check.rc | default(1) == 0)
+        and (postgresql_runtime_binary.stat.exists | default(false))
+      }}
+  when: ansible_check_mode
+
+- name: Explain why PostgreSQL bootstrap tasks are skipped during fresh-host check mode
+  ansible.builtin.debug:
+    msg: >-
+      Skipping PostgreSQL bootstrap/configuration tasks in check mode because this host is
+      not bootstrapped yet (python3-apt importable={{ postgresql_python3_apt_check.rc == 0 }},
+      postgres runtime present={{ postgresql_runtime_binary.stat.exists | default(false) }}).
+      Run postgres.yaml without --check once to bootstrap packages, repository, and cluster.
+  changed_when: false
+  when:
+    - ansible_check_mode
+    - not (postgresql_check_mode_bootstrap_ready | default(false))
+
+- name: Bootstrap and manage PostgreSQL deployment state
+  when: not ansible_check_mode or (postgresql_check_mode_bootstrap_ready | default(false))
+  block:
+    - name: Install base packages required for PostgreSQL setup
+      ansible.builtin.apt:
+        name:
+          - acl
+          - ca-certificates
+          - openssl
+          - postgresql-common
+        state: present
+        update_cache: true
+
+    - name: Disable implicit main cluster creation by postgresql-common
+      ansible.builtin.copy:
+        dest: /etc/postgresql-common/createcluster.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          create_main_cluster = false
+
+    - name: Configure PGDG APT repository
+      ansible.builtin.deb822_repository:
+        name: pgdg
+        types:
+          - deb
+        uris:
+          - https://apt.postgresql.org/pub/repos/apt
+        suites:
+          - "{{ ansible_facts.distribution_release }}-pgdg"
+        components:
+          - main
+        architectures:
+          - "{{ ansible_facts.architecture | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}"
+        signed_by: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Install PostgreSQL 18 server, client, and pgBackRest
+      ansible.builtin.apt:
+        name:
+          - postgresql-18
+          - postgresql-client-18
+          - pgbackrest
+        state: present
+        update_cache: true
+
+    - name: Check whether configured PostgreSQL cluster configuration exists
+      ansible.builtin.stat:
+        path: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/postgresql.conf"
+      register: postgresql_cluster_config
+
+    - name: Check whether configured PostgreSQL cluster data exists
+      ansible.builtin.stat:
+        path: "{{ postgresql_data_directory }}/PG_VERSION"
+      register: postgresql_cluster_data
+
+    - name: Reject partially initialized PostgreSQL cluster state
+      ansible.builtin.assert:
+        that:
+          - postgresql_cluster_config.stat.exists == postgresql_cluster_data.stat.exists
+        fail_msg: >-
+          PostgreSQL cluster state is inconsistent: configuration and PG_VERSION
+          must either both exist or both be absent.
+
+    - name: Determine whether configured PostgreSQL cluster exists
+      ansible.builtin.set_fact:
+        postgresql_cluster_exists: >-
+          {{ postgresql_cluster_config.stat.exists and postgresql_cluster_data.stat.exists }}
+
+    - name: Create configured PostgreSQL cluster with checksums when missing
+      ansible.builtin.command:
+        argv:
+          - pg_createcluster
+          - -d
+          - "{{ postgresql_data_directory }}"
+          - "{{ postgresql_version }}"
+          - "{{ postgresql_cluster_name }}"
+          - --start
+          - --
+          - --data-checksums
+      when: not (postgresql_cluster_exists | default(false))
+      changed_when: true
+      notify: Restart PostgreSQL cluster
+
+    - name: Calculate bounded PostgreSQL tuning values
+      ansible.builtin.set_fact:
+        postgresql_shared_buffers_mb: >-
+          {{ [128, [8192, (ansible_facts.memtotal_mb | int * 25 // 100)] | min] | max }}
+        postgresql_effective_cache_size_mb: >-
+          {{ [512, [32768, (ansible_facts.memtotal_mb | int * 75 // 100)] | min] | max }}
+        postgresql_maintenance_work_mem_mb: >-
+          {{ [64, [2048, (ansible_facts.memtotal_mb | int * 5 // 100)] | min] | max }}
+        postgresql_max_worker_processes: >-
+          {{ [2, [16, (ansible_facts.processor_vcpus | int)] | min] | max }}
+
+    - name: Calculate bounded PostgreSQL parallel worker value
+      ansible.builtin.set_fact:
+        postgresql_max_parallel_workers: >-
+          {{
+            [
+              [
+                2,
+                [8, (ansible_facts.processor_vcpus | int), (postgresql_max_worker_processes | int)] | min
+              ] | max,
+              postgresql_max_worker_processes | int
+            ] | min
+          }}
+
+    - name: Ensure PostgreSQL TLS directory exists
+      ansible.builtin.file:
+        path: "{{ postgresql_tls_directory }}"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: "0750"
+
+    - name: Check if managed TLS certificate exists
+      ansible.builtin.stat:
+        path: "{{ postgresql_tls_cert_path }}"
+      register: postgresql_tls_cert_stat
+
+    - name: Check if managed TLS private key exists
+      ansible.builtin.stat:
+        path: "{{ postgresql_tls_key_path }}"
+      register: postgresql_tls_key_stat
+
+    - name: Seed managed TLS certificate from Debian snake-oil certificate
+      ansible.builtin.copy:
+        src: /etc/ssl/certs/ssl-cert-snakeoil.pem
+        dest: "{{ postgresql_tls_cert_path }}"
+        owner: postgres
+        group: postgres
+        mode: "0644"
+        remote_src: true
+      when: not postgresql_tls_cert_stat.stat.exists
+      notify: Reload PostgreSQL cluster
+
+    - name: Seed managed TLS key from Debian snake-oil private key
+      ansible.builtin.copy:
+        src: /etc/ssl/private/ssl-cert-snakeoil.key
+        dest: "{{ postgresql_tls_key_path }}"
+        owner: postgres
+        group: postgres
+        mode: "0600"
+        remote_src: true
+      when: not postgresql_tls_key_stat.stat.exists
+      notify: Reload PostgreSQL cluster
+
+    - name: Ensure PostgreSQL configuration include directory exists
+      ansible.builtin.file:
+        path: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/conf.d"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: "0750"
+
+    - name: Enable PostgreSQL configuration include directory
+      ansible.builtin.lineinfile:
+        path: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/postgresql.conf"
+        regexp: '^\s*#?\s*include_dir\s*='
+        line: "include_dir = 'conf.d'"
+      notify: Restart PostgreSQL cluster
+
+    - name: Render PostgreSQL runtime settings
+      ansible.builtin.template:
+        src: postgresql.conf.j2
+        dest: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/conf.d/99-ansible.conf"
+        owner: postgres
+        group: postgres
+        mode: "0644"
+      notify: Restart PostgreSQL cluster
+
+    - name: Render PostgreSQL HBA rules
+      ansible.builtin.template:
+        src: pg_hba.conf.j2
+        dest: "/etc/postgresql/{{ postgresql_version }}/{{ postgresql_cluster_name }}/pg_hba.conf"
+        owner: postgres
+        group: postgres
+        mode: "0640"
+      notify: Reload PostgreSQL cluster
+
+    - name: Ensure PostgreSQL cluster service is enabled and started
+      ansible.builtin.service:
+        name: "postgresql@{{ postgresql_version }}-{{ postgresql_cluster_name }}"
+        enabled: true
+        state: started
+
+    - name: Ensure pgBackRest repository directory exists
+      ansible.builtin.file:
+        path: "{{ postgresql_backup_repository }}"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: "0750"
+
+    - name: Ensure pgBackRest configuration directory exists
+      ansible.builtin.file:
+        path: /etc/pgbackrest
+        state: directory
+        owner: root
+        group: postgres
+        mode: "0750"
+
+    - name: Render pgBackRest configuration
+      ansible.builtin.template:
+        src: pgbackrest.conf.j2
+        dest: /etc/pgbackrest/pgbackrest.conf
+        owner: root
+        group: postgres
+        mode: "0640"
+
+    - name: Render pgBackRest backup systemd service template
+      ansible.builtin.template:
+        src: pgbackrest-backup@.service.j2
+        dest: /etc/systemd/system/pgbackrest-backup@.service
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Apply pending PostgreSQL handler changes before backup checks
+      ansible.builtin.meta: flush_handlers
+
+    - name: Check whether PostgreSQL archive mode is active
+      ansible.builtin.command:
+        argv:
+          - psql
+          - -Atqc
+          - show archive_mode
+      register: postgresql_archive_mode
+      become: true
+      become_user: postgres
+      changed_when: postgresql_archive_mode.stdout | trim != 'on'
+      notify: Restart PostgreSQL cluster
+
+    - name: Apply PostgreSQL runtime drift correction before backup checks
+      ansible.builtin.meta: flush_handlers
+
+    - name: Create pgBackRest stanza
+      ansible.builtin.command:
+        argv:
+          - pgbackrest
+          - "--stanza={{ postgresql_backup_stanza }}"
+          - stanza-create
+      register: postgresql_pgbackrest_stanza_create
+      become: true
+      become_user: postgres
+      changed_when: >-
+        postgresql_pgbackrest_stanza_create.stdout is search('stanza-create for stanza')
+        or postgresql_pgbackrest_stanza_create.stderr is search('stanza-create for stanza')
+      failed_when: postgresql_pgbackrest_stanza_create.rc != 0
+
+    - name: Check pgBackRest stanza
+      ansible.builtin.command:
+        argv:
+          - pgbackrest
+          - "--stanza={{ postgresql_backup_stanza }}"
+          - check
+      become: true
+      become_user: postgres
+      changed_when: false
+
+    - name: Render pgBackRest full backup timer unit
+      ansible.builtin.template:
+        src: pgbackrest-full.timer.j2
+        dest: /etc/systemd/system/pgbackrest-full.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart pgBackRest full backup timer
+
+    - name: Render pgBackRest differential backup timer unit
+      ansible.builtin.template:
+        src: pgbackrest-diff.timer.j2
+        dest: /etc/systemd/system/pgbackrest-diff.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart pgBackRest differential backup timer
+
+    - name: Enable and start pgBackRest full and differential backup timers
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+        daemon_reload: true
+      loop:
+        - pgbackrest-full.timer
+        - pgbackrest-diff.timer

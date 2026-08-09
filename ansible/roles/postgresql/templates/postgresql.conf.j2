@@ -1,0 +1,25 @@
+port = {{ postgresql_port }}
+listen_addresses = '{{ postgresql_listen_addresses | replace("'", "''") }}'
+
+ssl = on
+ssl_cert_file = '{{ postgresql_tls_cert_path | replace("'", "''") }}'
+ssl_key_file = '{{ postgresql_tls_key_path | replace("'", "''") }}'
+ssl_min_protocol_version = 'TLSv1.2'
+
+password_encryption = 'scram-sha-256'
+
+archive_mode = on
+archive_command = 'pgbackrest --stanza={{ postgresql_backup_stanza }} archive-push %p'
+
+logging_collector = on
+log_connections = on
+log_disconnections = on
+log_lock_waits = on
+log_checkpoints = on
+log_min_duration_statement = {{ postgresql_log_min_duration_statement_ms }}
+
+shared_buffers = {{ postgresql_shared_buffers_mb }}MB
+effective_cache_size = {{ postgresql_effective_cache_size_mb }}MB
+maintenance_work_mem = {{ postgresql_maintenance_work_mem_mb }}MB
+max_worker_processes = {{ postgresql_max_worker_processes }}
+max_parallel_workers = {{ postgresql_max_parallel_workers }}

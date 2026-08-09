@@ -1,0 +1,9 @@
+[global]
+repo1-path={{ postgresql_backup_repository }}
+repo1-retention-full={{ postgresql_backup_retention_full }}
+start-fast=y
+process-max=2
+
+[{{ postgresql_backup_stanza }}]
+pg1-path={{ postgresql_data_directory }}
+pg1-port={{ postgresql_port }}
