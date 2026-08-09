@@ -62,7 +62,10 @@ Install the pinned tools and Ansible collections:
 ```sh
 mise install
 mise run ansible:deps
+mise run hooks:install
 ```
+
+The one-time hook installation configures Cocogitto to reject non-conventional commit messages and runs Gitleaks before every push. Run the secret scan directly with `mise run security:secrets`.
 
 List the available repository tasks:
 

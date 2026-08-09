@@ -1,0 +1,28 @@
+title = "Homelab Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public Gitea release signing fingerprint"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''7C9E68152594688862D62AF62D9AE806EC1592E2''']
+paths = [
+  '''^ansible/roles/gitea/defaults/main\.yaml$''',
+  '''^ansible/roles/gitea/tests/render-config\.yml$''',
+  '''^docs/superpowers/plans/2026-08-09-gitea-1\.27-deployment\.md$''',
+]
+
+[[allowlists]]
+description = "Deterministic Gitea render-test fixtures"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = [
+  '''test-admin-password''',
+  '''AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8''',
+  '''dGVzdC1vYXV0aDItand0LXNlY3JldC1iYXNlNjQ=''',
+]
+paths = ['''^ansible/roles/gitea/tests/render-config\.yml$''']

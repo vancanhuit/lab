@@ -1,0 +1,11 @@
+[git_hooks.commit-msg]
+script = """#!/bin/sh
+set -eu
+cog verify --file "$1"
+"""
+
+[git_hooks.pre-push]
+script = """#!/bin/sh
+set -eu
+mise run security:secrets
+"""
