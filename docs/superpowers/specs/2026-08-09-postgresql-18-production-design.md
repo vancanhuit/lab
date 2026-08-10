@@ -55,11 +55,17 @@ The role owns:
 - TLS target files and secure permissions.
 - pgBackRest configuration, stanza creation, and backup timers.
 - Service handlers and post-deployment health checks.
-- Input validation for version, network, backup, and tuning variables.
+- Input validation for version, network, and backup variables.
 
 Role defaults expose the PostgreSQL major version, cluster name, port, allowed
-CIDRs, TLS paths, backup schedule, retention, and bounded tuning ratios. The
-playbook overrides only host-specific values.
+CIDRs, TLS paths, backup schedule, and retention. Bounded memory and worker
+values are calculated from host facts during convergence. The playbook
+overrides only host-specific values.
+
+On an unbootstrapped host, check mode validates role inputs but skips package,
+repository, cluster, configuration, and backup tasks because their required
+Python APT bindings and PostgreSQL runtime are not available yet. After the
+first normal deployment, check mode inspects the managed deployment state.
 
 ## TLS Lifecycle
 
@@ -71,13 +77,16 @@ The `lego` role requests an EC certificate for
 `postgres.lab.canhdinh.com` through the existing Cloudflare DNS challenge.
 Its deploy hook performs these steps:
 
-1. Install the renewed certificate and private key to PostgreSQL's managed TLS
-   paths with atomic replacement.
-2. Set certificate ownership to `postgres:postgres`; use mode `0644` for the
+1. Validate the renewed certificate and confirm that its public key matches the
+  private key.
+2. Stage both files with `postgres:postgres` ownership, mode `0644` for the
    certificate and `0600` for the private key.
-3. Validate PostgreSQL configuration before applying the new identity.
-4. Reload the PostgreSQL 18 `main` cluster so existing connections are not
-   interrupted.
+3. Validate file readability and PostgreSQL configuration against the staged
+  identity before activation.
+4. Atomically activate both files and reload the PostgreSQL 18 `main` cluster
+  so existing connections are not interrupted.
+5. Roll back both files and reload the previous identity if activation or
+  reload fails.
 
 The existing daily `lego-renew.timer` owns renewal scheduling. PostgreSQL uses
 TLS 1.2 or newer.
@@ -149,8 +158,9 @@ tolerate host loss.
 - Managed configuration files use atomic Ansible writes and notify handlers
   only when content changes.
 - PostgreSQL configuration is validated before restart or reload.
-- Certificate deployment leaves the active certificate untouched if copying
-  or validation fails.
+- Certificate deployment leaves the active identity untouched if staging or
+  validation fails and restores the previous identity if activation or reload
+  fails.
 - Backup commands return non-zero on failure so systemd records failed units.
 - No task logs secrets or private-key content.
 
@@ -161,6 +171,7 @@ Repository-level checks:
 ```sh
 cd ansible
 ansible-playbook --syntax-check postgres.yaml
+ansible-playbook --syntax-check verify-postgres.yaml
 ansible-playbook roles/postgresql/tests/render-config.yml
 ```
 
@@ -171,12 +182,14 @@ changing a real host.
 Deployment verification must confirm:
 
 - Installed server reports PostgreSQL major version 18.
-- Cluster `18/main` is online and `pg_isready` succeeds locally.
-- PostgreSQL reports TLS enabled with minimum protocol TLS 1.2.
+- Cluster `18/main` is online.
+- PostgreSQL reports TLS enabled with minimum protocol TLS 1.2, SCRAM password
+  encryption, and data checksums enabled.
 - Remote TLS presents a certificate valid for
   `postgres.lab.canhdinh.com`.
-- Plaintext TCP authentication and unapproved networks are rejected.
-- Both approved CIDRs have only `hostssl` SCRAM rules.
+- PostgreSQL parses the managed `pg_hba.conf` without errors; the render test
+  verifies the ordered superuser, approved-CIDR `hostssl`, plaintext, and
+  catch-all rejection rules.
 - pgBackRest stanza check succeeds and backup timers are active.
 - A second playbook run reports no changes.
 
@@ -190,14 +203,17 @@ must make the required service stop and destructive data replacement explicit.
 - `ansible/postgres.yaml`
 - `ansible/roles/postgresql/defaults/main.yaml`
 - `ansible/roles/postgresql/tasks/main.yaml`
+- `ansible/roles/postgresql/tasks/validate.yaml`
 - `ansible/roles/postgresql/handlers/main.yaml`
+- `ansible/roles/postgresql/files/lego-deploy-hook.sh`
 - `ansible/roles/postgresql/templates/postgresql.conf.j2`
 - `ansible/roles/postgresql/templates/pg_hba.conf.j2`
 - `ansible/roles/postgresql/templates/pgbackrest.conf.j2`
-- `ansible/roles/postgresql/templates/pgbackrest-backup.service.j2`
+- `ansible/roles/postgresql/templates/pgbackrest-backup@.service.j2`
 - `ansible/roles/postgresql/templates/pgbackrest-full.timer.j2`
 - `ansible/roles/postgresql/templates/pgbackrest-diff.timer.j2`
 - `ansible/roles/postgresql/tests/render-config.yml`
+- `ansible/verify-postgres.yaml`
 - `README.md`
 
 Exact task and template decomposition may change during planning if PostgreSQL
