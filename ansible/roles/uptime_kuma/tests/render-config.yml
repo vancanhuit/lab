@@ -78,3 +78,30 @@
         - name: Restore valid bind address
           ansible.builtin.set_fact:
             uptime_kuma_bind_address: 127.0.0.1
+
+    - name: Read installation task files
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ (playbook_dir | dirname) ~ '/tasks/install.yaml' }}"
+        - "{{ (playbook_dir | dirname) ~ '/tasks/release.yaml' }}"
+      register: uptime_kuma_install_task_files
+
+    - name: Combine installation task content
+      ansible.builtin.set_fact:
+        uptime_kuma_install_tasks_rendered: >-
+          {{ uptime_kuma_install_task_files.results |
+             map(attribute='content') |
+             map('b64decode') |
+             join('\n') }}
+
+    - name: Assert installation trust and release controls
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_install_tasks_rendered is search('nodesource-repo\.gpg\.key')
+          - uptime_kuma_install_tasks_rendered is search('6F71F525282841EEDAF851B42F59B5F99B1BE0B4')
+          - uptime_kuma_install_tasks_rendered is search('node_.*\.x')
+          - uptime_kuma_install_tasks_rendered is search('npm ci --omit=dev --no-audit')
+          - uptime_kuma_install_tasks_rendered is search('npm run download-dist')
+          - uptime_kuma_install_tasks_rendered is search('uptime_kuma_release_commit')
+          - "uptime_kuma_install_tasks_rendered is search('state: link')"

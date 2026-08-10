@@ -1,0 +1,102 @@
+---
+- name: Install Uptime Kuma operating-system dependencies
+  ansible.builtin.apt:
+    name:
+      - acl
+      - build-essential
+      - ca-certificates
+      - curl
+      - git
+      - gnupg
+      - nginx
+      - openssl
+      - python3
+      - sqlite3
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create APT keyring directory
+  ansible.builtin.file:
+    path: /usr/share/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download NodeSource repository key
+  ansible.builtin.get_url:
+    url: "{{ uptime_kuma_nodesource_key_url }}"
+    dest: /usr/share/keyrings/nodesource-repo.gpg.key
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read NodeSource repository key fingerprint
+  ansible.builtin.command:
+    cmd: gpg --batch --show-keys --with-colons /usr/share/keyrings/nodesource-repo.gpg.key
+  register: uptime_kuma_nodesource_key_check
+  changed_when: false
+  failed_when: >-
+    'fpr:::::::::6F71F525282841EEDAF851B42F59B5F99B1BE0B4:'
+    not in uptime_kuma_nodesource_key_check.stdout
+
+- name: Configure NodeSource Node.js repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ ansible_facts.architecture | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}
+      signed-by=/usr/share/keyrings/nodesource-repo.gpg.key]
+      https://deb.nodesource.com/node_{{ uptime_kuma_node_major }}.x nodistro main
+    filename: nodesource
+    state: present
+    update_cache: true
+
+- name: Install Node.js 24 LTS
+  ansible.builtin.apt:
+    name: nodejs
+    state: latest
+  notify: Restart Uptime Kuma
+
+- name: Check installed Node.js version
+  ansible.builtin.command:
+    cmd: node --version
+  register: uptime_kuma_node_version_check
+  changed_when: false
+  failed_when: uptime_kuma_node_version_check.stdout is not match('^v24\.')
+
+- name: Create Uptime Kuma system group
+  ansible.builtin.group:
+    name: "{{ uptime_kuma_group }}"
+    system: true
+    state: present
+
+- name: Create Uptime Kuma system user
+  ansible.builtin.user:
+    name: "{{ uptime_kuma_user }}"
+    group: "{{ uptime_kuma_group }}"
+    home: "{{ uptime_kuma_data_directory }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+    state: present
+
+- name: Create Uptime Kuma managed directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ uptime_kuma_install_root }}", owner: root, group: root, mode: '0755' }
+    - { path: "{{ uptime_kuma_install_root }}/releases", owner: root, group: root, mode: '0755' }
+    - { path: "{{ uptime_kuma_data_directory }}", owner: "{{ uptime_kuma_user }}", group: "{{ uptime_kuma_group }}", mode: '0700' }
+    - { path: "{{ uptime_kuma_npm_cache_directory }}", owner: "{{ uptime_kuma_user }}", group: "{{ uptime_kuma_group }}", mode: '0700' }
+
+- name: Create pinned release directory
+  ansible.builtin.file:
+    path: "{{ uptime_kuma_release_path }}"
+    state: directory
+    owner: "{{ uptime_kuma_user }}"
+    group: "{{ uptime_kuma_group }}"
+    mode: '0755'
