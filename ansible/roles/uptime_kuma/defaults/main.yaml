@@ -1,6 +1,6 @@
 ---
 uptime_kuma_version: "2.5.0"
-uptime_kuma_release_commit: d9a60dfc73140d15111752e4e8910ed4b54bd9a3
+uptime_kuma_release_commit: "d9a60dfc73140d15111752e4e8910ed4b54bd9a3"
 uptime_kuma_repository_url: https://github.com/louislam/uptime-kuma.git
 uptime_kuma_node_major: 24
 uptime_kuma_nodesource_key_url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
