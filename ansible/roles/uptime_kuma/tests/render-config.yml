@@ -30,9 +30,13 @@
         uptime_kuma_data_directory: "{{ uptime_kuma_data_directory | default(uptime_kuma_role_defaults.uptime_kuma_data_directory) }}"
         uptime_kuma_npm_cache_directory: "{{ uptime_kuma_npm_cache_directory | default(uptime_kuma_role_defaults.uptime_kuma_npm_cache_directory) }}"
         uptime_kuma_backup_directory: "{{ uptime_kuma_backup_directory | default(uptime_kuma_role_defaults.uptime_kuma_backup_directory) }}"
-        uptime_kuma_backup_retention_count: "{{ uptime_kuma_backup_retention_count | default(uptime_kuma_role_defaults.uptime_kuma_backup_retention_count) }}"
+        uptime_kuma_backup_retention_count: >-
+          {{ uptime_kuma_backup_retention_count |
+             default(uptime_kuma_role_defaults.uptime_kuma_backup_retention_count) }}
         uptime_kuma_backup_calendar: "{{ uptime_kuma_backup_calendar | default(uptime_kuma_role_defaults.uptime_kuma_backup_calendar) }}"
-        uptime_kuma_backup_randomized_delay: "{{ uptime_kuma_backup_randomized_delay | default(uptime_kuma_role_defaults.uptime_kuma_backup_randomized_delay) }}"
+        uptime_kuma_backup_randomized_delay: >-
+          {{ uptime_kuma_backup_randomized_delay |
+             default(uptime_kuma_role_defaults.uptime_kuma_backup_randomized_delay) }}
         uptime_kuma_tls_directory: "{{ uptime_kuma_tls_directory | default(uptime_kuma_role_defaults.uptime_kuma_tls_directory) }}"
         uptime_kuma_tls_cert_path: "{{ uptime_kuma_tls_cert_path | default(uptime_kuma_role_defaults.uptime_kuma_tls_cert_path) }}"
         uptime_kuma_tls_key_path: "{{ uptime_kuma_tls_key_path | default(uptime_kuma_role_defaults.uptime_kuma_tls_key_path) }}"
@@ -101,6 +105,10 @@
           - uptime_kuma_install_tasks_rendered is search('nodesource-repo\.gpg\.key')
           - uptime_kuma_install_tasks_rendered is search('uptime_kuma_nodesource_key_fingerprint')
           - uptime_kuma_role_defaults.uptime_kuma_nodesource_key_fingerprint == '6F71F525282841EEDAF851B42F59B5F99B1BE0B4'
+          - uptime_kuma_install_tasks_rendered is search('ansible\.builtin\.deb822_repository')
+          - uptime_kuma_install_tasks_rendered is not search('ansible\.builtin\.apt_repository')
+          - uptime_kuma_install_tasks_rendered is search('python3-debian')
+          - uptime_kuma_install_tasks_rendered is search('nodesource\.list')
           - uptime_kuma_install_tasks_rendered is search('node_.*\.x')
           - uptime_kuma_install_tasks_rendered is search('npm ci --omit=dev --no-audit')
           - uptime_kuma_install_tasks_rendered is search('npm run download-dist')
@@ -116,31 +124,37 @@
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma.service.j2' }}"
         dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma.service"
+        mode: '0600'
 
     - name: Render Nginx configuration template
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/nginx.conf.j2' }}"
         dest: "{{ uptime_kuma_template_tmpdir.path }}/nginx.conf"
+        mode: '0600'
 
     - name: Render Lego deploy hook template
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/lego-deploy-hook.sh.j2' }}"
         dest: "{{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh"
+        mode: '0600'
 
     - name: Render backup script template
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma-backup.sh.j2' }}"
         dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.sh"
+        mode: '0600'
 
     - name: Render backup service template
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma-backup.service.j2' }}"
         dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.service"
+        mode: '0600'
 
     - name: Render backup timer template
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma-backup.timer.j2' }}"
         dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.timer"
+        mode: '0600'
 
     - name: Read rendered systemd service
       ansible.builtin.slurp:

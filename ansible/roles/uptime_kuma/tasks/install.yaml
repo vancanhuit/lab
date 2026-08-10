@@ -11,6 +11,7 @@
       - nginx
       - openssl
       - python3
+      - python3-debian
       - sqlite3
     state: present
     update_cache: true
@@ -41,17 +42,38 @@
     'fpr:::::::::' ~ uptime_kuma_nodesource_key_fingerprint ~ ':'
     not in uptime_kuma_nodesource_key_check.stdout
 
-- name: Configure NodeSource Node.js repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [arch={{ ansible_facts.architecture | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}
-      signed-by=/usr/share/keyrings/nodesource-repo.gpg.key]
-      https://deb.nodesource.com/node_{{ uptime_kuma_node_major }}.x nodistro main
-    filename: nodesource
-    state: present
-    update_cache: true
+- name: Remove legacy NodeSource repository definition
+  ansible.builtin.file:
+    path: /etc/apt/sources.list.d/nodesource.list
+    state: absent
+  register: uptime_kuma_legacy_nodesource_repository
 
-- name: Install Node.js 24 LTS
+- name: Configure NodeSource Node.js repository
+  ansible.builtin.deb822_repository:
+    name: nodesource
+    types:
+      - deb
+    uris:
+      - "https://deb.nodesource.com/node_{{ uptime_kuma_node_major }}.x"
+    suites:
+      - nodistro
+    components:
+      - main
+    architectures:
+      - "{{ ansible_facts.architecture | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}"
+    signed_by: /usr/share/keyrings/nodesource-repo.gpg.key
+    mode: '0644'
+    state: present
+  register: uptime_kuma_nodesource_repository
+
+- name: Update APT cache after NodeSource repository changes
+  ansible.builtin.apt:
+    update_cache: true
+  when: >-
+    uptime_kuma_legacy_nodesource_repository.changed or
+    uptime_kuma_nodesource_repository.changed
+
+- name: Install Node.js 24 LTS # noqa: package-latest
   ansible.builtin.apt:
     name: nodejs
     state: latest
