@@ -9,7 +9,7 @@ trap 'rm -rf "$test_root"' EXIT
 
 # Directories for test isolation
 data_dir="$test_root/data with spaces"
-backup_dir="$test_root/backups"
+backup_dir="$test_root/backups with spaces"
 shim_dir="$test_root/bin"
 mkdir -p "$data_dir" "$backup_dir" "$shim_dir"
 
@@ -112,7 +112,14 @@ if [ "$tmp_count" -ne 0 ]; then
 fi
 
 # Verify newest backup can be decompressed
-newest_backup="$(find "$backup_dir" -name 'kuma-*.db.gz' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2)"
+# Use the known new archive by pattern instead of parsing find output with cut
+newest_backup="$(find "$backup_dir" -name 'kuma-*.db.gz' ! -name 'kuma-202601010*Z.db.gz' -type f)"
+if [ -z "$newest_backup" ]; then
+    echo "FAIL - cannot find new backup archive"
+    find "$backup_dir" -name 'kuma-*.db.gz' -ls
+    exit 1
+fi
+
 if ! gzip -dc "$newest_backup" > "$test_root/restored.db"; then
     echo "FAIL - cannot decompress newest backup"
     exit 1
