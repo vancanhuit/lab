@@ -403,7 +403,7 @@ If commits are authorized: `git commit -m "feat(postgresql): automate local back
 - Create: `ansible/postgres.yaml`
 
 **Interfaces:**
-- Consumes: `postgresql` role, existing `lego` role, and SOPS-backed `cloudflare.api_token` consumed by lego.
+- Consumes: `postgresql` role, existing `lego` role, and SOPS-backed `cloudflare_api_token` consumed by lego.
 - Produces: one production entry point targeting inventory host `postgres` and renewing certificate name `postgres`.
 
 - [ ] **Step 1: Write playbook syntax test and verify failure**

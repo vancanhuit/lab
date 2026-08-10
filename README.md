@@ -398,7 +398,7 @@ The role installs pinned Lego `5.3.1` and manages these root-owned paths on each
 | `/etc/lego/hooks/` | Rendered service deployment scripts | directory `0750`, scripts `0750` |
 | `/var/lib/lego/` | ACME account state, private keys, certificates, and PFX files | directory `0750` |
 
-The Cloudflare token comes from the SOPS-encrypted `cloudflare.api_token` variable. It has only `Zone / Zone / Read` and `Zone / DNS / Edit` permissions and is scoped to `canhdinh.com`. Do not use a Cloudflare Global API Key or commit a decrypted token.
+The Cloudflare token comes from the SOPS-encrypted `cloudflare_api_token` variable. It has only `Zone / Zone / Read` and `Zone / DNS / Edit` permissions and is scoped to `canhdinh.com`. Do not use a Cloudflare Global API Key or commit a decrypted token.
 
 ### Issuance and Reconciliation Flow
 
