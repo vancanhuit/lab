@@ -558,7 +558,7 @@ The second deployment should report `changed=0` for both the Gitea and PostgreSQ
 
 ### 4. Deploy Uptime Kuma
 
-Uptime Kuma depends on the PostgreSQL service. The Kuma playbook creates its PostgreSQL role and database before deploying Kuma with built-in HTTPS.
+Uptime Kuma stores its state in a local SQLite database and has no PostgreSQL runtime dependency. The Kuma playbook deploys the native application behind Nginx with a Lego-managed TLS certificate.
 
 ```sh
 ansible-playbook kuma.yaml
