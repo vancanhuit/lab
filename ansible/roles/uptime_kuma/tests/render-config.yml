@@ -116,6 +116,24 @@
           - uptime_kuma_install_tasks_rendered is search('uptime_kuma_release_commit')
           - "uptime_kuma_install_tasks_rendered is search('state: link')"
 
+    - name: Parse release management tasks
+      ansible.builtin.set_fact:
+        uptime_kuma_release_tasks: >-
+          {{ (uptime_kuma_install_task_files.results[1].content | b64decode | from_yaml) }}
+
+    - name: Select release activation task
+      ansible.builtin.set_fact:
+        uptime_kuma_release_activation_task: >-
+          {{ uptime_kuma_release_tasks |
+             selectattr('name', 'equalto', 'Activate verified Uptime Kuma release') |
+             first }}
+
+    - name: Assert release activation does not follow the target symlink
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_release_activation_task['ansible.builtin.file'].follow is false
+        fail_msg: Release activation must not change ownership of the release target
+
     - name: Create temporary directory for template rendering
       ansible.builtin.tempfile:
         state: directory
