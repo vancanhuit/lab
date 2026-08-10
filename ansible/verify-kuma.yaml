@@ -23,17 +23,31 @@
     - name: Gather service facts
       ansible.builtin.service_facts:
 
-    - name: Assert required services and timers
+    - name: Assert required services are running and enabled
       ansible.builtin.assert:
         that:
           - ansible_facts.services['uptime-kuma.service'].state == 'running'
           - ansible_facts.services['uptime-kuma.service'].status == 'enabled'
           - ansible_facts.services['nginx.service'].state == 'running'
           - ansible_facts.services['nginx.service'].status == 'enabled'
-          - ansible_facts.services['lego-renew.timer'].state == 'running'
-          - ansible_facts.services['lego-renew.timer'].status == 'enabled'
-          - ansible_facts.services['uptime-kuma-backup.timer'].state == 'running'
-          - ansible_facts.services['uptime-kuma-backup.timer'].status == 'enabled'
+
+    - name: Check required timers are enabled # noqa command-instead-of-module
+      ansible.builtin.command: >
+        systemctl is-enabled lego-renew.timer uptime-kuma-backup.timer
+      register: uptime_kuma_timers_enabled
+      changed_when: false
+
+    - name: Check required timers are active # noqa command-instead-of-module
+      ansible.builtin.command: >
+        systemctl is-active lego-renew.timer uptime-kuma-backup.timer
+      register: uptime_kuma_timers_active
+      changed_when: false
+
+    - name: Assert timer enabled and active state
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_timers_enabled.stdout_lines == ['enabled', 'enabled']
+          - uptime_kuma_timers_active.stdout_lines == ['active', 'active']
 
     - name: Read TCP listeners
       ansible.builtin.command:
@@ -41,12 +55,28 @@
       register: uptime_kuma_listener_check
       changed_when: false
 
-    - name: Assert listener boundaries
+    - name: Extract port 3001 listeners
+      ansible.builtin.set_fact:
+        uptime_kuma_port_3001_listeners: >-
+          {{ uptime_kuma_listener_check.stdout_lines |
+             select('regex', '.*:3001\s.*') |
+             list }}
+
+    - name: Assert exactly one Node listener on 127.0.0.1:3001
       ansible.builtin.assert:
         that:
-          - uptime_kuma_listener_check.stdout is regex('(?m)^.*127\\.0\\.0\\.1:3001\\b.*node')
-          - uptime_kuma_listener_check.stdout is regex('(?m)^.*:443\\b.*nginx')
-          - uptime_kuma_listener_check.stdout is not regex('(?m)^.*(?:0\\.0\\.0\\.0|\\*|\\[::\\]):3001\\b')
+          - uptime_kuma_port_3001_listeners | length == 1
+          - uptime_kuma_port_3001_listeners[0] is regex('127\\.0\\.0\\.1:3001\\s.*\\bnode\\b')
+        fail_msg: >-
+          Expected exactly one Node listener on 127.0.0.1:3001, but found
+          {{ uptime_kuma_port_3001_listeners | length }} listeners:
+          {{ uptime_kuma_port_3001_listeners | to_nice_yaml }}
+
+    - name: Assert Nginx listening on 443
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_listener_check.stdout is regex('(?m):443\\s.*\\bnginx\\b')
+        fail_msg: Expected Nginx listening on port 443
 
     - name: Validate Nginx configuration
       ansible.builtin.command:
@@ -77,24 +107,30 @@
 
     - name: Read protected path metadata
       ansible.builtin.stat:
-        path: "{{ item }}"
+        path: "{{ item.path }}"
       loop:
-        - /var/lib/uptime-kuma
-        - /var/backups/uptime-kuma
-        - /etc/uptime-kuma/tls/server.crt
-        - /etc/uptime-kuma/tls/server.key
+        - { path: /var/lib/uptime-kuma, label: data directory, owner: kuma, group: null, mode: '0700' }
+        - { path: /var/backups/uptime-kuma, label: backup directory, owner: root, group: null, mode: '0700' }
+        - { path: /etc/uptime-kuma/tls/server.crt, label: TLS certificate, owner: null, group: null, mode: '0644' }
+        - { path: /etc/uptime-kuma/tls/server.key, label: TLS private key, owner: null, group: www-data, mode: '0640' }
       register: uptime_kuma_protected_paths
 
     - name: Assert protected path ownership and modes
       ansible.builtin.assert:
         that:
-          - uptime_kuma_protected_paths.results[0].stat.pw_name == 'kuma'
-          - uptime_kuma_protected_paths.results[0].stat.mode == '0700'
-          - uptime_kuma_protected_paths.results[1].stat.pw_name == 'root'
-          - uptime_kuma_protected_paths.results[1].stat.mode == '0700'
-          - uptime_kuma_protected_paths.results[2].stat.mode == '0644'
-          - uptime_kuma_protected_paths.results[3].stat.gr_name == 'www-data'
-          - uptime_kuma_protected_paths.results[3].stat.mode == '0640'
+          - item.stat.exists
+          - item.item.owner is none or item.stat.pw_name == item.item.owner
+          - item.item.group is none or item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+        fail_msg: >-
+          {{ item.item.label }} at {{ item.item.path }} has incorrect permissions:
+          owner={{ item.stat.pw_name }} (expected {{ item.item.owner | default('any') }}),
+          group={{ item.stat.gr_name }} (expected {{ item.item.group | default('any') }}),
+          mode={{ item.stat.mode }} (expected {{ item.item.mode }})
+        success_msg: "{{ item.item.label }} permissions correct"
+      loop: "{{ uptime_kuma_protected_paths.results }}"
+      loop_control:
+        label: "{{ item.item.path }}"
 
     - name: Create an on-demand Uptime Kuma backup
       ansible.builtin.systemd_service:
@@ -107,6 +143,12 @@
         patterns: 'kuma-*.db.gz'
         file_type: file
       register: uptime_kuma_backup_archives
+
+    - name: Assert at least one backup archive exists
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_backup_archives.files | length > 0
+        fail_msg: No backup archives found in /var/backups/uptime-kuma matching kuma-*.db.gz
 
     - name: Select newest Uptime Kuma backup
       ansible.builtin.set_fact:
