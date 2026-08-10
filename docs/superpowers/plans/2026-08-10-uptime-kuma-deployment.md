@@ -19,7 +19,7 @@
 - Store immutable releases below `/opt/uptime-kuma/releases`, mutable state in `/var/lib/uptime-kuma`, TLS material in `/etc/uptime-kuma/tls`, and backups in `/var/backups/uptime-kuma`.
 - Keep 14 daily SQLite online backups and validate every completed backup with `PRAGMA quick_check`.
 - Do not automate Kuma 2.5 configuration through its private Socket.IO protocol or by mutating SQLite.
-- Keep admin and SMTP secrets in SOPS or Kuma's restricted SQLite database; never print them from Ansible or documentation.
+- Keep the admin password and Brevo credentials in the operator's password manager and Kuma's restricted SQLite database; never print them from Ansible or documentation.
 - Follow the existing render-test convention: load defaults under a namespace and backfill only missing variables.
 
 ---
@@ -1314,36 +1314,18 @@ git commit -m "test(kuma): verify production deployment"
 
 ---
 
-### Task 6: Add the bootstrap secret and operations runbook
+### Task 6: Add the bootstrap and operations runbook
 
 **Files:**
-- Modify: `ansible/group_vars/all/secrets.sops.yaml`
 - Modify: `README.md`
 
 **Interfaces:**
-- Consumes: Existing SOPS/age configuration and existing `gitea_smtp_*` Brevo values.
-- Produces: An encrypted `uptime_kuma_admin_password` and field-by-field operator instructions for initial setup, monitors, restore, upgrade, and troubleshooting.
+- Consumes: Password-manager-generated administrator and Brevo credentials entered directly in the Uptime Kuma UI.
+- Produces: Field-by-field operator instructions for initial setup, monitors, restore, upgrade, and troubleshooting.
 
-- [ ] **Step 1: Add the encrypted administrator password without printing it**
+- [ ] **Step 1: Document password-manager-owned credentials**
 
-From the repository root, first confirm the key is absent:
-
-```bash
-! rg '^uptime_kuma_admin_password:' ansible/group_vars/all/secrets.sops.yaml
-```
-
-Then generate a JSON-encoded random value and send it to SOPS over stdin:
-
-```bash
-openssl rand -base64 48 |
-  tr -d '\n' |
-  python -c 'import json, sys; print(json.dumps(sys.stdin.read()))' |
-  sops set --value-stdin \
-    ansible/group_vars/all/secrets.sops.yaml \
-    '["uptime_kuma_admin_password"]'
-```
-
-Expected: the YAML key is visible but its value remains `ENC[...]`. Do not decrypt or print the file during implementation.
+Document that Ansible does not create the administrator or configure Brevo. During initial UI setup, the operator generates and stores the administrator password in a password manager. The Brevo API key, from address, and from name are also retrieved from the password manager and entered directly in Kuma.
 
 - [ ] **Step 2: Document instance and deployment sequence**
 
@@ -1365,18 +1347,18 @@ Document these exact settings:
 
 - URL: `https://kuma.lab.canhdinh.com`
 - Admin username: `kuma-admin`
-- Admin password source: SOPS key `uptime_kuma_admin_password`
+- Admin password: generate and store a strong, unique value in the password manager during account creation.
 - Require administrator 2FA after first login.
 - Settings > Reverse Proxy > HTTP Headers > Trust Proxy: `Yes`.
-- Notification type: SMTP.
-- SMTP host/port/sender/username/password sources: existing SOPS keys `gitea_smtp_host`, `gitea_smtp_port`, `gitea_smtp_from`, `gitea_smtp_user`, and `gitea_smtp_password`.
+- Notification type: Brevo.
+- Brevo fields: API key, from address, and from name, all sourced from the password manager.
 - Send and confirm Kuma's test email before attaching the notification.
 
 Do not include decrypted values or commands that print the complete secrets file.
 
 - [ ] **Step 4: Document the initial monitor set**
 
-Add the `Homelab` group with 60-second heartbeats and three retries. Include the exact eight monitors from the design: Kuma HTTPS, Gitea HTTPS, PostgreSQL TCP 5432, Technitium DNS A lookup for Kuma expecting `10.205.234.102`, and ping checks for `debian-incus`, DNS, PostgreSQL, and Gitea. Attach the Brevo SMTP notification to all monitors and state Kuma cannot report its own total outage.
+Add the `Homelab` group with 60-second heartbeats and three retries. Include the exact eight monitors from the design: Kuma HTTPS, Gitea HTTPS, PostgreSQL TCP 5432, Technitium DNS A lookup for Kuma expecting `10.205.234.102`, and ping checks for `debian-incus`, DNS, PostgreSQL, and Gitea. Attach the Brevo notification to all monitors and state Kuma cannot report its own total outage.
 
 - [ ] **Step 5: Document backup, restore, upgrade, and troubleshooting**
 
@@ -1387,18 +1369,17 @@ Include commands to inspect both timers and journals, trigger an online backup, 
 Run:
 
 ```bash
-sops --decrypt ansible/group_vars/all/secrets.sops.yaml >/dev/null
 git diff --check
-git diff -- ansible/group_vars/all/secrets.sops.yaml README.md
+git diff -- README.md
 mise run security:secrets
 ```
 
-Expected: SOPS authentication succeeds, only ciphertext is present in the secret diff, documentation contains no secret values, and both scanners pass.
+Expected: documentation contains no secret values and both scanners pass.
 
 - [ ] **Step 7: Commit the runbook and encrypted secret**
 
 ```bash
-git add README.md ansible/group_vars/all/secrets.sops.yaml
+git add README.md
 git commit -m "docs(kuma): add bootstrap and operations runbook"
 ```
 
@@ -1472,7 +1453,7 @@ Expected: the `kuma` recap reports `changed=0`, `failed=0`, and `unreachable=0`.
 
 - [ ] **Step 6: Hand off the one-time private UI setup**
 
-Open `https://kuma.lab.canhdinh.com` for the operator. The operator retrieves the admin and Brevo values directly through SOPS, creates the account, enables 2FA and trusted proxy headers, creates the documented monitors, and confirms the Brevo test alert. Do not request passwords or tokens through chat.
+Open `https://kuma.lab.canhdinh.com` for the operator. The operator generates the admin password and retrieves the Brevo API key, from address, and from name through the password manager, creates the account, enables 2FA and trusted proxy headers, creates the documented monitors, and confirms the Brevo test alert. Do not request passwords or tokens through chat.
 
 - [ ] **Step 7: Run final repository checks**
 

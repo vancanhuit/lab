@@ -7,7 +7,7 @@
 
 Deploy Uptime Kuma 2.5.0 to the existing `kuma` Incus container and use it to monitor the homelab's core services. The dashboard must be available only through the homelab network and Tailscale at `https://kuma.lab.canhdinh.com` with a publicly trusted certificate.
 
-The deployment must be reproducible with Ansible, preserve monitoring state across application upgrades, send alerts through the existing Brevo SMTP service, and include focused deployment and runtime verification.
+The deployment must be reproducible with Ansible, preserve monitoring state across application upgrades, send alerts through Brevo, and include focused deployment and runtime verification.
 
 ## Existing Environment
 
@@ -98,10 +98,10 @@ Uptime Kuma 2.5 does not provide a supported management REST API. The maintained
 
 After Ansible deploys and verifies the service, the operator will complete one setup session at `https://kuma.lab.canhdinh.com`:
 
-1. Create the administrator using the username and generated password documented through SOPS-managed variables.
+1. Create the administrator using a strong, unique password generated and stored in the operator's password manager.
 2. Enable two-factor authentication for the administrator.
 3. Enable trusted proxy headers because Kuma is reachable only through the local Nginx proxy.
-4. Add an SMTP notification using the existing Brevo host, port, sender, username, and password values.
+4. Add a Brevo notification using an API key, from address, and from name stored in the operator's password manager.
 5. Send and confirm a test notification.
 6. Create the monitor group and checks below.
 7. Attach the Brevo notification to every monitor.
@@ -193,7 +193,7 @@ After verification, rerun `ansible-playbook kuma.yaml`. The second run must repo
 - Only Nginx accepts remote connections; the Node.js listener is loopback-only.
 - The application runs without root privileges.
 - Certificate private keys, SQLite state, and backups are not world-readable.
-- Admin and SMTP secrets remain in SOPS or Kuma's restricted SQLite state and are not printed in playbook output or documentation.
+- Admin and Brevo credentials remain in the operator's password manager and Kuma's restricted SQLite state and are not printed in playbook output or documentation.
 - Two-factor authentication is required for the administrator.
 - Trusted proxy headers are enabled only because Nginx is the sole path to Kuma.
 

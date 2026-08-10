@@ -24,7 +24,7 @@ The Incus host uses Zabbly builds for:
 - Install [Tailscale](https://tailscale.com/docs), join the tailnet, and configure split DNS for `lab.canhdinh.com`.
 - Advertise the Incus bridge network from the Incus host through a [Tailscale subnet router](https://tailscale.com/kb/1019/subnets).
 - Configure the Ansible inventory hosts in `ansible/inventory.yaml`.
-- Add the required Cloudflare, PostgreSQL, Gitea, [IDrive e2](https://www.idrive.com/s3-storage-e2/), and [Brevo](https://developers.brevo.com/docs/send-a-transactional-email) secrets to `ansible/group_vars/all/secrets.sops.yaml`.
+- Add the required Cloudflare, PostgreSQL, Gitea, [IDrive e2](https://www.idrive.com/s3-storage-e2/), and Gitea [Brevo SMTP](https://developers.brevo.com/docs/send-a-transactional-email) secrets to `ansible/group_vars/all/secrets.sops.yaml`. Uptime Kuma's native Brevo provider is configured separately through its UI with password-manager values.
 
 ### Enable Tailscale SSH
 
@@ -588,14 +588,7 @@ The second deployment should report `changed=0` for `kuma`.
 Open `https://kuma.lab.canhdinh.com/` and configure the initial administrator account:
 
 - **Username:** `kuma-admin`
-- **Password:** Retrieve from the SOPS key `uptime_kuma_admin_password`:
-
-  ```sh
-  sops --extract '["uptime_kuma_admin_password"]' \
-    --decrypt ansible/group_vars/all/secrets.sops.yaml
-  ```
-
-Use a strong, unique password during account creation or change the password on first login if the Ansible role has pre-configured the account.
+- **Password:** Generate a strong, unique password in your password manager and enter it during account creation. Ansible does not create the administrator or store this password.
 
 After first login, enable two-factor authentication:
 
@@ -613,29 +606,26 @@ Uptime Kuma runs behind Nginx with TLS termination. Configure the trust-proxy se
 
 This ensures logs, rate limiting, and access controls see the real client address instead of the Nginx proxy.
 
-### SMTP Notification Configuration
+### Brevo Notification Configuration
 
-Configure the Brevo SMTP service for alert notifications:
+Configure the native Brevo notification provider for alert emails. Store these values in your password manager; they are entered directly in Kuma and are not managed by Ansible or SOPS.
 
 1. Navigate to **Settings** > **Notifications**.
 2. Click **Setup Notification**.
-3. Select **SMTP (Email)** as the notification type.
-4. Configure the following settings using values from SOPS:
+3. Select **Brevo** as the notification type.
+4. Configure the following settings using values from your password manager:
 
-   | Field | SOPS Key | Retrieve Command |
-   | --- | --- | --- |
-   | **SMTP Host** | `gitea_smtp_host` | `sops --extract '["gitea_smtp_host"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
-   | **SMTP Port** | `gitea_smtp_port` | `sops --extract '["gitea_smtp_port"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
-   | **From Email** | `gitea_smtp_from` | `sops --extract '["gitea_smtp_from"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
-   | **Username** | `gitea_smtp_user` | `sops --extract '["gitea_smtp_user"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
-   | **Password** | `gitea_smtp_password` | `sops --extract '["gitea_smtp_password"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
+   | Field | Source |
+   | --- | --- |
+   | **API Key** | Brevo API key stored in the password manager |
+   | **From Address** | Verified Brevo sender address stored in the password manager |
+   | **From Name** | Sender display name stored in the password manager |
 
-5. Enable **Secure** (TLS) if required by the SMTP provider.
-6. Click **Test** to send a confirmation email.
-7. Verify the test email arrives before attaching the notification to monitors.
+5. Click **Test** to send a confirmation email.
+6. Verify the test email arrives before attaching the notification to monitors.
 
 > [!WARNING]
-> Do not commit decrypted SMTP credentials or include them in screenshots or logs.
+> Do not commit the Brevo API key or include it in screenshots or logs.
 
 ### Monitor Configuration
 
@@ -666,13 +656,13 @@ For each monitor:
 2. Configure the monitor type and target from the table above.
 3. Set **Heartbeat Interval** to `60` seconds.
 4. Set **Retries** to `3`.
-5. Under **Notifications**, attach the Brevo SMTP notification.
+5. Under **Notifications**, attach the Brevo notification.
 6. Save the monitor.
 
 > [!IMPORTANT]
 > The **Uptime Kuma HTTPS** monitor checks Kuma itself. Kuma cannot send alert notifications if its own service, database, or network is completely down; the alert will be delayed until service recovery.
 
-All other monitors will send alert notifications through Brevo SMTP when they fail, subject to the retry policy.
+All other monitors will send alert notifications through Brevo when they fail, subject to the retry policy.
 
 ### Backup Operations
 
