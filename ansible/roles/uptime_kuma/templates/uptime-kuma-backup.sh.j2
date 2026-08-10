@@ -17,18 +17,26 @@ temporary_database="$BACKUP_DIR/.kuma-$timestamp.db.tmp"
 temporary_archive="$BACKUP_DIR/.kuma-$timestamp.db.gz.tmp"
 final_archive="$BACKUP_DIR/kuma-$timestamp.db.gz"
 
+temporary_manifest="$BACKUP_DIR/.retention-manifest-$timestamp.tmp"
+
 cleanup() {
-    rm -f "$temporary_database" "$temporary_archive"
+    rm -f "$temporary_database" "$temporary_archive" "$temporary_manifest"
 }
 trap cleanup EXIT HUP INT TERM
 
+# SQLite CLI section 3.2: text within single quotes is treated as one argument with
+# delimiters removed, including embedded whitespace. The '$temporary_database' syntax
+# ensures the path is passed as a single literal argument to the .backup command.
 sqlite3 "$DATABASE" ".backup '$temporary_database'"
 test "$(sqlite3 "$temporary_database" 'PRAGMA quick_check;')" = "ok"
 gzip -c "$temporary_database" > "$temporary_archive"
 mv -f "$temporary_archive" "$final_archive"
-find "$BACKUP_DIR" -type f -name 'kuma-*.db.gz' -printf '%T@ %p\n' |
-  sort -nr |
-  awk -v keep="$RETENTION_COUNT" 'NR > keep { $1=""; sub(/^ /, ""); print }' |
+
+# Retention: sequential stages with explicit error propagation (POSIX sh set -e
+# only catches the final pipeline command). Uses root-private manifest.
+find "$BACKUP_DIR" -type f -name 'kuma-*.db.gz' -printf '%T@ %p\n' > "$temporary_manifest"
+sort -nr "$temporary_manifest" -o "$temporary_manifest"
+awk -v keep="$RETENTION_COUNT" 'NR > keep { $1=""; sub(/^ /, ""); print }' "$temporary_manifest" |
   while IFS= read -r expired_archive; do
     rm -f -- "$expired_archive"
   done
