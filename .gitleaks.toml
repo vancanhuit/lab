@@ -16,6 +16,18 @@ paths = [
 ]
 
 [[allowlists]]
+description = "Public NodeSource repository signing fingerprint"
+condition = "AND"
+targetRules = ["generic-api-key"]
+regexTarget = "line"
+regexes = ['''6F71F525282841EEDAF851B42F59B5F99B1BE0B4''']
+paths = [
+  '''^ansible/roles/uptime_kuma/defaults/main\.yaml$''',
+  '''^ansible/roles/uptime_kuma/tests/render-config\.yml$''',
+  '''^docs/superpowers/plans/2026-08-10-uptime-kuma-deployment\.md$''',
+]
+
+[[allowlists]]
 description = "Deterministic Gitea render-test fixtures"
 condition = "AND"
 targetRules = ["generic-api-key"]
