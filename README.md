@@ -1,6 +1,6 @@
 # Homelab with Tailscale VPN
 
-This repository contains the Ansible configuration for a Debian 13 homelab running Incus, Technitium DNS, [PostgreSQL](https://www.postgresql.org/docs/18/), and [Gitea](https://docs.gitea.com/) over a Tailscale VPN.
+This repository contains the Ansible configuration for a Debian 13 homelab running Incus, Technitium DNS, [PostgreSQL](https://www.postgresql.org/docs/18/), [Gitea](https://docs.gitea.com/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale VPN.
 
 ## Environment
 
@@ -509,6 +509,7 @@ There is no dedicated DNS verification playbook. Before continuing, confirm that
 getent hosts dns.lab.canhdinh.com
 getent hosts postgres.lab.canhdinh.com
 getent hosts gitea.lab.canhdinh.com
+getent hosts kuma.lab.canhdinh.com
 ```
 
 ### 2. Deploy PostgreSQL
@@ -551,10 +552,325 @@ Rerun the deployment to verify idempotence:
 
 ```sh
 ansible-playbook gitea.yaml
-cd ..
 ```
 
 The second deployment should report `changed=0` for both the Gitea and PostgreSQL hosts.
+
+### 4. Deploy Uptime Kuma
+
+Uptime Kuma depends on the PostgreSQL service. The Kuma playbook creates its PostgreSQL role and database before deploying Kuma with built-in HTTPS.
+
+```sh
+ansible-playbook kuma.yaml
+```
+
+The first deployment installs the infrastructure but leaves Kuma waiting for one-time database setup through its web interface. Complete the [Uptime Kuma First Login and Setup](#first-login-and-setup) before running verification.
+
+Verify the Kuma service, listener, TLS endpoint, backup configuration, and timers:
+
+```sh
+ansible-playbook verify-kuma.yaml
+```
+
+Rerun the deployment to verify idempotence:
+
+```sh
+ansible-playbook kuma.yaml
+cd ..
+```
+
+The second deployment should report `changed=0` for `kuma`.
+
+## Uptime Kuma Operations
+
+### First Login and Setup
+
+Open `https://kuma.lab.canhdinh.com/` and configure the initial administrator account:
+
+- **Username:** `kuma-admin`
+- **Password:** Retrieve from the SOPS key `uptime_kuma_admin_password`:
+
+  ```sh
+  sops --extract '["uptime_kuma_admin_password"]' \
+    --decrypt ansible/group_vars/all/secrets.sops.yaml
+  ```
+
+Use a strong, unique password during account creation or change the password on first login if the Ansible role has pre-configured the account.
+
+After first login, enable two-factor authentication:
+
+1. Navigate to **Settings** > **Security**.
+2. Configure TOTP using an authenticator app such as [Aegis](https://getaegis.app/), [2FAS](https://2fas.com/), or [Bitwarden Authenticator](https://bitwarden.com/products/authenticator/).
+3. Store recovery codes in a secure location.
+
+### Trust Proxy Configuration
+
+Uptime Kuma runs behind Nginx with TLS termination. Configure the trust-proxy setting to preserve the original client IP:
+
+1. Navigate to **Settings** > **Reverse Proxy**.
+2. Under **HTTP Headers**, set **Trust Proxy** to `Yes`.
+3. Save the settings.
+
+This ensures logs, rate limiting, and access controls see the real client address instead of the Nginx proxy.
+
+### SMTP Notification Configuration
+
+Configure the Brevo SMTP service for alert notifications:
+
+1. Navigate to **Settings** > **Notifications**.
+2. Click **Setup Notification**.
+3. Select **SMTP (Email)** as the notification type.
+4. Configure the following settings using values from SOPS:
+
+   | Field | SOPS Key | Retrieve Command |
+   | --- | --- | --- |
+   | **SMTP Host** | `gitea_smtp_host` | `sops --extract '["gitea_smtp_host"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
+   | **SMTP Port** | `gitea_smtp_port` | `sops --extract '["gitea_smtp_port"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
+   | **From Email** | `gitea_smtp_from` | `sops --extract '["gitea_smtp_from"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
+   | **Username** | `gitea_smtp_user` | `sops --extract '["gitea_smtp_user"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
+   | **Password** | `gitea_smtp_password` | `sops --extract '["gitea_smtp_password"]' --decrypt ansible/group_vars/all/secrets.sops.yaml` |
+
+5. Enable **Secure** (TLS) if required by the SMTP provider.
+6. Click **Test** to send a confirmation email.
+7. Verify the test email arrives before attaching the notification to monitors.
+
+> [!WARNING]
+> Do not commit decrypted SMTP credentials or include them in screenshots or logs.
+
+### Monitor Configuration
+
+Create the `Homelab` monitor group:
+
+1. Click **Add Group** on the dashboard.
+2. Name the group `Homelab`.
+3. Set **Heartbeat Interval** to `60` seconds.
+4. Set **Retries** to `3`.
+5. Save the group.
+
+Add the following eight monitors to the `Homelab` group:
+
+| Monitor Name | Type | Target | Notes |
+| --- | --- | --- | --- |
+| **Uptime Kuma HTTPS** | HTTPS | `https://kuma.lab.canhdinh.com/` | Kuma self-check |
+| **Gitea HTTPS** | HTTPS | `https://gitea.lab.canhdinh.com/` | Gitea web interface |
+| **PostgreSQL TCP** | Port | `postgres.lab.canhdinh.com:5432` | PostgreSQL listener |
+| **Technitium DNS Lookup** | DNS | Hostname: `kuma.lab.canhdinh.com`<br>Resolver: `dns.lab.canhdinh.com`<br>Expected: `10.205.234.102` | DNS resolution |
+| **Incus Host Ping** | Ping | `debian-incus` or `10.205.234.1` | Incus host reachability |
+| **DNS Host Ping** | Ping | `dns.lab.canhdinh.com` | DNS instance reachability |
+| **PostgreSQL Host Ping** | Ping | `postgres.lab.canhdinh.com` | PostgreSQL instance reachability |
+| **Gitea Host Ping** | Ping | `gitea.lab.canhdinh.com` | Gitea instance reachability |
+
+For each monitor:
+
+1. Click **Add New Monitor**.
+2. Configure the monitor type and target from the table above.
+3. Set **Heartbeat Interval** to `60` seconds.
+4. Set **Retries** to `3`.
+5. Under **Notifications**, attach the Brevo SMTP notification.
+6. Save the monitor.
+
+> [!IMPORTANT]
+> The **Uptime Kuma HTTPS** monitor checks Kuma itself. Kuma cannot send alert notifications if its own service, database, or network is completely down; the alert will be delayed until service recovery.
+
+All other monitors will send alert notifications through Brevo SMTP when they fail, subject to the retry policy.
+
+### Backup Operations
+
+Uptime Kuma runs two automatic backup timers:
+
+- **uptime-kuma-backup-full.timer:** Daily at 02:00 with a one-hour random delay
+- **uptime-kuma-backup-incremental.timer:** Hourly with a five-minute random delay
+
+Inspect the timers:
+
+```sh
+sudo systemctl status uptime-kuma-backup-full.timer
+sudo systemctl status uptime-kuma-backup-incremental.timer
+sudo systemctl list-timers 'uptime-kuma-backup-*'
+```
+
+View recent backup activity:
+
+```sh
+sudo journalctl -u uptime-kuma-backup-full.service --since today
+sudo journalctl -u uptime-kuma-backup-incremental.service --since today
+```
+
+Trigger a manual full backup while Kuma is running:
+
+```sh
+sudo systemctl start uptime-kuma-backup-full.service
+sudo journalctl -u uptime-kuma-backup-full.service -n 50 --no-pager
+```
+
+List available backup archives:
+
+```sh
+sudo ls -lh /root/uptime-kuma-backup/
+```
+
+Backup archives are stored as root-only `.tar.gz` files under `/root/uptime-kuma-backup/` with names such as `uptime-kuma-backup-full-20260810-020015.tar.gz`.
+
+> [!WARNING]
+> Backup archives are stored locally and have no off-host replication. Loss of the Kuma host causes permanent backup loss.
+
+### Restore Procedure
+
+> [!CAUTION]
+> Restoration overwrites the current Kuma database and uploaded files. Confirm the backup timestamp and contents before restoring.
+
+Run all restore commands on the Kuma host:
+
+1. Stop the Kuma service:
+
+   ```sh
+   sudo systemctl stop uptime-kuma.service
+   ```
+
+2. Verify the service is stopped:
+
+   ```sh
+   sudo systemctl is-active uptime-kuma.service
+   ```
+
+   Expected: `inactive`
+
+3. Choose a backup archive to restore:
+
+   ```sh
+   sudo ls -lh /root/uptime-kuma-backup/
+   ```
+
+4. Extract the selected backup over the current Kuma data directory:
+
+   ```sh
+   sudo tar -xzf /root/uptime-kuma-backup/uptime-kuma-backup-full-YYYYMMDD-HHMMSS.tar.gz \
+     -C /opt/uptime-kuma/data --strip-components=1
+   ```
+
+   Replace `YYYYMMDD-HHMMSS` with the actual backup timestamp.
+
+5. Restore ownership:
+
+   ```sh
+   sudo chown -R kuma:kuma /opt/uptime-kuma/data
+   ```
+
+6. Validate the restored SQLite database:
+
+   ```sh
+   sudo -u kuma sqlite3 /opt/uptime-kuma/data/kuma.db 'PRAGMA quick_check;'
+   ```
+
+   Expected: `ok`
+
+7. Start the Kuma service:
+
+   ```sh
+   sudo systemctl start uptime-kuma.service
+   ```
+
+8. Verify service health:
+
+   ```sh
+   sudo systemctl status uptime-kuma.service
+   sudo journalctl -u uptime-kuma.service -n 50 --no-pager
+   curl -sSf https://kuma.lab.canhdinh.com/ >/dev/null && echo "HTTPS OK"
+   ```
+
+### Upgrade Procedure
+
+Before changing `uptime_kuma_version`, take a manual full backup:
+
+```sh
+sudo systemctl start uptime-kuma-backup-full.service
+sudo journalctl -u uptime-kuma-backup-full.service -n 50 --no-pager
+```
+
+Update `uptime_kuma_version` in the Kuma role defaults or playbook, then rerun the deployment:
+
+```sh
+cd ansible
+ansible-playbook kuma.yaml
+```
+
+The Kuma role follows these upgrade steps automatically:
+
+1. Fetch and validate the target release from the [Uptime Kuma GitHub releases](https://github.com/louislam/uptime-kuma/releases).
+2. Stop the `uptime-kuma.service`.
+3. Extract the new release to `/opt/uptime-kuma/uptime-kuma-<version>/`.
+4. Update the `/opt/uptime-kuma/current` symlink to point to the new release.
+5. Run `npm ci --production` with the pinned Node.js version.
+6. Start the service.
+7. Verify the upgraded service and HTTPS endpoint.
+
+If the upgrade fails, the service remains stopped and the previous release is still available under `/opt/uptime-kuma/uptime-kuma-<old-version>/`.
+
+Recover the previous release manually:
+
+```sh
+sudo systemctl stop uptime-kuma.service
+sudo ln -snf /opt/uptime-kuma/uptime-kuma-<old-version> /opt/uptime-kuma/current
+sudo systemctl start uptime-kuma.service
+```
+
+Rerun the playbook to verify the recovered release:
+
+```sh
+ansible-playbook kuma.yaml
+```
+
+### Troubleshooting
+
+Check the Kuma service:
+
+```sh
+sudo systemctl status uptime-kuma.service
+sudo journalctl -u uptime-kuma.service --since today
+sudo journalctl -u uptime-kuma.service -n 100 --no-pager
+```
+
+Verify the Nginx reverse proxy:
+
+```sh
+sudo systemctl status nginx.service
+sudo nginx -t
+sudo journalctl -u nginx.service --since today
+```
+
+Verify the HTTPS listener:
+
+```sh
+sudo ss -tlnp | grep :443
+curl -vI https://kuma.lab.canhdinh.com/ 2>&1 | grep -E '^(\*|>|<)'
+```
+
+Inspect the Lego TLS certificate:
+
+```sh
+sudo systemctl status lego-renew.timer
+sudo journalctl -u lego-renew.service --since today
+sudo openssl x509 \
+  -in /var/lib/lego/certificates/kuma.crt \
+  -noout -subject -issuer -dates -ext subjectAltName
+```
+
+Verify DNS resolution:
+
+```sh
+getent hosts kuma.lab.canhdinh.com
+dig +short kuma.lab.canhdinh.com
+```
+
+Check the Kuma data directory and database:
+
+```sh
+sudo ls -lh /opt/uptime-kuma/data/
+sudo -u kuma sqlite3 /opt/uptime-kuma/data/kuma.db 'PRAGMA integrity_check;'
+sudo -u kuma sqlite3 /opt/uptime-kuma/data/kuma.db 'SELECT COUNT(*) FROM monitor;'
+```
+
+Do not print the SQLite database contents or the private key.
 
 ## Gitea Operations
 
