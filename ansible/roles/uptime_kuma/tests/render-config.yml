@@ -276,3 +276,27 @@
       ansible.builtin.file:
         path: "{{ uptime_kuma_template_tmpdir.path }}"
         state: absent
+
+    - name: Read live verification playbook
+      ansible.builtin.slurp:
+        src: "{{ (playbook_dir | dirname | dirname | dirname) ~ '/verify-kuma.yaml' }}"
+      register: uptime_kuma_verify_playbook
+
+    - name: Define listener fixtures
+      ansible.builtin.set_fact:
+        uptime_kuma_ss_valid: |
+          LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=100,fd=5))
+          LISTEN 0 511 127.0.0.1:3001 0.0.0.0:* users:(("node",pid=200,fd=20))
+        uptime_kuma_ss_invalid_ipv4: |
+          LISTEN 0 511 0.0.0.0:3001 0.0.0.0:* users:(("node",pid=200,fd=20))
+        uptime_kuma_ss_invalid_ipv6: |
+          LISTEN 0 511 [::]:3001 [::]:* users:(("node",pid=200,fd=20))
+
+    - name: Assert listener boundary predicates
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_ss_valid is regex('(?m)^.*127\\.0\\.0\\.1:3001\\b.*node')
+          - uptime_kuma_ss_valid is regex('(?m)^.*:443\\b.*nginx')
+          - uptime_kuma_ss_valid is not regex('(?m)^.*(?:0\\.0\\.0\\.0|\\*|\\[::\\]):3001\\b')
+          - uptime_kuma_ss_invalid_ipv4 is regex('(?m)^.*(?:0\\.0\\.0\\.0|\\*|\\[::\\]):3001\\b')
+          - uptime_kuma_ss_invalid_ipv6 is regex('(?m)^.*(?:0\\.0\\.0\\.0|\\*|\\[::\\]):3001\\b')

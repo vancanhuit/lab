@@ -1,0 +1,129 @@
+---
+- name: Verify Uptime Kuma deployment
+  hosts: kuma
+  become: true
+  tasks:
+    - name: Check Node.js version
+      ansible.builtin.command:
+        cmd: node --version
+      register: uptime_kuma_node_check
+      changed_when: false
+      failed_when: uptime_kuma_node_check.stdout is not match('^v24\\.')
+
+    - name: Check Uptime Kuma version
+      ansible.builtin.command:
+        argv:
+          - node
+          - -p
+          - require('/opt/uptime-kuma/current/package.json').version
+      register: uptime_kuma_version_check
+      changed_when: false
+      failed_when: uptime_kuma_version_check.stdout != '2.5.0'
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert required services and timers
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['uptime-kuma.service'].state == 'running'
+          - ansible_facts.services['uptime-kuma.service'].status == 'enabled'
+          - ansible_facts.services['nginx.service'].state == 'running'
+          - ansible_facts.services['nginx.service'].status == 'enabled'
+          - ansible_facts.services['lego-renew.timer'].state == 'running'
+          - ansible_facts.services['lego-renew.timer'].status == 'enabled'
+          - ansible_facts.services['uptime-kuma-backup.timer'].state == 'running'
+          - ansible_facts.services['uptime-kuma-backup.timer'].status == 'enabled'
+
+    - name: Read TCP listeners
+      ansible.builtin.command:
+        cmd: ss -H -ltnp
+      register: uptime_kuma_listener_check
+      changed_when: false
+
+    - name: Assert listener boundaries
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_listener_check.stdout is regex('(?m)^.*127\\.0\\.0\\.1:3001\\b.*node')
+          - uptime_kuma_listener_check.stdout is regex('(?m)^.*:443\\b.*nginx')
+          - uptime_kuma_listener_check.stdout is not regex('(?m)^.*(?:0\\.0\\.0\\.0|\\*|\\[::\\]):3001\\b')
+
+    - name: Validate Nginx configuration
+      ansible.builtin.command:
+        cmd: /usr/sbin/nginx -t
+      changed_when: false
+
+    - name: Check Kuma HTTPS endpoint
+      ansible.builtin.uri:
+        url: https://kuma.lab.canhdinh.com/
+        validate_certs: true
+        follow_redirects: none
+        status_code: [200, 302]
+      changed_when: false
+
+    - name: Check certificate validity and subject alternative name
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          openssl s_client -connect kuma.lab.canhdinh.com:443 \
+            -servername kuma.lab.canhdinh.com </dev/null 2>/dev/null |
+            openssl x509 -checkend 604800 -noout -ext subjectAltName
+        executable: /bin/bash
+      register: uptime_kuma_certificate_check
+      changed_when: false
+      failed_when: >-
+        uptime_kuma_certificate_check.rc != 0 or
+        'DNS:kuma.lab.canhdinh.com' not in uptime_kuma_certificate_check.stdout
+
+    - name: Read protected path metadata
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/lib/uptime-kuma
+        - /var/backups/uptime-kuma
+        - /etc/uptime-kuma/tls/server.crt
+        - /etc/uptime-kuma/tls/server.key
+      register: uptime_kuma_protected_paths
+
+    - name: Assert protected path ownership and modes
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_protected_paths.results[0].stat.pw_name == 'kuma'
+          - uptime_kuma_protected_paths.results[0].stat.mode == '0700'
+          - uptime_kuma_protected_paths.results[1].stat.pw_name == 'root'
+          - uptime_kuma_protected_paths.results[1].stat.mode == '0700'
+          - uptime_kuma_protected_paths.results[2].stat.mode == '0644'
+          - uptime_kuma_protected_paths.results[3].stat.gr_name == 'www-data'
+          - uptime_kuma_protected_paths.results[3].stat.mode == '0640'
+
+    - name: Create an on-demand Uptime Kuma backup
+      ansible.builtin.systemd_service:
+        name: uptime-kuma-backup.service
+        state: started
+
+    - name: Find Uptime Kuma backup archives
+      ansible.builtin.find:
+        paths: /var/backups/uptime-kuma
+        patterns: 'kuma-*.db.gz'
+        file_type: file
+      register: uptime_kuma_backup_archives
+
+    - name: Select newest Uptime Kuma backup
+      ansible.builtin.set_fact:
+        uptime_kuma_newest_backup: >-
+          {{ (uptime_kuma_backup_archives.files |
+              sort(attribute='mtime', reverse=true) |
+              first).path }}
+      no_log: true
+
+    - name: Validate newest Uptime Kuma backup
+      ansible.builtin.shell:
+        cmd: |
+          set -o pipefail
+          temporary_database="$(mktemp)"
+          trap 'rm -f "$temporary_database"' EXIT HUP INT TERM
+          gzip -dc "{{ uptime_kuma_newest_backup }}" > "$temporary_database"
+          test "$(sqlite3 "$temporary_database" 'PRAGMA quick_check;')" = "ok"
+        executable: /bin/bash
+      changed_when: false
+      no_log: true
