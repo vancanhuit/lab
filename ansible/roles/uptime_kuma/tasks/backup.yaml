@@ -33,11 +33,9 @@
     mode: '0644'
   notify: Reload systemd daemon
 
-- name: Flush systemd handlers
-  ansible.builtin.meta: flush_handlers
-
 - name: Enable and start Uptime Kuma backup timer
   ansible.builtin.systemd_service:
     name: uptime-kuma-backup.timer
     enabled: true
     state: started
+    daemon_reload: true

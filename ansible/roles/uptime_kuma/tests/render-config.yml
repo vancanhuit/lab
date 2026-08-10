@@ -246,6 +246,17 @@
           - uptime_kuma_backup_timer_rendered is search('Persistent=true')
           - uptime_kuma_backup_timer_rendered is search('RandomizedDelaySec=1h')
 
+    - name: Read backup management tasks
+      ansible.builtin.slurp:
+        src: "{{ (playbook_dir | dirname) ~ '/tasks/backup.yaml' }}"
+      register: uptime_kuma_backup_tasks_slurp
+
+    - name: Assert backup tasks preserve deferred handler ordering
+      ansible.builtin.assert:
+        that:
+          - (uptime_kuma_backup_tasks_slurp.content | b64decode) is not search('flush_handlers')
+          - "(uptime_kuma_backup_tasks_slurp.content | b64decode) is search('daemon_reload: true')"
+
     - name: Read runtime tasks file
       ansible.builtin.slurp:
         src: "{{ (playbook_dir | dirname) ~ '/tasks/runtime.yaml' }}"
