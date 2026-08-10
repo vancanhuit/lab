@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up the Uptime Kuma SQLite database
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/sbin/uptime-kuma-backup

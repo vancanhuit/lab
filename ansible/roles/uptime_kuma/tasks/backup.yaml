@@ -1,0 +1,43 @@
+---
+- name: Create Uptime Kuma backup directory
+  ansible.builtin.file:
+    path: "{{ uptime_kuma_backup_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Render Uptime Kuma backup script
+  ansible.builtin.template:
+    src: uptime-kuma-backup.sh.j2
+    dest: /usr/local/sbin/uptime-kuma-backup
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Render Uptime Kuma backup service unit
+  ansible.builtin.template:
+    src: uptime-kuma-backup.service.j2
+    dest: /etc/systemd/system/uptime-kuma-backup.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+
+- name: Render Uptime Kuma backup timer unit
+  ansible.builtin.template:
+    src: uptime-kuma-backup.timer.j2
+    dest: /etc/systemd/system/uptime-kuma-backup.timer
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd daemon
+
+- name: Flush systemd handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Uptime Kuma backup timer
+  ansible.builtin.systemd_service:
+    name: uptime-kuma-backup.timer
+    enabled: true
+    state: started

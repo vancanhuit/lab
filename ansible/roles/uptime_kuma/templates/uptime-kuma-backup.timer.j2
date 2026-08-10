@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Uptime Kuma SQLite backup timer
+
+[Timer]
+OnCalendar={{ uptime_kuma_backup_calendar }}
+Persistent=true
+RandomizedDelaySec={{ uptime_kuma_backup_randomized_delay }}
+Unit=uptime-kuma-backup.service
+
+[Install]
+WantedBy=timers.target

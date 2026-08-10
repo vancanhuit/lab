@@ -48,6 +48,25 @@
   changed_when: false
   failed_when: uptime_kuma_package_version_check.stdout != uptime_kuma_version
 
+- name: Check Uptime Kuma database state
+  ansible.builtin.stat:
+    path: "{{ uptime_kuma_data_directory }}/kuma.db"
+  register: uptime_kuma_database_state
+
+- name: Determine whether release activation is required
+  ansible.builtin.set_fact:
+    uptime_kuma_release_activation_required: >-
+      {{ not uptime_kuma_current_link.stat.exists or
+         uptime_kuma_current_link.stat.lnk_source | default('') != uptime_kuma_release_path }}
+
+- name: Back up Uptime Kuma before release activation
+  ansible.builtin.systemd_service:
+    name: uptime-kuma-backup.service
+    state: started
+  when:
+    - uptime_kuma_database_state.stat.exists
+    - uptime_kuma_release_activation_required
+
 - name: Activate verified Uptime Kuma release
   ansible.builtin.file:
     src: "{{ uptime_kuma_release_path }}"

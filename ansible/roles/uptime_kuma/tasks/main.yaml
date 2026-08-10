@@ -5,6 +5,9 @@
 - name: Import installation tasks
   ansible.builtin.import_tasks: install.yaml
 
+- name: Import backup tasks
+  ansible.builtin.import_tasks: backup.yaml
+
 - name: Import release tasks
   ansible.builtin.import_tasks: release.yaml
 

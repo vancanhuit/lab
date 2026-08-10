@@ -127,6 +127,21 @@
         src: "{{ (playbook_dir | dirname) ~ '/templates/lego-deploy-hook.sh.j2' }}"
         dest: "{{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh"
 
+    - name: Render backup script template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma-backup.sh.j2' }}"
+        dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.sh"
+
+    - name: Render backup service template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma-backup.service.j2' }}"
+        dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.service"
+
+    - name: Render backup timer template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma-backup.timer.j2' }}"
+        dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.timer"
+
     - name: Read rendered systemd service
       ansible.builtin.slurp:
         src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma.service"
@@ -142,15 +157,38 @@
         src: "{{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh"
       register: uptime_kuma_hook_slurp
 
+    - name: Read rendered backup script
+      ansible.builtin.slurp:
+        src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.sh"
+      register: uptime_kuma_backup_script_slurp
+
+    - name: Read rendered backup service
+      ansible.builtin.slurp:
+        src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.service"
+      register: uptime_kuma_backup_service_slurp
+
+    - name: Read rendered backup timer
+      ansible.builtin.slurp:
+        src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.timer"
+      register: uptime_kuma_backup_timer_slurp
+
     - name: Set rendered template facts
       ansible.builtin.set_fact:
         uptime_kuma_service_rendered: "{{ uptime_kuma_service_slurp.content | b64decode }}"
         uptime_kuma_nginx_rendered: "{{ uptime_kuma_nginx_slurp.content | b64decode }}"
         uptime_kuma_hook_rendered: "{{ uptime_kuma_hook_slurp.content | b64decode }}"
+        uptime_kuma_backup_script_rendered: "{{ uptime_kuma_backup_script_slurp.content | b64decode }}"
+        uptime_kuma_backup_service_rendered: "{{ uptime_kuma_backup_service_slurp.content | b64decode }}"
+        uptime_kuma_backup_timer_rendered: "{{ uptime_kuma_backup_timer_slurp.content | b64decode }}"
 
     - name: Validate hook shell syntax
       ansible.builtin.command:
         cmd: sh -n {{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh
+      changed_when: false
+
+    - name: Validate backup script shell syntax
+      ansible.builtin.command:
+        cmd: sh -n {{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.sh
       changed_when: false
 
     - name: Assert systemd service properties
@@ -181,6 +219,18 @@
           - uptime_kuma_hook_rendered is search('openssl pkey')
           - uptime_kuma_hook_rendered is search('nginx -t')
           - uptime_kuma_hook_rendered is search('systemctl reload nginx\.service')
+
+    - name: Assert backup script properties
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_backup_script_rendered is search('sqlite3.*\\.backup')
+          - uptime_kuma_backup_script_rendered is search('PRAGMA quick_check')
+          - uptime_kuma_backup_script_rendered is search('gzip')
+          - uptime_kuma_backup_script_rendered is search('awk -v keep=')
+          - uptime_kuma_backup_service_rendered is search('Type=oneshot')
+          - uptime_kuma_backup_timer_rendered is search('OnCalendar=daily')
+          - uptime_kuma_backup_timer_rendered is search('Persistent=true')
+          - uptime_kuma_backup_timer_rendered is search('RandomizedDelaySec=1h')
 
     - name: Read runtime tasks file
       ansible.builtin.slurp:
