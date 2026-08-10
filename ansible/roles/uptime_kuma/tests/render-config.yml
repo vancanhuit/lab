@@ -106,3 +106,83 @@
           - uptime_kuma_install_tasks_rendered is search('npm run download-dist')
           - uptime_kuma_install_tasks_rendered is search('uptime_kuma_release_commit')
           - "uptime_kuma_install_tasks_rendered is search('state: link')"
+
+    - name: Create temporary directory for template rendering
+      ansible.builtin.tempfile:
+        state: directory
+      register: uptime_kuma_template_tmpdir
+
+    - name: Render systemd service template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/uptime-kuma.service.j2' }}"
+        dest: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma.service"
+
+    - name: Render Nginx configuration template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/nginx.conf.j2' }}"
+        dest: "{{ uptime_kuma_template_tmpdir.path }}/nginx.conf"
+
+    - name: Render Lego deploy hook template
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/lego-deploy-hook.sh.j2' }}"
+        dest: "{{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh"
+
+    - name: Read rendered systemd service
+      ansible.builtin.slurp:
+        src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma.service"
+      register: uptime_kuma_service_slurp
+
+    - name: Read rendered Nginx configuration
+      ansible.builtin.slurp:
+        src: "{{ uptime_kuma_template_tmpdir.path }}/nginx.conf"
+      register: uptime_kuma_nginx_slurp
+
+    - name: Read rendered Lego deploy hook
+      ansible.builtin.slurp:
+        src: "{{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh"
+      register: uptime_kuma_hook_slurp
+
+    - name: Set rendered template facts
+      ansible.builtin.set_fact:
+        uptime_kuma_service_rendered: "{{ uptime_kuma_service_slurp.content | b64decode }}"
+        uptime_kuma_nginx_rendered: "{{ uptime_kuma_nginx_slurp.content | b64decode }}"
+        uptime_kuma_hook_rendered: "{{ uptime_kuma_hook_slurp.content | b64decode }}"
+
+    - name: Validate hook shell syntax
+      ansible.builtin.command:
+        cmd: sh -n {{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh
+      changed_when: false
+
+    - name: Assert systemd service properties
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_service_rendered is search('User=kuma')
+          - uptime_kuma_service_rendered is search('Group=kuma')
+          - uptime_kuma_service_rendered is search('UPTIME_KUMA_HOST=127\.0\.0\.1')
+          - uptime_kuma_service_rendered is search('UPTIME_KUMA_PORT=3001')
+          - uptime_kuma_service_rendered is search('DATA_DIR=/var/lib/uptime-kuma')
+          - uptime_kuma_service_rendered is search('ExecStart=/usr/bin/node server/server\.js')
+
+    - name: Assert Nginx reverse-proxy properties
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_nginx_rendered is search('listen 443 ssl')
+          - uptime_kuma_nginx_rendered is not search('listen 80')
+          - uptime_kuma_nginx_rendered is search('server_name kuma\.lab\.canhdinh\.com')
+          - uptime_kuma_nginx_rendered is search('proxy_pass http://127\.0\.0\.1:3001')
+          - uptime_kuma_nginx_rendered is search('proxy_set_header Upgrade')
+          - uptime_kuma_nginx_rendered is search('proxy_set_header Connection')
+
+    - name: Assert certificate hook safety properties
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_hook_rendered is search('/var/lib/lego/certificates/kuma\.crt')
+          - uptime_kuma_hook_rendered is search('openssl x509')
+          - uptime_kuma_hook_rendered is search('openssl pkey')
+          - uptime_kuma_hook_rendered is search('nginx -t')
+          - uptime_kuma_hook_rendered is search('systemctl reload nginx\.service')
+
+    - name: Clean up temporary template directory
+      ansible.builtin.file:
+        path: "{{ uptime_kuma_template_tmpdir.path }}"
+        state: absent

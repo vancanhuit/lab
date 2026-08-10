@@ -7,3 +7,6 @@
 
 - name: Import release tasks
   ansible.builtin.import_tasks: release.yaml
+
+- name: Import runtime tasks
+  ansible.builtin.import_tasks: runtime.yaml

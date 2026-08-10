@@ -1,0 +1,14 @@
+---
+- name: Deploy Uptime Kuma with private HTTPS
+  hosts: kuma
+  become: true
+  vars:
+    lego_domain_names:
+      - kuma.lab.canhdinh.com
+    lego_certificate_name: kuma
+    lego_hooks:
+      deploy:
+        script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/uptime_kuma/templates/lego-deploy-hook.sh.j2') }}"
+  roles:
+    - uptime_kuma
+    - lego

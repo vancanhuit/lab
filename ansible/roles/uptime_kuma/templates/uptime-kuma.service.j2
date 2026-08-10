@@ -1,0 +1,26 @@
+[Unit]
+Description=Uptime Kuma monitoring service
+Documentation=https://github.com/louislam/uptime-kuma
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ uptime_kuma_user }}
+Group={{ uptime_kuma_group }}
+WorkingDirectory={{ uptime_kuma_current_path }}
+Environment=NODE_ENV=production
+Environment=UPTIME_KUMA_HOST={{ uptime_kuma_bind_address }}
+Environment=UPTIME_KUMA_PORT={{ uptime_kuma_port }}
+Environment=DATA_DIR={{ uptime_kuma_data_directory }}
+ExecStart=/usr/bin/node server/server.js
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ uptime_kuma_data_directory }}
+
+[Install]
+WantedBy=multi-user.target

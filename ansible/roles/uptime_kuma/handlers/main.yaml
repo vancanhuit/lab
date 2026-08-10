@@ -7,3 +7,15 @@
   ansible.builtin.systemd_service:
     name: uptime-kuma.service
     state: restarted
+
+- name: Validate Nginx configuration
+  ansible.builtin.command:
+    cmd: /usr/sbin/nginx -t
+  changed_when: false
+  listen: Reload Nginx
+
+- name: Reload Nginx service
+  ansible.builtin.systemd_service:
+    name: nginx.service
+    state: reloaded
+  listen: Reload Nginx

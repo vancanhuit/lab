@@ -1,0 +1,131 @@
+---
+- name: Create Uptime Kuma TLS directory
+  ansible.builtin.file:
+    path: "{{ uptime_kuma_tls_directory }}"
+    state: directory
+    owner: root
+    group: www-data
+    mode: '0750'
+
+- name: Check Uptime Kuma TLS certificate
+  ansible.builtin.stat:
+    path: "{{ uptime_kuma_tls_cert_path }}"
+  register: uptime_kuma_tls_cert_state
+
+- name: Check Uptime Kuma TLS key
+  ansible.builtin.stat:
+    path: "{{ uptime_kuma_tls_key_path }}"
+  register: uptime_kuma_tls_key_state
+
+- name: Reject partial Uptime Kuma TLS state
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_tls_cert_state.stat.exists == uptime_kuma_tls_key_state.stat.exists
+    fail_msg: Uptime Kuma TLS certificate and key must both exist or both be absent
+
+- name: Seed Uptime Kuma TLS certificate
+  ansible.builtin.copy:
+    src: /etc/ssl/certs/ssl-cert-snakeoil.pem
+    dest: "{{ uptime_kuma_tls_cert_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0644'
+  when: not uptime_kuma_tls_cert_state.stat.exists
+
+- name: Seed Uptime Kuma TLS key
+  ansible.builtin.copy:
+    src: /etc/ssl/private/ssl-cert-snakeoil.key
+    dest: "{{ uptime_kuma_tls_key_path }}"
+    remote_src: true
+    owner: root
+    group: www-data
+    mode: '0640'
+  when: not uptime_kuma_tls_key_state.stat.exists
+
+- name: Render Uptime Kuma systemd service
+  ansible.builtin.template:
+    src: uptime-kuma.service.j2
+    dest: /etc/systemd/system/uptime-kuma.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart Uptime Kuma
+
+- name: Render Uptime Kuma Nginx site
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/sites-available/uptime-kuma
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload Nginx
+
+- name: Disable default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload Nginx
+
+- name: Enable Uptime Kuma Nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/uptime-kuma
+    dest: /etc/nginx/sites-enabled/uptime-kuma
+    state: link
+  notify: Reload Nginx
+
+- name: Flush runtime handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Uptime Kuma
+  ansible.builtin.systemd_service:
+    name: uptime-kuma.service
+    enabled: true
+    state: started
+
+- name: Enable and start Nginx
+  ansible.builtin.systemd_service:
+    name: nginx.service
+    enabled: true
+    state: started
+
+- name: Wait for private Uptime Kuma listener
+  ansible.builtin.wait_for:
+    host: "{{ uptime_kuma_bind_address }}"
+    port: "{{ uptime_kuma_port }}"
+    state: started
+    timeout: 120
+
+- name: Wait for Nginx HTTPS listener
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ uptime_kuma_https_port }}"
+    state: started
+    timeout: 60
+
+- name: Find installed Uptime Kuma releases
+  ansible.builtin.find:
+    paths: "{{ uptime_kuma_install_root }}/releases"
+    file_type: directory
+    recurse: false
+  register: uptime_kuma_installed_releases
+
+- name: Select previous Uptime Kuma release
+  ansible.builtin.set_fact:
+    uptime_kuma_previous_releases: >-
+      {{ uptime_kuma_installed_releases.files |
+         rejectattr('path', 'equalto', uptime_kuma_release_path) |
+         sort(attribute='mtime', reverse=true) |
+         map(attribute='path') |
+         list }}
+
+- name: Remove obsolete Uptime Kuma releases
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: >-
+    {{ uptime_kuma_previous_releases[1:] }}
+  loop_control:
+    label: "{{ item }}"

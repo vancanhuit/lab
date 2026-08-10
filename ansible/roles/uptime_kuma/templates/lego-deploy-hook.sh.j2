@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+umask 077
+
+SRC_CRT=/var/lib/lego/certificates/kuma.crt
+SRC_KEY=/var/lib/lego/certificates/kuma.key
+DST_CRT={{ uptime_kuma_tls_cert_path }}
+DST_KEY={{ uptime_kuma_tls_key_path }}
+NEW_CRT="${DST_CRT}.new"
+NEW_KEY="${DST_KEY}.new"
+
+cleanup() {
+  rm -f "$NEW_CRT" "$NEW_KEY"
+}
+trap cleanup EXIT HUP INT TERM
+
+if ! openssl x509 -in "$SRC_CRT" -checkend 0 -noout; then
+  echo "ERROR: Uptime Kuma certificate is expired or invalid" >&2
+  exit 1
+fi
+
+cert_digest="$(openssl x509 -in "$SRC_CRT" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+key_digest="$(openssl pkey -in "$SRC_KEY" -pubout -outform DER | sha256sum | awk '{print $1}')"
+
+if [ "$cert_digest" != "$key_digest" ]; then
+  echo "ERROR: Uptime Kuma certificate and key do not match" >&2
+  exit 1
+fi
+
+install -o root -g root -m 0644 "$SRC_CRT" "$NEW_CRT"
+install -o root -g www-data -m 0640 "$SRC_KEY" "$NEW_KEY"
+mv -f "$NEW_CRT" "$DST_CRT"
+mv -f "$NEW_KEY" "$DST_KEY"
+
+/usr/sbin/nginx -t
+systemctl reload nginx.service
