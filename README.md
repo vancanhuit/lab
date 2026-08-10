@@ -676,40 +676,38 @@ All other monitors will send alert notifications through Brevo SMTP when they fa
 
 ### Backup Operations
 
-Uptime Kuma runs two automatic backup timers:
+Uptime Kuma runs an automatic daily backup timer:
 
-- **uptime-kuma-backup-full.timer:** Daily at 02:00 with a one-hour random delay
-- **uptime-kuma-backup-incremental.timer:** Hourly with a five-minute random delay
+- **uptime-kuma-backup.timer:** Daily with a one-hour random delay, persistent across reboots
+- Schedule: `OnCalendar=daily`, `Persistent=true`, `RandomizedDelaySec=1h`
 
-Inspect the timers:
+Inspect the timer:
 
 ```sh
-sudo systemctl status uptime-kuma-backup-full.timer
-sudo systemctl status uptime-kuma-backup-incremental.timer
-sudo systemctl list-timers 'uptime-kuma-backup-*'
+sudo systemctl status uptime-kuma-backup.timer
+sudo systemctl list-timers uptime-kuma-backup.timer
 ```
 
 View recent backup activity:
 
 ```sh
-sudo journalctl -u uptime-kuma-backup-full.service --since today
-sudo journalctl -u uptime-kuma-backup-incremental.service --since today
+sudo journalctl -u uptime-kuma-backup.service --since today
 ```
 
-Trigger a manual full backup while Kuma is running:
+Trigger a manual backup while Kuma is running:
 
 ```sh
-sudo systemctl start uptime-kuma-backup-full.service
-sudo journalctl -u uptime-kuma-backup-full.service -n 50 --no-pager
+sudo systemctl start uptime-kuma-backup.service
+sudo journalctl -u uptime-kuma-backup.service -n 50 --no-pager
 ```
 
 List available backup archives:
 
 ```sh
-sudo ls -lh /root/uptime-kuma-backup/
+sudo ls -lh /var/backups/uptime-kuma/
 ```
 
-Backup archives are stored as root-only `.tar.gz` files under `/root/uptime-kuma-backup/` with names such as `uptime-kuma-backup-full-20260810-020015.tar.gz`.
+Backup archives are stored as root-only gzipped SQLite database files under `/var/backups/uptime-kuma/` with names such as `kuma-20260810T020015Z.db.gz`. The newest 14 backups are retained by count.
 
 > [!WARNING]
 > Backup archives are stored locally and have no off-host replication. Loss of the Kuma host causes permanent backup loss.
@@ -717,7 +715,7 @@ Backup archives are stored as root-only `.tar.gz` files under `/root/uptime-kuma
 ### Restore Procedure
 
 > [!CAUTION]
-> Restoration overwrites the current Kuma database and uploaded files. Confirm the backup timestamp and contents before restoring.
+> Restoration overwrites the current Kuma database. Confirm the backup timestamp before restoring.
 
 Run all restore commands on the Kuma host:
 
@@ -738,31 +736,30 @@ Run all restore commands on the Kuma host:
 3. Choose a backup archive to restore:
 
    ```sh
-   sudo ls -lh /root/uptime-kuma-backup/
+   sudo ls -lh /var/backups/uptime-kuma/
    ```
 
-4. Extract the selected backup over the current Kuma data directory:
+4. Decompress the selected backup to a temporary location and validate it:
 
    ```sh
-   sudo tar -xzf /root/uptime-kuma-backup/uptime-kuma-backup-full-YYYYMMDD-HHMMSS.tar.gz \
-     -C /opt/uptime-kuma/data --strip-components=1
+   sudo gzip -dc /var/backups/uptime-kuma/kuma-YYYYMMDDTHHMMSSZ.db.gz > /tmp/kuma-restore.db
+   sudo sqlite3 /tmp/kuma-restore.db 'PRAGMA quick_check;'
    ```
 
-   Replace `YYYYMMDD-HHMMSS` with the actual backup timestamp.
+   Replace `YYYYMMDDTHHMMSSZ` with the actual backup timestamp. Expected validation output: `ok`
 
-5. Restore ownership:
+5. Preserve the current database as a backup:
 
    ```sh
-   sudo chown -R kuma:kuma /opt/uptime-kuma/data
+   sudo cp -p /var/lib/uptime-kuma/kuma.db /var/lib/uptime-kuma/kuma.db.pre-restore
    ```
 
-6. Validate the restored SQLite database:
+6. Atomically install the restored database:
 
    ```sh
-   sudo -u kuma sqlite3 /opt/uptime-kuma/data/kuma.db 'PRAGMA quick_check;'
+   sudo install -o kuma -g kuma -m 0600 /tmp/kuma-restore.db /var/lib/uptime-kuma/kuma.db
+   sudo rm /tmp/kuma-restore.db
    ```
-
-   Expected: `ok`
 
 7. Start the Kuma service:
 
@@ -780,14 +777,14 @@ Run all restore commands on the Kuma host:
 
 ### Upgrade Procedure
 
-Before changing `uptime_kuma_version`, take a manual full backup:
+Before changing `uptime_kuma_version` or `uptime_kuma_release_commit`, take a manual backup:
 
 ```sh
-sudo systemctl start uptime-kuma-backup-full.service
-sudo journalctl -u uptime-kuma-backup-full.service -n 50 --no-pager
+sudo systemctl start uptime-kuma-backup.service
+sudo journalctl -u uptime-kuma-backup.service -n 50 --no-pager
 ```
 
-Update `uptime_kuma_version` in the Kuma role defaults or playbook, then rerun the deployment:
+Update `uptime_kuma_version` and `uptime_kuma_release_commit` in the Kuma role defaults, then rerun the deployment:
 
 ```sh
 cd ansible
@@ -796,29 +793,25 @@ ansible-playbook kuma.yaml
 
 The Kuma role follows these upgrade steps automatically:
 
-1. Fetch and validate the target release from the [Uptime Kuma GitHub releases](https://github.com/louislam/uptime-kuma/releases).
-2. Stop the `uptime-kuma.service`.
-3. Extract the new release to `/opt/uptime-kuma/uptime-kuma-<version>/`.
-4. Update the `/opt/uptime-kuma/current` symlink to point to the new release.
-5. Run `npm ci --production` with the pinned Node.js version.
-6. Start the service.
-7. Verify the upgraded service and HTTPS endpoint.
+1. Check out the pinned commit from the [Uptime Kuma GitHub repository](https://github.com/louislam/uptime-kuma) to `/opt/uptime-kuma/releases/<commit-sha>`.
+2. Install locked production dependencies with `npm ci --omit=dev --no-audit`.
+3. Download the matching frontend with `npm run download-dist`.
+4. Verify the checked-out version matches `uptime_kuma_version` via `package.json`.
+5. If the database exists and release activation is required, trigger a pre-activation SQLite backup via `uptime-kuma-backup.service`.
+6. Update the `/opt/uptime-kuma/current` symlink to point to the new release directory.
+7. Restart the service and verify the upgraded endpoint.
 
-If the upgrade fails, the service remains stopped and the previous release is still available under `/opt/uptime-kuma/uptime-kuma-<old-version>/`.
+The role retains the active release and the newest previous release. If the upgrade fails, the service remains stopped and the previous release is still available under `/opt/uptime-kuma/releases/<previous-commit-sha>/`.
 
-Recover the previous release manually:
+Recover the previous release manually by identifying the previous commit directory, then:
 
 ```sh
 sudo systemctl stop uptime-kuma.service
-sudo ln -snf /opt/uptime-kuma/uptime-kuma-<old-version> /opt/uptime-kuma/current
+sudo ln -snf /opt/uptime-kuma/releases/<previous-commit-sha> /opt/uptime-kuma/current
 sudo systemctl start uptime-kuma.service
 ```
 
-Rerun the playbook to verify the recovered release:
-
-```sh
-ansible-playbook kuma.yaml
-```
+Replace `<previous-commit-sha>` with the actual commit hash. If the database schema migration is incompatible, restore the pre-upgrade SQLite backup from `/var/backups/uptime-kuma/` using the restore procedure.
 
 ### Troubleshooting
 
@@ -865,9 +858,17 @@ dig +short kuma.lab.canhdinh.com
 Check the Kuma data directory and database:
 
 ```sh
-sudo ls -lh /opt/uptime-kuma/data/
-sudo -u kuma sqlite3 /opt/uptime-kuma/data/kuma.db 'PRAGMA integrity_check;'
-sudo -u kuma sqlite3 /opt/uptime-kuma/data/kuma.db 'SELECT COUNT(*) FROM monitor;'
+sudo ls -lh /var/lib/uptime-kuma/
+sudo -u kuma sqlite3 /var/lib/uptime-kuma/kuma.db 'PRAGMA integrity_check;'
+sudo -u kuma sqlite3 /var/lib/uptime-kuma/kuma.db 'SELECT COUNT(*) FROM monitor;'
+```
+
+Inspect the active TLS certificate deployed by Lego:
+
+```sh
+sudo openssl x509 \
+  -in /etc/uptime-kuma/tls/server.crt \
+  -noout -subject -issuer -dates -ext subjectAltName
 ```
 
 Do not print the SQLite database contents or the private key.
