@@ -182,6 +182,46 @@
           - uptime_kuma_hook_rendered is search('nginx -t')
           - uptime_kuma_hook_rendered is search('systemctl reload nginx\.service')
 
+    - name: Read runtime tasks file
+      ansible.builtin.slurp:
+        src: "{{ (playbook_dir | dirname) ~ '/tasks/runtime.yaml' }}"
+      register: uptime_kuma_runtime_tasks_slurp
+
+    - name: Set runtime tasks fact
+      ansible.builtin.set_fact:
+        uptime_kuma_runtime_tasks: "{{ uptime_kuma_runtime_tasks_slurp.content | b64decode }}"
+
+    - name: Extract runtime task order
+      ansible.builtin.set_fact:
+        uptime_kuma_daemon_reload_position: "{{ uptime_kuma_runtime_tasks.find('name: Reload systemd daemon') }}"
+        uptime_kuma_nginx_validate_position: "{{ uptime_kuma_runtime_tasks.find('name: Validate Nginx configuration') }}"
+        uptime_kuma_enable_kuma_position: "{{ uptime_kuma_runtime_tasks.find('name: Enable and start Uptime Kuma') }}"
+        uptime_kuma_enable_nginx_position: "{{ uptime_kuma_runtime_tasks.find('name: Enable and start Nginx') }}"
+        uptime_kuma_flush_position: "{{ uptime_kuma_runtime_tasks.find('name: Flush runtime handlers') }}"
+        uptime_kuma_wait_kuma_position: "{{ uptime_kuma_runtime_tasks.find('name: Wait for private Uptime Kuma listener') }}"
+        uptime_kuma_wait_nginx_position: "{{ uptime_kuma_runtime_tasks.find('name: Wait for Nginx HTTPS listener') }}"
+        uptime_kuma_find_releases_position: "{{ uptime_kuma_runtime_tasks.find('name: Find installed Uptime Kuma releases') }}"
+
+    - name: Assert runtime task lifecycle order
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_daemon_reload_position | int > 0
+          - uptime_kuma_nginx_validate_position | int > 0
+          - uptime_kuma_enable_kuma_position | int > 0
+          - uptime_kuma_enable_nginx_position | int > 0
+          - uptime_kuma_flush_position | int > 0
+          - uptime_kuma_wait_kuma_position | int > 0
+          - uptime_kuma_wait_nginx_position | int > 0
+          - uptime_kuma_find_releases_position | int > 0
+          - uptime_kuma_daemon_reload_position | int < uptime_kuma_enable_kuma_position | int
+          - uptime_kuma_nginx_validate_position | int < uptime_kuma_enable_nginx_position | int
+          - uptime_kuma_enable_kuma_position | int < uptime_kuma_flush_position | int
+          - uptime_kuma_enable_nginx_position | int < uptime_kuma_flush_position | int
+          - uptime_kuma_flush_position | int < uptime_kuma_wait_kuma_position | int
+          - uptime_kuma_wait_kuma_position | int < uptime_kuma_find_releases_position | int
+          - uptime_kuma_wait_nginx_position | int < uptime_kuma_find_releases_position | int
+        fail_msg: Runtime task lifecycle order incorrect
+
     - name: Clean up temporary template directory
       ansible.builtin.file:
         path: "{{ uptime_kuma_template_tmpdir.path }}"

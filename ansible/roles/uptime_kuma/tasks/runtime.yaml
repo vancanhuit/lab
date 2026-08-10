@@ -76,8 +76,14 @@
     state: link
   notify: Reload Nginx
 
-- name: Flush runtime handlers
-  ansible.builtin.meta: flush_handlers
+- name: Reload systemd daemon
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Validate Nginx configuration
+  ansible.builtin.command:
+    cmd: /usr/sbin/nginx -t
+  changed_when: false
 
 - name: Enable and start Uptime Kuma
   ansible.builtin.systemd_service:
@@ -90,6 +96,9 @@
     name: nginx.service
     enabled: true
     state: started
+
+- name: Flush runtime handlers
+  ansible.builtin.meta: flush_handlers
 
 - name: Wait for private Uptime Kuma listener
   ansible.builtin.wait_for:
