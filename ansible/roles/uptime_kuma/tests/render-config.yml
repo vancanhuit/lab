@@ -108,6 +108,7 @@
           - uptime_kuma_install_tasks_rendered is search('ansible\.builtin\.deb822_repository')
           - uptime_kuma_install_tasks_rendered is not search('ansible\.builtin\.apt_repository')
           - uptime_kuma_install_tasks_rendered is search('python3-debian')
+          - uptime_kuma_install_tasks_rendered is search('ssl-cert')
           - uptime_kuma_install_tasks_rendered is search('nodesource\.list')
           - uptime_kuma_install_tasks_rendered is search('node_.*\.x')
           - uptime_kuma_install_tasks_rendered is search('npm ci --omit=dev --no-audit')
