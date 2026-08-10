@@ -1,0 +1,76 @@
+---
+- name: Validate Uptime Kuma role contract
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_facts:
+      distribution: Debian
+      distribution_major_version: '13'
+      architecture: x86_64
+  tasks:
+    - name: Load Uptime Kuma role defaults
+      ansible.builtin.include_vars:
+        file: "{{ (playbook_dir | dirname) ~ '/defaults/main.yaml' }}"
+        name: uptime_kuma_role_defaults
+
+    - name: Backfill unset values from role defaults
+      ansible.builtin.set_fact:
+        uptime_kuma_version: "{{ uptime_kuma_version | default(uptime_kuma_role_defaults.uptime_kuma_version) }}"
+        uptime_kuma_release_commit: "{{ uptime_kuma_release_commit | default(uptime_kuma_role_defaults.uptime_kuma_release_commit) }}"
+        uptime_kuma_node_major: "{{ uptime_kuma_node_major | default(uptime_kuma_role_defaults.uptime_kuma_node_major) }}"
+        uptime_kuma_user: "{{ uptime_kuma_user | default(uptime_kuma_role_defaults.uptime_kuma_user) }}"
+        uptime_kuma_group: "{{ uptime_kuma_group | default(uptime_kuma_role_defaults.uptime_kuma_group) }}"
+        uptime_kuma_domain: "{{ uptime_kuma_domain | default(uptime_kuma_role_defaults.uptime_kuma_domain) }}"
+        uptime_kuma_bind_address: "{{ uptime_kuma_bind_address | default(uptime_kuma_role_defaults.uptime_kuma_bind_address) }}"
+        uptime_kuma_port: "{{ uptime_kuma_port | default(uptime_kuma_role_defaults.uptime_kuma_port) }}"
+        uptime_kuma_https_port: "{{ uptime_kuma_https_port | default(uptime_kuma_role_defaults.uptime_kuma_https_port) }}"
+        uptime_kuma_install_root: "{{ uptime_kuma_install_root | default(uptime_kuma_role_defaults.uptime_kuma_install_root) }}"
+        uptime_kuma_data_directory: "{{ uptime_kuma_data_directory | default(uptime_kuma_role_defaults.uptime_kuma_data_directory) }}"
+        uptime_kuma_backup_directory: "{{ uptime_kuma_backup_directory | default(uptime_kuma_role_defaults.uptime_kuma_backup_directory) }}"
+        uptime_kuma_backup_retention_count: "{{ uptime_kuma_backup_retention_count | default(uptime_kuma_role_defaults.uptime_kuma_backup_retention_count) }}"
+        uptime_kuma_tls_directory: "{{ uptime_kuma_tls_directory | default(uptime_kuma_role_defaults.uptime_kuma_tls_directory) }}"
+        uptime_kuma_tls_cert_path: "{{ uptime_kuma_tls_cert_path | default(uptime_kuma_role_defaults.uptime_kuma_tls_cert_path) }}"
+        uptime_kuma_tls_key_path: "{{ uptime_kuma_tls_key_path | default(uptime_kuma_role_defaults.uptime_kuma_tls_key_path) }}"
+
+    - name: Backfill derived path values from role defaults
+      ansible.builtin.set_fact:
+        uptime_kuma_release_path: "{{ uptime_kuma_release_path | default(uptime_kuma_role_defaults.uptime_kuma_release_path) }}"
+        uptime_kuma_current_path: "{{ uptime_kuma_current_path | default(uptime_kuma_role_defaults.uptime_kuma_current_path) }}"
+
+    - name: Run role validation for positive fixture
+      ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+    - name: Assert immutable contract values
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_version == '2.5.0'
+          - uptime_kuma_release_commit == 'd9a60dfc73140d15111752e4e8910ed4b54bd9a3'
+          - uptime_kuma_node_major | int == 24
+          - uptime_kuma_user == 'kuma'
+          - uptime_kuma_bind_address == '127.0.0.1'
+          - uptime_kuma_port | int == 3001
+          - uptime_kuma_https_port | int == 443
+          - uptime_kuma_backup_retention_count | int == 14
+
+    - name: Test invalid external bind address
+      block:
+        - name: Set invalid bind address
+          ansible.builtin.set_fact:
+            uptime_kuma_bind_address: 0.0.0.0
+
+        - name: Run validation with invalid bind address
+          ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+        - name: Fail when validation unexpectedly succeeds
+          ansible.builtin.fail:
+            msg: Validation accepted an externally reachable Kuma listener
+      rescue:
+        - name: Assert bind-address validation message
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.msg is search('uptime_kuma_bind_address must be 127.0.0.1')
+      always:
+        - name: Restore valid bind address
+          ansible.builtin.set_fact:
+            uptime_kuma_bind_address: 127.0.0.1

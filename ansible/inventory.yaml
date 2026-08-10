@@ -6,6 +6,8 @@ lab:
       ansible_host: postgres.lab.canhdinh.com
     gitea:
       ansible_host: gitea.lab.canhdinh.com
+    kuma:
+      ansible_host: kuma.lab.canhdinh.com
 
 incus:
   hosts:

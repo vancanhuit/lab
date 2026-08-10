@@ -1,0 +1,74 @@
+---
+- name: Assert Debian 13 is required
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+    fail_msg: Uptime Kuma role requires Debian 13
+    quiet: true
+
+- name: Assert supported architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.architecture in ['x86_64', 'aarch64']
+    fail_msg: Uptime Kuma role requires x86_64 or aarch64
+    quiet: true
+
+- name: Assert pinned application and runtime versions
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_version == '2.5.0'
+      - uptime_kuma_release_commit is match('^[0-9a-f]{40}$')
+      - uptime_kuma_release_commit == 'd9a60dfc73140d15111752e4e8910ed4b54bd9a3'
+      - uptime_kuma_node_major | int == 24
+    fail_msg: This role is validated only for Uptime Kuma 2.5.0 on Node.js 24
+    quiet: true
+
+- name: Assert service identity
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_user == 'kuma'
+      - uptime_kuma_group == 'kuma'
+    fail_msg: Uptime Kuma must run as the kuma system account
+    quiet: true
+
+- name: Assert private listener and public HTTPS ports
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_bind_address == '127.0.0.1'
+      - uptime_kuma_port | int == 3001
+      - uptime_kuma_https_port | int == 443
+    fail_msg: uptime_kuma_bind_address must be 127.0.0.1 and ports must be 3001/443
+    quiet: true
+
+- name: Assert hostname and backup retention
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_domain == 'kuma.lab.canhdinh.com'
+      - uptime_kuma_backup_retention_count | int == 14
+    fail_msg: Kuma hostname or backup retention differs from the approved design
+    quiet: true
+
+- name: Assert managed paths are absolute and distinct
+  ansible.builtin.assert:
+    that:
+      - item is match('^/')
+      - item != '/'
+    quiet: true
+  loop:
+    - "{{ uptime_kuma_install_root }}"
+    - "{{ uptime_kuma_data_directory }}"
+    - "{{ uptime_kuma_backup_directory }}"
+    - "{{ uptime_kuma_tls_directory }}"
+  loop_control:
+    label: "{{ item }}"
+
+- name: Assert managed directories do not overlap
+  ansible.builtin.assert:
+    that:
+      - >-
+        [uptime_kuma_install_root, uptime_kuma_data_directory,
+         uptime_kuma_backup_directory, uptime_kuma_tls_directory] |
+        unique | length == 4
+    fail_msg: Uptime Kuma install, data, backup, and TLS paths must be distinct
+    quiet: true
