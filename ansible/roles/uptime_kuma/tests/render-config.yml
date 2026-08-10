@@ -347,3 +347,78 @@
           - uptime_kuma_ss_invalid_ipv6_loopback_3001 | length == 1
           - uptime_kuma_ss_invalid_ipv6_loopback_3001[0] is regex('\\[::1\\]:3001\\s')
           - uptime_kuma_ss_invalid_extra_listener_3001 | length == 2
+
+    - name: Define protected path stat fixtures
+      ansible.builtin.set_fact:
+        uptime_kuma_stat_missing:
+          stat:
+            exists: false
+          item:
+            path: /nonexistent/path
+            label: missing file
+            owner: root
+            group: root
+            mode: '0600'
+        uptime_kuma_stat_existing:
+          stat:
+            exists: true
+            pw_name: kuma
+            gr_name: kuma
+            mode: '0700'
+          item:
+            path: /var/lib/uptime-kuma
+            label: data directory
+            owner: kuma
+            group: null
+            mode: '0700'
+        uptime_kuma_stat_existing_any_owner:
+          stat:
+            exists: true
+            pw_name: root
+            gr_name: www-data
+            mode: '0640'
+          item:
+            path: /etc/uptime-kuma/tls/server.key
+            label: TLS private key
+            owner: null
+            group: www-data
+            mode: '0640'
+
+    - name: Assert missing stat can be safely evaluated
+      ansible.builtin.assert:
+        that:
+          - not uptime_kuma_stat_missing.stat.exists
+        fail_msg: "{{ uptime_kuma_stat_missing.item.label }} does not exist at {{ uptime_kuma_stat_missing.item.path }}"
+        success_msg: "{{ uptime_kuma_stat_missing.item.label }} existence check passed"
+
+    - name: Assert existing stat validates expected metadata
+      ansible.builtin.assert:
+        that:
+          - uptime_kuma_stat_existing.item.owner is none or uptime_kuma_stat_existing.stat.pw_name == uptime_kuma_stat_existing.item.owner
+          - uptime_kuma_stat_existing.item.group is none or uptime_kuma_stat_existing.stat.gr_name == uptime_kuma_stat_existing.item.group
+          - uptime_kuma_stat_existing.stat.mode == uptime_kuma_stat_existing.item.mode
+        fail_msg: >-
+          {{ uptime_kuma_stat_existing.item.label }} at {{ uptime_kuma_stat_existing.item.path }} has incorrect permissions:
+          owner={{ uptime_kuma_stat_existing.stat.pw_name }} (expected {{ uptime_kuma_stat_existing.item.owner | default('any') }}),
+          group={{ uptime_kuma_stat_existing.stat.gr_name }} (expected {{ uptime_kuma_stat_existing.item.group | default('any') }}),
+          mode={{ uptime_kuma_stat_existing.stat.mode }} (expected {{ uptime_kuma_stat_existing.item.mode }})
+        success_msg: "{{ uptime_kuma_stat_existing.item.label }} permissions correct"
+      when: uptime_kuma_stat_existing.stat.exists
+
+    - name: Assert existing stat with null owner/group semantics
+      ansible.builtin.assert:
+        that:
+          - >-
+            uptime_kuma_stat_existing_any_owner.item.owner is none or
+            uptime_kuma_stat_existing_any_owner.stat.pw_name == uptime_kuma_stat_existing_any_owner.item.owner
+          - >-
+            uptime_kuma_stat_existing_any_owner.item.group is none or
+            uptime_kuma_stat_existing_any_owner.stat.gr_name == uptime_kuma_stat_existing_any_owner.item.group
+          - uptime_kuma_stat_existing_any_owner.stat.mode == uptime_kuma_stat_existing_any_owner.item.mode
+        fail_msg: >-
+          {{ uptime_kuma_stat_existing_any_owner.item.label }} at {{ uptime_kuma_stat_existing_any_owner.item.path }} has incorrect permissions:
+          owner={{ uptime_kuma_stat_existing_any_owner.stat.pw_name }} (expected {{ uptime_kuma_stat_existing_any_owner.item.owner | default('any') }}),
+          group={{ uptime_kuma_stat_existing_any_owner.stat.gr_name }} (expected {{ uptime_kuma_stat_existing_any_owner.item.group | default('any') }}),
+          mode={{ uptime_kuma_stat_existing_any_owner.stat.mode }} (expected {{ uptime_kuma_stat_existing_any_owner.item.mode }})
+        success_msg: "{{ uptime_kuma_stat_existing_any_owner.item.label }} permissions correct"
+      when: uptime_kuma_stat_existing_any_owner.stat.exists

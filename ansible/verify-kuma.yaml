@@ -115,10 +115,19 @@
         - { path: /etc/uptime-kuma/tls/server.key, label: TLS private key, owner: null, group: www-data, mode: '0640' }
       register: uptime_kuma_protected_paths
 
-    - name: Assert protected path ownership and modes
+    - name: Assert protected paths exist
       ansible.builtin.assert:
         that:
           - item.stat.exists
+        fail_msg: "{{ item.item.label }} does not exist at {{ item.item.path }}"
+        success_msg: "{{ item.item.label }} exists"
+      loop: "{{ uptime_kuma_protected_paths.results }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+
+    - name: Assert protected path ownership and modes
+      ansible.builtin.assert:
+        that:
           - item.item.owner is none or item.stat.pw_name == item.item.owner
           - item.item.group is none or item.stat.gr_name == item.item.group
           - item.stat.mode == item.item.mode
@@ -131,6 +140,7 @@
       loop: "{{ uptime_kuma_protected_paths.results }}"
       loop_control:
         label: "{{ item.item.path }}"
+      when: item.stat.exists
 
     - name: Create an on-demand Uptime Kuma backup
       ansible.builtin.systemd_service:
