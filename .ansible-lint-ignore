@@ -1,0 +1,2 @@
+# SOPS ciphertext is generated and cannot be wrapped without corrupting it.
+ansible/group_vars/all/secrets.sops.yaml yaml[line-length]
