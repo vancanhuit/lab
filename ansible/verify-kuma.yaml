@@ -62,13 +62,13 @@
              select('regex', '.*:3001\s.*') |
              list }}
 
-    - name: Assert exactly one Node listener on 127.0.0.1:3001
+    - name: Assert exactly one Uptime Kuma listener on 127.0.0.1:3001
       ansible.builtin.assert:
         that:
           - uptime_kuma_port_3001_listeners | length == 1
-          - uptime_kuma_port_3001_listeners[0] is regex('127\\.0\\.0\\.1:3001\\s.*\\bnode\\b')
+          - uptime_kuma_port_3001_listeners[0] is regex('127\\.0\\.0\\.1:3001\\s.*\\buptime-kuma\\b')
         fail_msg: >-
-          Expected exactly one Node listener on 127.0.0.1:3001, but found
+          Expected exactly one Uptime Kuma listener on 127.0.0.1:3001, but found
           {{ uptime_kuma_port_3001_listeners | length }} listeners:
           {{ uptime_kuma_port_3001_listeners | to_nice_yaml }}
 

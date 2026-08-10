@@ -318,7 +318,7 @@
       ansible.builtin.set_fact:
         uptime_kuma_ss_valid: |
           LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=100,fd=5))
-          LISTEN 0 511 127.0.0.1:3001 0.0.0.0:* users:(("node",pid=200,fd=20))
+          LISTEN 0 511 127.0.0.1:3001 0.0.0.0:* users:(("uptime-kuma",pid=200,fd=20))
         uptime_kuma_ss_invalid_external_ipv4: |
           LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=100,fd=5))
           LISTEN 0 511 0.0.0.0:3001 0.0.0.0:* users:(("node",pid=200,fd=20))
@@ -350,7 +350,7 @@
       ansible.builtin.assert:
         that:
           - uptime_kuma_ss_valid_3001 | length == 1
-          - uptime_kuma_ss_valid_3001[0] is regex('127\\.0\\.0\\.1:3001\\s.*\\bnode\\b')
+          - uptime_kuma_ss_valid_3001[0] is regex('127\\.0\\.0\\.1:3001\\s.*\\buptime-kuma\\b')
           - uptime_kuma_ss_valid is regex('(?m):443\\s.*\\bnginx\\b')
           - uptime_kuma_ss_invalid_external_ipv4_3001 | length == 1
           - uptime_kuma_ss_invalid_external_ipv4_3001[0] is not regex('127\\.0\\.0\\.1:3001\\s')
