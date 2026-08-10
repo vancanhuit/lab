@@ -38,7 +38,7 @@
   register: uptime_kuma_nodesource_key_check
   changed_when: false
   failed_when: >-
-    'fpr:::::::::6F71F525282841EEDAF851B42F59B5F99B1BE0B4:'
+    'fpr:::::::::' ~ uptime_kuma_nodesource_key_fingerprint ~ ':'
     not in uptime_kuma_nodesource_key_check.stdout
 
 - name: Configure NodeSource Node.js repository

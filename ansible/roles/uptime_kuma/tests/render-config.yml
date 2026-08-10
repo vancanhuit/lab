@@ -99,7 +99,8 @@
       ansible.builtin.assert:
         that:
           - uptime_kuma_install_tasks_rendered is search('nodesource-repo\.gpg\.key')
-          - uptime_kuma_install_tasks_rendered is search('6F71F525282841EEDAF851B42F59B5F99B1BE0B4')
+          - uptime_kuma_install_tasks_rendered is search('uptime_kuma_nodesource_key_fingerprint')
+          - uptime_kuma_role_defaults.uptime_kuma_nodesource_key_fingerprint == '6F71F525282841EEDAF851B42F59B5F99B1BE0B4'
           - uptime_kuma_install_tasks_rendered is search('node_.*\.x')
           - uptime_kuma_install_tasks_rendered is search('npm ci --omit=dev --no-audit')
           - uptime_kuma_install_tasks_rendered is search('npm run download-dist')
