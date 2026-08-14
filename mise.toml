@@ -23,14 +23,26 @@ description = "Install repository Git hooks"
 run = "cog install-hook --all --overwrite"
 
 [tasks."secrets:edit"]
-description = "Edit the sops-encrypted secrets file"
+description = "Edit one sops-encrypted secrets file selected by SOPS_FILE"
 dir = "ansible"
-run = "sops group_vars/all/secrets.sops.yaml"
+run = 'sops "${SOPS_FILE:?set SOPS_FILE to a path relative to ansible/}"'
 
 [tasks."secrets:view"]
-description = "Decrypt and print the sops-encrypted secrets file"
+description = "Decrypt one secrets file selected by SOPS_FILE"
 dir = "ansible"
-run = "sops --decrypt group_vars/all/secrets.sops.yaml"
+run = 'sops --decrypt "${SOPS_FILE:?set SOPS_FILE to a path relative to ansible/}"'
+
+[tasks."secrets:check"]
+description = "Authenticate every sops-encrypted inventory file"
+dir = "ansible"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+while IFS= read -r -d '' secret_file; do
+  sops --decrypt "$secret_file" >/dev/null
+done < <(find group_vars host_vars -type f -name '*.sops.yaml' -print0 | sort -z)
+'''
 
 [tasks."security:secrets"]
 description = "Scan Git history for leaked secrets"

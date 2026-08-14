@@ -24,7 +24,7 @@ The Incus host uses Zabbly builds for:
 - Install [Tailscale](https://tailscale.com/docs), join the tailnet, and configure split DNS for `lab.canhdinh.com`.
 - Advertise the Incus bridge network from the Incus host through a [Tailscale subnet router](https://tailscale.com/kb/1019/subnets).
 - Configure the Ansible inventory hosts in `ansible/inventory.yaml`.
-- Add the required Cloudflare, PostgreSQL, Gitea, [Backblaze S3-compatible object storage](https://www.backblaze.com/docs/cloud-storage-s3-compatible-api), and Gitea [Brevo SMTP](https://developers.brevo.com/docs/send-a-transactional-email) secrets to `ansible/group_vars/all/secrets.sops.yaml`. Uptime Kuma's native Brevo provider is configured separately through its UI with password-manager values.
+- Add the required secrets to their ownership-scoped encrypted files under `ansible/group_vars/` and `ansible/host_vars/`. See the [Repository Configuration](#repository-configuration) section for the complete list of encrypted files and their variables. Uptime Kuma's native Brevo provider is configured separately through its UI with password-manager values.
 
 ### Enable Tailscale SSH
 
@@ -83,9 +83,13 @@ This repository uses [SOPS](https://getsops.io/) with [age](https://age-encrypti
 
 The secret-management configuration consists of:
 
-- `mise.toml`, which pins the `sops` and `age` versions and defines the `secrets:edit` and `secrets:view` tasks.
+- `mise.toml`, which pins the `sops` and `age` versions and defines the `secrets:edit`, `secrets:view`, and `secrets:check` tasks.
 - [`ansible/.sops.yaml`](ansible/.sops.yaml), which applies its age recipient to files ending in `.sops.yaml`.
-- [`ansible/group_vars/all/secrets.sops.yaml`](ansible/group_vars/all/secrets.sops.yaml), which contains the encrypted Ansible variables.
+- Encrypted SOPS variable files:
+  - [`ansible/group_vars/lab/secrets.sops.yaml`](ansible/group_vars/lab/secrets.sops.yaml) — shared secrets for all hosts in the `lab` group: `cloudflare_api_token`.
+  - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](ansible/group_vars/gitea_stack/secrets.sops.yaml) — shared secrets for hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
+  - [`ansible/host_vars/dns/secrets.sops.yaml`](ansible/host_vars/dns/secrets.sops.yaml) — secrets owned by the `dns` host: `technitium_pfx_password`.
+  - [`ansible/host_vars/gitea/secrets.sops.yaml`](ansible/host_vars/gitea/secrets.sops.yaml) — secrets owned by the `gitea` host: `gitea_s3_access_key`, `gitea_s3_secret_key`, `gitea_smtp_password`, `gitea_secret_key`, `gitea_internal_token`, `gitea_lfs_jwt_secret`, `gitea_admin_password`, `gitea_oauth2_jwt_secret`.
 - `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
 
@@ -147,10 +151,10 @@ Environment variables containing private key material, such as `SOPS_AGE_KEY`, a
 
 ### Edit and Inspect Secrets
 
-Edit the encrypted file through SOPS rather than decrypting it to a persistent plaintext file:
+Edit an encrypted file through SOPS rather than decrypting it to a persistent plaintext file. Specify the file relative to `ansible/` with the `SOPS_FILE` environment variable:
 
 ```sh
-mise run secrets:edit
+SOPS_FILE=host_vars/gitea/secrets.sops.yaml mise run secrets:edit
 ```
 
 SOPS decrypts the values for the editor process, then validates and re-encrypts the file when the editor exits. Git continues to see only encrypted values.
@@ -158,23 +162,29 @@ SOPS decrypts the values for the editor process, then validates and re-encrypts 
 Inspect decrypted values only when necessary:
 
 ```sh
-mise run secrets:view
+SOPS_FILE=host_vars/gitea/secrets.sops.yaml mise run secrets:view
 ```
 
 > [!WARNING]
 > `secrets:view` prints every plaintext secret to the terminal. Do not run it in recorded terminals, CI logs, shared sessions, or commands whose output is redirected to an unencrypted file.
 
-Test key access without displaying plaintext:
+Test key access without displaying plaintext for a specific file:
 
 ```sh
-sops --decrypt ansible/group_vars/all/secrets.sops.yaml >/dev/null
+sops --decrypt ansible/host_vars/gitea/secrets.sops.yaml >/dev/null
+```
+
+Or authenticate every encrypted inventory file at once:
+
+```sh
+mise run secrets:check
 ```
 
 After editing, review the encrypted diff and ensure no plaintext file was created:
 
 ```sh
 git diff --check
-git diff -- ansible/group_vars/all/secrets.sops.yaml
+git diff -- ansible/host_vars/gitea/secrets.sops.yaml
 git status --short
 ```
 
@@ -182,10 +192,10 @@ git status --short
 
 The `community.sops.sops` vars plugin runs on the Ansible controller:
 
-1. Ansible discovers `group_vars/all/secrets.sops.yaml` while loading inventory variables.
+1. Ansible discovers the four encrypted `.sops.yaml` files while loading inventory variables. Ansible's `host_group_vars` precedence merges `lab` group vars, then `gitea_stack` group vars, then host-specific vars before the SOPS plugin decrypts matching files.
 2. The plugin invokes the local `sops` binary and obtains the age identity from the default key file or the configured environment override.
 3. SOPS authenticates and decrypts the YAML values in memory.
-4. Ansible merges those values into the normal `all` group variable set before roles and templates use them.
+4. Ansible merges those values into each host's final variable set according to standard precedence rules, so secrets are available only to hosts that inherit or own them.
 5. Only values required by a task are sent to managed hosts. The age private identity stays on the controller.
 
 The encrypted file naming convention matters: the vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files, while this repository's creation rule targets `.sops.yaml` files. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
@@ -196,13 +206,16 @@ When onboarding another operator or rotating a key:
 
 1. Generate or obtain the operator's public age recipient. Never exchange the private identity.
 2. Add the recipient to the matching creation rule in `ansible/.sops.yaml`.
-3. Update the existing encrypted file's recipient metadata so its data key is wrapped for the new recipient:
+3. Update every encrypted inventory file's recipient metadata so its data key is wrapped for the new recipient:
 
    ```sh
-   sops updatekeys ansible/group_vars/all/secrets.sops.yaml
+   find ansible/group_vars ansible/host_vars -type f -name '*.sops.yaml' -print0 |
+     while IFS= read -r -d '' secret_file; do
+       sops updatekeys "$secret_file"
+     done
    ```
 
-4. Confirm the new identity can decrypt to `/dev/null` before removing the old recipient.
+4. Confirm the new identity can decrypt every file to `/dev/null` before removing the old recipient.
 5. Revoke and securely delete the old private identity only after every encrypted file has been updated and recovery access has been tested.
 
 Changing `ansible/.sops.yaml` alone affects new encryption operations; it does not automatically rewrite recipient metadata in files that are already encrypted. Keep at least one tested recovery identity until rotation is complete.

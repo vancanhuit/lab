@@ -7,8 +7,6 @@ uptime_kuma_nodesource_key_url: https://deb.nodesource.com/gpgkey/nodesource-rep
 uptime_kuma_nodesource_key_fingerprint: 6F71F525282841EEDAF851B42F59B5F99B1BE0B4
 uptime_kuma_user: kuma
 uptime_kuma_group: kuma
-uptime_kuma_admin_username: kuma-admin
-uptime_kuma_domain: kuma.lab.canhdinh.com
 uptime_kuma_bind_address: 127.0.0.1
 uptime_kuma_port: 3001
 uptime_kuma_https_port: 443

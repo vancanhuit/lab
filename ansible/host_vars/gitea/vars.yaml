@@ -1,0 +1,19 @@
+---
+gitea_domain: gitea.lab.canhdinh.com
+gitea_root_url: https://gitea.lab.canhdinh.com/
+gitea_database_host: postgres.lab.canhdinh.com:5432
+gitea_admin_username: gitea-admin
+gitea_admin_email: gitea-admin@canhdinh.com
+lego_domain_names:
+  - gitea.lab.canhdinh.com
+lego_certificate_name: gitea
+lego_hooks:
+  deploy:
+    script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/gitea/templates/lego-deploy-hook.sh.j2') }}"
+gitea_s3_endpoint: s3.us-west-004.backblazeb2.com
+gitea_s3_region: us-west-004
+gitea_s3_bucket: homelab-gitea
+gitea_smtp_host: smtp-relay.brevo.com
+gitea_smtp_port: 587
+gitea_smtp_from: Lab No Reply <lab-noreply@canhdinh.com>
+gitea_smtp_user: b4e981001@smtp-brevo.com

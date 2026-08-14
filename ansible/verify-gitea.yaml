@@ -8,9 +8,7 @@
     gitea_user: git
     gitea_home: /home/git
     gitea_work_directory: /var/lib/gitea
-    gitea_domain: gitea.lab.canhdinh.com
     gitea_expected_version: "1.27.2"
-    gitea_admin_username: gitea-admin
   tasks:
     - name: Check Gitea version
       ansible.builtin.command:

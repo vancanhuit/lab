@@ -1,0 +1,51 @@
+---
+- name: Verify inventory variable ownership
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    inventory_secret_names:
+      - cloudflare_api_token
+      - technitium_pfx_password
+      - gitea_database_password
+      - gitea_s3_access_key
+      - gitea_s3_secret_key
+      - gitea_smtp_password
+      - gitea_secret_key
+      - gitea_internal_token
+      - gitea_lfs_jwt_secret
+      - gitea_admin_password
+      - gitea_oauth2_jwt_secret
+    inventory_secret_contract:
+      dns:
+        - cloudflare_api_token
+        - technitium_pfx_password
+      postgres:
+        - cloudflare_api_token
+        - gitea_database_password
+      gitea:
+        - cloudflare_api_token
+        - gitea_database_password
+        - gitea_s3_access_key
+        - gitea_s3_secret_key
+        - gitea_smtp_password
+        - gitea_secret_key
+        - gitea_internal_token
+        - gitea_lfs_jwt_secret
+        - gitea_admin_password
+        - gitea_oauth2_jwt_secret
+      kuma:
+        - cloudflare_api_token
+      debian-incus: []
+  tasks:
+    - name: Assert each secret is visible only to its owners
+      ansible.builtin.assert:
+        that:
+          - >-
+            (item.1 in hostvars[item.0.key]) ==
+            (item.1 in item.0.value)
+        fail_msg: "{{ item.0.key }} has incorrect ownership for {{ item.1 }}"
+        quiet: true
+      loop: "{{ query('nested', inventory_secret_contract | dict2items, inventory_secret_names) }}"
+      loop_control:
+        label: "{{ item.0.key }} / {{ item.1 }}"

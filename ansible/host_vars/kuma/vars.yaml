@@ -1,0 +1,9 @@
+---
+uptime_kuma_admin_username: kuma-admin
+uptime_kuma_domain: kuma.lab.canhdinh.com
+lego_domain_names:
+  - kuma.lab.canhdinh.com
+lego_certificate_name: kuma
+lego_hooks:
+  deploy:
+    script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/uptime_kuma/templates/lego-deploy-hook.sh.j2') }}"

@@ -11,14 +11,7 @@ gitea_work_directory: /var/lib/gitea
 gitea_config_directory: /etc/gitea
 gitea_config_path: /etc/gitea/app.ini
 gitea_binary_path: /usr/local/bin/gitea
-gitea_domain: gitea.lab.canhdinh.com
-gitea_root_url: "https://gitea.lab.canhdinh.com/"
 gitea_https_port: 443
 gitea_tls_directory: /etc/gitea/tls
 gitea_tls_cert_path: /etc/gitea/tls/server.crt
 gitea_tls_key_path: /etc/gitea/tls/server.key
-gitea_database_host: postgres.lab.canhdinh.com:5432
-gitea_database_name: gitea
-gitea_database_user: gitea
-gitea_admin_username: gitea-admin
-gitea_admin_email: gitea-admin@canhdinh.com

@@ -34,15 +34,6 @@
 - name: Deploy Gitea with built-in HTTPS
   hosts: gitea
   become: true
-  vars:
-    gitea_tls_cert_path: /etc/gitea/tls/server.crt
-    gitea_tls_key_path: /etc/gitea/tls/server.key
-    lego_domain_names:
-      - gitea.lab.canhdinh.com
-    lego_certificate_name: gitea
-    lego_hooks:
-      deploy:
-        script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/gitea/templates/lego-deploy-hook.sh.j2') }}"
   roles:
     - gitea
     - lego

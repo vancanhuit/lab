@@ -4,6 +4,8 @@
   connection: local
   gather_facts: false
   vars:
+    uptime_kuma_admin_username: kuma-admin
+    uptime_kuma_domain: kuma.lab.canhdinh.com
     ansible_facts:
       distribution: Debian
       distribution_major_version: '13'
@@ -21,8 +23,6 @@
         uptime_kuma_node_major: "{{ uptime_kuma_node_major | default(uptime_kuma_role_defaults.uptime_kuma_node_major) }}"
         uptime_kuma_user: "{{ uptime_kuma_user | default(uptime_kuma_role_defaults.uptime_kuma_user) }}"
         uptime_kuma_group: "{{ uptime_kuma_group | default(uptime_kuma_role_defaults.uptime_kuma_group) }}"
-        uptime_kuma_admin_username: "{{ uptime_kuma_admin_username | default(uptime_kuma_role_defaults.uptime_kuma_admin_username) }}"
-        uptime_kuma_domain: "{{ uptime_kuma_domain | default(uptime_kuma_role_defaults.uptime_kuma_domain) }}"
         uptime_kuma_bind_address: "{{ uptime_kuma_bind_address | default(uptime_kuma_role_defaults.uptime_kuma_bind_address) }}"
         uptime_kuma_port: "{{ uptime_kuma_port | default(uptime_kuma_role_defaults.uptime_kuma_port) }}"
         uptime_kuma_https_port: "{{ uptime_kuma_https_port | default(uptime_kuma_role_defaults.uptime_kuma_https_port) }}"

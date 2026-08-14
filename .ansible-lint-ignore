@@ -1,2 +1,5 @@
 # SOPS ciphertext is generated and cannot be wrapped without corrupting it.
-ansible/group_vars/all/secrets.sops.yaml yaml[line-length]
+ansible/group_vars/gitea_stack/secrets.sops.yaml yaml[line-length]
+ansible/group_vars/lab/secrets.sops.yaml yaml[line-length]
+ansible/host_vars/dns/secrets.sops.yaml yaml[line-length]
+ansible/host_vars/gitea/secrets.sops.yaml yaml[line-length]

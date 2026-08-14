@@ -1,17 +1,6 @@
 - name: Configure production PostgreSQL and ACME certificate rotation
   hosts: postgres
   become: true
-  vars:
-    postgresql_allowed_cidrs:
-      - 10.205.234.0/24
-      - 100.64.0.0/10
-    lego_domain_names:
-      - postgres.lab.canhdinh.com
-    lego_certificate_name: postgres
-    lego_hooks:
-      deploy:
-        script: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/roles/postgresql/files/lego-deploy-hook.sh') }}"
-
   roles:
     - postgresql
     - lego

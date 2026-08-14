@@ -2,12 +2,15 @@ lab:
   hosts:
     dns:
       ansible_host: dns.lab.canhdinh.com
-    postgres:
-      ansible_host: postgres.lab.canhdinh.com
-    gitea:
-      ansible_host: gitea.lab.canhdinh.com
     kuma:
       ansible_host: kuma.lab.canhdinh.com
+  children:
+    gitea_stack:
+      hosts:
+        postgres:
+          ansible_host: postgres.lab.canhdinh.com
+        gitea:
+          ansible_host: gitea.lab.canhdinh.com
 
 incus:
   hosts:

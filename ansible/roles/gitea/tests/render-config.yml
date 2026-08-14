@@ -4,6 +4,13 @@
   connection: local
   gather_facts: false
   vars:
+    gitea_domain: gitea.example.invalid
+    gitea_root_url: https://gitea.example.invalid/
+    gitea_database_host: postgres.example.invalid:5432
+    gitea_database_name: gitea
+    gitea_database_user: gitea
+    gitea_admin_username: gitea-admin
+    gitea_admin_email: gitea-admin@example.invalid
     gitea_database_password: test-database-password
     gitea_secret_key: test-secret-key
     gitea_internal_token: test-internal-token
@@ -42,17 +49,10 @@
         gitea_config_directory: "{{ gitea_config_directory | default(gitea_role_defaults.gitea_config_directory) }}"
         gitea_config_path: "{{ gitea_config_path | default(gitea_role_defaults.gitea_config_path) }}"
         gitea_binary_path: "{{ gitea_binary_path | default(gitea_role_defaults.gitea_binary_path) }}"
-        gitea_domain: "{{ gitea_domain | default(gitea_role_defaults.gitea_domain) }}"
-        gitea_root_url: "{{ gitea_root_url | default(gitea_role_defaults.gitea_root_url) }}"
         gitea_https_port: "{{ gitea_https_port | default(gitea_role_defaults.gitea_https_port) }}"
         gitea_tls_directory: "{{ gitea_tls_directory | default(gitea_role_defaults.gitea_tls_directory) }}"
         gitea_tls_cert_path: "{{ gitea_tls_cert_path | default(gitea_role_defaults.gitea_tls_cert_path) }}"
         gitea_tls_key_path: "{{ gitea_tls_key_path | default(gitea_role_defaults.gitea_tls_key_path) }}"
-        gitea_database_host: "{{ gitea_database_host | default(gitea_role_defaults.gitea_database_host) }}"
-        gitea_database_name: "{{ gitea_database_name | default(gitea_role_defaults.gitea_database_name) }}"
-        gitea_database_user: "{{ gitea_database_user | default(gitea_role_defaults.gitea_database_user) }}"
-        gitea_admin_username: "{{ gitea_admin_username | default(gitea_role_defaults.gitea_admin_username) }}"
-        gitea_admin_email: "{{ gitea_admin_email | default(gitea_role_defaults.gitea_admin_email) }}"
 
     - name: Compute release URLs from backfilled values
       ansible.builtin.set_fact:
@@ -132,7 +132,7 @@
       ansible.builtin.assert:
         that:
           - gitea_app_ini_rendered is search('PROTOCOL = https')
-          - gitea_app_ini_rendered is search('ROOT_URL = "https://gitea\.lab\.canhdinh\.com/"')
+          - gitea_app_ini_rendered is search('ROOT_URL = "https://gitea\.example\.invalid/"')
           - gitea_app_ini_rendered is search('PUBLIC_URL_DETECTION = never')
           - gitea_app_ini_rendered is search('HTTP_PORT = 443')
           - gitea_app_ini_rendered is search('DISABLE_SSH = true')
