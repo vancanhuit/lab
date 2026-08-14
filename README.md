@@ -24,7 +24,7 @@ The Incus host uses Zabbly builds for:
 - Install [Tailscale](https://tailscale.com/docs), join the tailnet, and configure split DNS for `lab.canhdinh.com`.
 - Advertise the Incus bridge network from the Incus host through a [Tailscale subnet router](https://tailscale.com/kb/1019/subnets).
 - Configure the Ansible inventory hosts in `ansible/inventory.yaml`.
-- Add the required Cloudflare, PostgreSQL, Gitea, [IDrive e2](https://www.idrive.com/s3-storage-e2/), and Gitea [Brevo SMTP](https://developers.brevo.com/docs/send-a-transactional-email) secrets to `ansible/group_vars/all/secrets.sops.yaml`. Uptime Kuma's native Brevo provider is configured separately through its UI with password-manager values.
+- Add the required Cloudflare, PostgreSQL, Gitea, [Backblaze S3-compatible object storage](https://www.backblaze.com/docs/cloud-storage-s3-compatible-api), and Gitea [Brevo SMTP](https://developers.brevo.com/docs/send-a-transactional-email) secrets to `ansible/group_vars/all/secrets.sops.yaml`. Uptime Kuma's native Brevo provider is configured separately through its UI with password-manager values.
 
 ### Enable Tailscale SSH
 
@@ -538,6 +538,8 @@ The second deployment should report `changed=0` for the PostgreSQL host.
 
 Gitea depends on the PostgreSQL service from the previous stage. The Gitea playbook creates its PostgreSQL role and database before deploying Gitea with built-in HTTPS.
 
+The role renders `gitea_s3_endpoint`, `gitea_s3_region`, `gitea_s3_bucket`, `gitea_s3_access_key`, and `gitea_s3_secret_key` into Gitea's `minio` storage backend for Backblaze. Store the endpoint as a hostname without an `http://` or `https://` prefix. Changing these values switches the configured backend but does not migrate existing objects. For a provider change, follow the [Backblaze migration design](docs/superpowers/specs/2026-08-14-gitea-backblaze-storage-migration-design.md) and [implementation plan](docs/superpowers/plans/2026-08-14-gitea-backblaze-storage-migration.md).
+
 ```sh
 ansible-playbook gitea.yaml
 ```
@@ -882,6 +884,21 @@ sudo -u git /usr/local/bin/gitea doctor check --default --config /etc/gitea/app.
 sudo systemctl status lego-renew.timer
 ```
 
+### Object Storage
+
+Gitea uses Backblaze's S3-compatible API as its default object-storage backend. It stores LFS objects, user and repository avatars, attachments, repository archives, packages, Actions logs, and Actions artifacts. Git repository object data remains under `/var/lib/gitea` on the Gitea host.
+
+Run `ansible-playbook verify-gitea.yaml` after storage configuration changes. Do not inspect `/etc/gitea/app.ini` in shared or recorded terminals because it contains object-storage credentials.
+
+Changing storage providers requires data migration as well as configuration deployment:
+
+1. Copy the existing bucket to the destination while Gitea remains online.
+2. Stop Gitea to freeze object writes.
+3. Copy the final delta and compare object counts, byte totals, and contents.
+4. Update the five `gitea_s3_*` SOPS values and run `ansible-playbook gitea.yaml`.
+5. Run `ansible-playbook verify-gitea.yaml` and test existing object-backed content through Gitea.
+6. Retain the source bucket for a rollback period.
+
 ### Upgrade Procedure
 
 Stop Gitea and take a consistent backup before changing `gitea_version`:
@@ -909,11 +926,11 @@ sudo -u postgres pgbackrest --stanza=main check
 | Data | Coverage |
 | --- | --- |
 | PostgreSQL relational data | pgBackRest local backups only; no off-host replication |
-| Gitea object storage | iDrive e2 stores LFS objects, avatars, attachments, and packages |
+| Gitea object storage | Backblaze stores LFS objects, avatars, attachments, archives, packages, and Actions data off-host; it is primary storage, not an independent backup |
 | Gitea repositories and generated state | `/var/lib/gitea` has no off-host backup |
 
 > [!WARNING]
-> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL backups also do not survive loss of the PostgreSQL host or its storage.
+> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL backups also do not survive loss of the PostgreSQL host or its storage. Backblaze object storage requires a separate replication or backup policy to protect against accidental deletion, credential misuse, or provider-side loss.
 
 ## PostgreSQL Point-in-Time Restore
 
