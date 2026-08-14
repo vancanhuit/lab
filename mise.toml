@@ -10,9 +10,7 @@ trufflehog = "3.96.0"
 sops = "3.13.3"
 python = "3.14.7"
 uv = { version = "0.12.3", depends = ["python"] }
-"pipx:ansible" = { version = "14.2.0", uvx_args = "--with-executables-from ansible-core --with-executables-from ansible-lint", depends = [
-  "uv",
-] }
+"pipx:ansible" = { version = "14.3.0", uvx_args = "--with-executables-from ansible-core --with-executables-from ansible-lint", depends = ["uv"] }
 gh = "2.97.0"
 
 [tasks."ansible:deps"]
