@@ -9,7 +9,7 @@ gitleaks = "8.30.1"
 trufflehog = "3.97.1"
 sops = "3.13.3"
 python = "3.14.7"
-uv = { version = "0.12.6", depends = ["python"] }
+uv = { version = "0.12.7", depends = ["python"] }
 "pipx:ansible" = { version = "14.3.1", uvx_args = "--with-executables-from ansible-core --with-executables-from ansible-lint", depends = ["uv"] }
 gh = "2.98.0"
 
