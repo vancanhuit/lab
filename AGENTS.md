@@ -26,5 +26,5 @@
 
 - Never decrypt secrets into repository files or print them in shared or recorded output. Edit encrypted files with `SOPS_FILE=<path-relative-to-ansible> mise run secrets:edit`; `secrets:view` prints plaintext and should normally be avoided.
 - Keep secrets in the narrowest ownership-scoped `.sops.yaml` file under `ansible/group_vars/` or `ansible/host_vars/`. If ownership changes, update and run `verify-inventory-vars.yaml`.
-- Changing an S3 backend in inventory changes configuration only; it does not migrate existing Gitea objects. Follow the migration design and plan under `docs/superpowers/` before switching providers.
+- Changing an S3 backend in inventory changes configuration only; it does not migrate existing Gitea objects. Follow `README.md`'s Gitea object-storage migration procedure before switching providers.
 - Do not casually delete `/var/lib/lego` or weaken certificate/private-key permissions. The directory contains ACME account and certificate state, and repeated replacement issuance can consume Let's Encrypt rate limits.
