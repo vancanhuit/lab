@@ -74,10 +74,10 @@
     uptime_kuma_legacy_nodesource_repository.changed or
     uptime_kuma_nodesource_repository.changed
 
-- name: Install Node.js 24 LTS # noqa: package-latest
+- name: Install pinned Node.js 24 LTS
   ansible.builtin.apt:
-    name: nodejs
-    state: latest
+    name: "nodejs={{ uptime_kuma_node_version }}-1nodesource1"
+    state: present
   notify: Restart Uptime Kuma
 
 - name: Check installed Node.js version
@@ -85,7 +85,7 @@
     cmd: node --version
   register: uptime_kuma_node_version_check
   changed_when: false
-  failed_when: uptime_kuma_node_version_check.stdout is not match('^v24\.')
+  failed_when: uptime_kuma_node_version_check.stdout != 'v' ~ uptime_kuma_node_version
 
 - name: Create Uptime Kuma system group
   ansible.builtin.group:

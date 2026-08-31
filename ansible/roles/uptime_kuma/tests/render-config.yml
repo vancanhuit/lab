@@ -21,6 +21,7 @@
         uptime_kuma_version: "{{ uptime_kuma_version | default(uptime_kuma_role_defaults.uptime_kuma_version) }}"
         uptime_kuma_release_commit: "{{ uptime_kuma_release_commit | default(uptime_kuma_role_defaults.uptime_kuma_release_commit) }}"
         uptime_kuma_node_major: "{{ uptime_kuma_node_major | default(uptime_kuma_role_defaults.uptime_kuma_node_major) }}"
+        uptime_kuma_node_version: "{{ uptime_kuma_node_version | default(uptime_kuma_role_defaults.uptime_kuma_node_version) }}"
         uptime_kuma_user: "{{ uptime_kuma_user | default(uptime_kuma_role_defaults.uptime_kuma_user) }}"
         uptime_kuma_group: "{{ uptime_kuma_group | default(uptime_kuma_role_defaults.uptime_kuma_group) }}"
         uptime_kuma_bind_address: "{{ uptime_kuma_bind_address | default(uptime_kuma_role_defaults.uptime_kuma_bind_address) }}"
@@ -52,9 +53,10 @@
     - name: Assert immutable contract values
       ansible.builtin.assert:
         that:
-          - uptime_kuma_version == '2.5.0'
-          - uptime_kuma_release_commit == 'd9a60dfc73140d15111752e4e8910ed4b54bd9a3'
+          - uptime_kuma_version == '2.5.3'
+          - uptime_kuma_release_commit == '1f0755fb044fe08e99fccde6722062fb2bf6c8f4'
           - uptime_kuma_node_major | int == 24
+          - uptime_kuma_node_version == '24.20.0'
           - uptime_kuma_user == 'kuma'
           - uptime_kuma_bind_address == '127.0.0.1'
           - uptime_kuma_port | int == 3001
