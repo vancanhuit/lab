@@ -7,6 +7,9 @@
     seaweedfs_domain: s3.lab.canhdinh.com
     seaweedfs_s3_access_key: test-access-key-1234
     seaweedfs_s3_secret_key: test-secret-key-that-is-at-least-32-characters
+    seaweedfs_gitea_access_key: test-gitea-access-key
+    seaweedfs_gitea_secret_key: test-gitea-secret-key
+    seaweedfs_gitea_bucket: homelab-gitea
     ansible_facts:
       distribution: Debian
       distribution_major_version: '13'
@@ -56,6 +59,9 @@
       ansible.builtin.assert:
         that:
           - (seaweedfs_s3_config | from_json).identities[0].actions == ['Admin', 'Read', 'List', 'Tagging', 'Write']
+          - >-
+            (seaweedfs_s3_config | from_json).identities[1].actions ==
+            ['Read:homelab-gitea', 'List:homelab-gitea', 'Tagging:homelab-gitea', 'Write:homelab-gitea']
           - seaweedfs_service is search('-ip.bind=127\.0\.0\.1')
           - seaweedfs_service is search('-s3.ip.bind=127\.0\.0\.1')
           - seaweedfs_service is search('-s3.port=8333')

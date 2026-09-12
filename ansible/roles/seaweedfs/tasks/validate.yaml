@@ -8,6 +8,9 @@
       - seaweedfs_domain is match('^[a-z0-9.-]+$')
       - seaweedfs_s3_access_key | length >= 16
       - seaweedfs_s3_secret_key | length >= 32
+      - seaweedfs_gitea_access_key | length > 0
+      - seaweedfs_gitea_secret_key | length > 0
+      - seaweedfs_gitea_bucket is match('^[a-z0-9][a-z0-9.-]+[a-z0-9]$')
       - seaweedfs_s3_port | int == 443
     fail_msg: SeaweedFS requires Debian 13 amd64, valid credentials, and HTTPS on port 443
   no_log: true

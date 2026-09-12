@@ -91,6 +91,13 @@
       Current value: {{ gitea_smtp_port }}
     quiet: true
 
+- name: Assert S3 bucket lookup type is supported
+  ansible.builtin.assert:
+    that:
+      - gitea_s3_bucket_lookup_type in ['auto', 'dns', 'path']
+    fail_msg: gitea_s3_bucket_lookup_type must be auto, dns, or path
+    quiet: true
+
 - name: Assert secret variables are non-empty strings
   ansible.builtin.assert:
     that:

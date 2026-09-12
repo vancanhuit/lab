@@ -53,6 +53,8 @@
         gitea_tls_directory: "{{ gitea_tls_directory | default(gitea_role_defaults.gitea_tls_directory) }}"
         gitea_tls_cert_path: "{{ gitea_tls_cert_path | default(gitea_role_defaults.gitea_tls_cert_path) }}"
         gitea_tls_key_path: "{{ gitea_tls_key_path | default(gitea_role_defaults.gitea_tls_key_path) }}"
+        gitea_s3_bucket_lookup_type: >-
+          {{ gitea_s3_bucket_lookup_type | default(gitea_role_defaults.gitea_s3_bucket_lookup_type) }}
 
     - name: Compute release URLs from backfilled values
       ansible.builtin.set_fact:

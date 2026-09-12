@@ -91,6 +91,8 @@
           - gitea_config_text is search('DISABLE_SSH\\s*=\\s*true')
           - gitea_config_text is not search('PASSWORD_HASH_ALGO\\s*=\\s*argon2')
           - gitea_config_text is not search('ENABLE_SWAGGER\\s*=\\s*true')
+          - gitea_config_text is search('MINIO_ENDPOINT\\s*=\\s*"s3\\.lab\\.canhdinh\\.com"')
+          - gitea_config_text is search('MINIO_BUCKET_LOOKUP_TYPE\\s*=\\s*"path"')
         fail_msg: "Configuration does not meet requirements"
 
     # Gitea 1.27 `admin user list --admin` output format:

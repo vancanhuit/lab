@@ -10,9 +10,10 @@ lego_certificate_name: gitea
 lego_hooks:
   deploy:
     script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/gitea/templates/lego-deploy-hook.sh.j2') }}"
-gitea_s3_endpoint: s3.us-west-004.backblazeb2.com
-gitea_s3_region: us-west-004
+gitea_s3_endpoint: s3.lab.canhdinh.com
+gitea_s3_region: us-east-1
 gitea_s3_bucket: homelab-gitea
+gitea_s3_bucket_lookup_type: path
 gitea_smtp_host: smtp-relay.brevo.com
 gitea_smtp_port: 587
 gitea_smtp_from: Lab No Reply <lab-noreply@canhdinh.com>

@@ -90,6 +90,7 @@ The secret-management configuration consists of:
   - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](ansible/group_vars/gitea_stack/secrets.sops.yaml) — shared secrets for hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
   - [`ansible/host_vars/dns/secrets.sops.yaml`](ansible/host_vars/dns/secrets.sops.yaml) — secrets owned by the `dns` host: `technitium_pfx_password`.
   - [`ansible/host_vars/gitea/secrets.sops.yaml`](ansible/host_vars/gitea/secrets.sops.yaml) — secrets owned by the `gitea` host: `gitea_s3_access_key`, `gitea_s3_secret_key`, `gitea_smtp_password`, `gitea_secret_key`, `gitea_internal_token`, `gitea_lfs_jwt_secret`, `gitea_admin_password`, `gitea_oauth2_jwt_secret`.
+  - [`ansible/host_vars/s3/secrets.sops.yaml`](ansible/host_vars/s3/secrets.sops.yaml) — secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`.
 - `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
 
@@ -192,7 +193,7 @@ git status --short
 
 The `community.sops.sops` vars plugin runs on the Ansible controller:
 
-1. Ansible discovers the four encrypted `.sops.yaml` files while loading inventory variables. Ansible's `host_group_vars` precedence merges `lab` group vars, then `gitea_stack` group vars, then host-specific vars before the SOPS plugin decrypts matching files.
+1. Ansible discovers the encrypted `.sops.yaml` files while loading inventory variables. Ansible's `host_group_vars` precedence merges `lab` group vars, then `gitea_stack` group vars, then host-specific vars before the SOPS plugin decrypts matching files.
 2. The plugin invokes the local `sops` binary and obtains the age identity from the default key file or the configured environment override.
 3. SOPS authenticates and decrypts the YAML values in memory.
 4. Ansible merges those values into each host's final variable set according to standard precedence rules, so secrets are available only to hosts that inherit or own them.
@@ -511,7 +512,7 @@ Do not print `/etc/lego/cloudflare.env`, copy private keys into logs, or loosen 
 
 ## Deployment Sequence
 
-Run these stages in order. DNS must resolve the service hostnames before PostgreSQL or Gitea requests certificates and starts accepting connections.
+Run these stages in order. DNS must resolve the service hostnames before the other services request certificates. SeaweedFS must be available before Gitea starts with its S3 backend.
 
 ### 1. Deploy DNS
 
@@ -560,17 +561,29 @@ ansible-playbook postgres.yaml
 
 The second deployment should report `changed=0` for the PostgreSQL host.
 
-### 3. Deploy Gitea
+### 3. Deploy SeaweedFS S3
 
-Gitea depends on the PostgreSQL service from the previous stage. The Gitea playbook creates its PostgreSQL role and database before deploying Gitea with built-in HTTPS.
+Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy and verify the authenticated S3 endpoint:
 
-The role renders `gitea_s3_endpoint`, `gitea_s3_region`, `gitea_s3_bucket`, `gitea_s3_access_key`, and `gitea_s3_secret_key` into Gitea's `minio` storage backend for Backblaze. Store the endpoint as a hostname without an `http://` or `https://` prefix. Changing these values switches the configured backend but does not migrate existing objects. For a provider change, follow the [Backblaze migration design](docs/superpowers/specs/2026-08-14-gitea-backblaze-storage-migration-design.md) and [implementation plan](docs/superpowers/plans/2026-08-14-gitea-backblaze-storage-migration.md).
+```sh
+ansible-playbook s3.yaml
+ansible-playbook verify-s3.yaml
+ansible-playbook s3.yaml
+```
+
+The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx HTTPS on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
+
+### 4. Deploy Gitea
+
+Gitea depends on PostgreSQL and SeaweedFS from the previous stages. The Gitea playbook creates its PostgreSQL role and database before deploying Gitea with built-in HTTPS.
+
+The role renders `gitea_s3_endpoint`, `gitea_s3_region`, `gitea_s3_bucket`, `gitea_s3_access_key`, and `gitea_s3_secret_key` into Gitea's `minio` storage backend. The active endpoint is `s3.lab.canhdinh.com`, using path-style lookup for `homelab-gitea`. Store the endpoint as a hostname without an `http://` or `https://` prefix. Changing these values switches configuration only; it does not migrate objects.
 
 ```sh
 ansible-playbook gitea.yaml
 ```
 
-Verify the Gitea service, listener, TLS endpoint, configuration, administrator, and doctor checks:
+Verify the Gitea service, listener, TLS endpoint, SeaweedFS endpoint configuration, administrator, and doctor checks:
 
 ```sh
 ansible-playbook verify-gitea.yaml
@@ -584,7 +597,7 @@ ansible-playbook gitea.yaml
 
 The second deployment should report `changed=0` for both the Gitea and PostgreSQL hosts.
 
-### 4. Deploy Uptime Kuma
+### 5. Deploy Uptime Kuma
 
 Uptime Kuma stores its state in a local SQLite database and has no PostgreSQL runtime dependency. The Kuma playbook deploys the native application behind Nginx with a Lego-managed TLS certificate.
 
@@ -608,19 +621,6 @@ cd ..
 ```
 
 The second deployment should report `changed=0` for `kuma`.
-
-### 5. Deploy SeaweedFS S3
-
-Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy and verify the authenticated S3 endpoint:
-
-```sh
-ansible-playbook s3.yaml
-ansible-playbook verify-s3.yaml
-ansible-playbook s3.yaml
-cd ..
-```
-
-The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx HTTPS on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
 
 ## Uptime Kuma Operations
 
@@ -925,18 +925,24 @@ sudo systemctl status lego-renew.timer
 
 ### Object Storage
 
-Gitea uses Backblaze's S3-compatible API as its default object-storage backend. It stores LFS objects, user and repository avatars, attachments, repository archives, packages, Actions logs, and Actions artifacts. Git repository object data remains under `/var/lib/gitea` on the Gitea host.
+Gitea uses the local SeaweedFS S3-compatible API as its object-storage backend. It stores LFS objects, user and repository avatars, attachments, repository archives, packages, Actions logs, and Actions artifacts in the `homelab-gitea` bucket. Git repository object data remains under `/var/lib/gitea` on the Gitea host.
+
+SeaweedFS grants Gitea a bucket-scoped identity with read, list, tagging, and write access only to `homelab-gitea`. The SeaweedFS administrative identity is separate and is not deployed to the Gitea host. Both hosts need their own encrypted copy of the shared Gitea identity: Gitea uses it as an S3 client, while SeaweedFS uses it to define the server-side authorization policy.
 
 Run `ansible-playbook verify-gitea.yaml` after storage configuration changes. Do not inspect `/etc/gitea/app.ini` in shared or recorded terminals because it contains object-storage credentials.
+
+The migration from Backblaze to SeaweedFS completed on 2026-09-12. The final write-frozen comparison found two matching objects totaling 4,887 bytes, with no content differences. The former Backblaze bucket remains unchanged as a temporary rollback source.
 
 Changing storage providers requires data migration as well as configuration deployment:
 
 1. Copy the existing bucket to the destination while Gitea remains online.
 2. Stop Gitea to freeze object writes.
 3. Copy the final delta and compare object counts, byte totals, and contents.
-4. Update the five `gitea_s3_*` SOPS values and run `ansible-playbook gitea.yaml`.
+4. Update the `gitea_s3_*` inventory values and run `ansible-playbook gitea.yaml`.
 5. Run `ansible-playbook verify-gitea.yaml` and test existing object-backed content through Gitea.
 6. Retain the source bucket for a rollback period.
+
+To roll back during that period, stop Gitea, sync the final SeaweedFS delta back to Backblaze, and verify object count, byte total, and contents before changing the inventory. Restore `gitea_s3_endpoint` to `s3.us-west-004.backblazeb2.com`, `gitea_s3_region` to `us-west-004`, and `gitea_s3_bucket_lookup_type` to `auto`; then run `ansible-playbook gitea.yaml --limit gitea` and `ansible-playbook verify-gitea.yaml`. Do not switch the endpoint before the reverse sync passes.
 
 ### Upgrade Procedure
 
@@ -965,11 +971,11 @@ sudo -u postgres pgbackrest --stanza=main check
 | Data | Coverage |
 | --- | --- |
 | PostgreSQL relational data | pgBackRest local backups only; no off-host replication |
-| Gitea object storage | Backblaze stores LFS objects, avatars, attachments, archives, packages, and Actions data off-host; it is primary storage, not an independent backup |
+| Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; the former Backblaze bucket is a temporary rollback copy, not a continuously updated backup |
 | Gitea repositories and generated state | `/var/lib/gitea` has no off-host backup |
 
 > [!WARNING]
-> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL backups also do not survive loss of the PostgreSQL host or its storage. Backblaze object storage requires a separate replication or backup policy to protect against accidental deletion, credential misuse, or provider-side loss.
+> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL backups also do not survive loss of the PostgreSQL host or its storage. SeaweedFS object storage requires off-host replication or backup before the Backblaze rollback copy is retired.
 
 ## PostgreSQL Point-in-Time Restore
 

@@ -9,6 +9,21 @@
         }
       ],
       "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    },
+    {
+      "name": "gitea",
+      "credentials": [
+        {
+          "accessKey": {{ seaweedfs_gitea_access_key | to_json }},
+          "secretKey": {{ seaweedfs_gitea_secret_key | to_json }}
+        }
+      ],
+      "actions": [
+        "Read:{{ seaweedfs_gitea_bucket }}",
+        "List:{{ seaweedfs_gitea_bucket }}",
+        "Tagging:{{ seaweedfs_gitea_bucket }}",
+        "Write:{{ seaweedfs_gitea_bucket }}"
+      ]
     }
   ]
 }

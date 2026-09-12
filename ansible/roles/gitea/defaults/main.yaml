@@ -15,3 +15,4 @@ gitea_https_port: 443
 gitea_tls_directory: /etc/gitea/tls
 gitea_tls_cert_path: /etc/gitea/tls/server.crt
 gitea_tls_key_path: /etc/gitea/tls/server.key
+gitea_s3_bucket_lookup_type: auto

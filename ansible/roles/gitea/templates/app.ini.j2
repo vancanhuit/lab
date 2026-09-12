@@ -45,7 +45,7 @@ MINIO_LOCATION = {{ gitea_s3_region | to_json }}
 MINIO_USE_SSL = true
 MINIO_INSECURE_SKIP_VERIFY = false
 MINIO_CHECKSUM_ALGORITHM = default
-MINIO_BUCKET_LOOKUP_TYPE = auto
+MINIO_BUCKET_LOOKUP_TYPE = {{ gitea_s3_bucket_lookup_type | to_json }}
 
 [mailer]
 ENABLED = true
