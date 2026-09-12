@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+umask 077
+
+SRC_CRT=/var/lib/lego/certificates/harbor.crt
+SRC_KEY=/var/lib/lego/certificates/harbor.key
+CONFIG_CRT={{ harbor_tls_cert_path }}
+CONFIG_KEY={{ harbor_tls_key_path }}
+RUNTIME_CRT={{ harbor_data_directory }}/secret/cert/server.crt
+RUNTIME_KEY={{ harbor_data_directory }}/secret/cert/server.key
+NEW_CONFIG_CRT="${CONFIG_CRT}.new"
+NEW_CONFIG_KEY="${CONFIG_KEY}.new"
+NEW_RUNTIME_CRT="${RUNTIME_CRT}.new"
+NEW_RUNTIME_KEY="${RUNTIME_KEY}.new"
+
+cleanup() {
+  rm -f "$NEW_CONFIG_CRT" "$NEW_CONFIG_KEY" "$NEW_RUNTIME_CRT" "$NEW_RUNTIME_KEY"
+}
+trap cleanup EXIT HUP INT TERM
+
+openssl x509 -in "$SRC_CRT" -checkend 0 -noout
+cert_digest="$(openssl x509 -in "$SRC_CRT" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum | awk '{print $1}')"
+key_digest="$(openssl pkey -in "$SRC_KEY" -pubout -outform DER | sha256sum | awk '{print $1}')"
+test "$cert_digest" = "$key_digest"
+
+install -o root -g root -m 0644 "$SRC_CRT" "$NEW_CONFIG_CRT"
+install -o root -g root -m 0600 "$SRC_KEY" "$NEW_CONFIG_KEY"
+install -o 10000 -g 10000 -m 0600 "$SRC_CRT" "$NEW_RUNTIME_CRT"
+install -o 10000 -g 10000 -m 0600 "$SRC_KEY" "$NEW_RUNTIME_KEY"
+mv -f "$NEW_CONFIG_CRT" "$CONFIG_CRT"
+mv -f "$NEW_CONFIG_KEY" "$CONFIG_KEY"
+mv -f "$NEW_RUNTIME_CRT" "$RUNTIME_CRT"
+mv -f "$NEW_RUNTIME_KEY" "$RUNTIME_KEY"
+docker compose --project-directory {{ harbor_install_directory }} restart proxy

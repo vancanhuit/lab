@@ -1,0 +1,36 @@
+---
+- name: Validate Harbor deployment inputs
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - ansible_facts.processor_vcpus | int >= 2
+      - ansible_facts.memtotal_mb | int >= 3800
+      - harbor_version == '2.15.0'
+      - harbor_domain == 'harbor.lab.canhdinh.com'
+      - harbor_https_port | int == 443
+      - harbor_database_host == 'postgres.lab.canhdinh.com'
+      - harbor_database_name == 'harbor'
+      - harbor_database_user == 'harbor'
+      - harbor_database_password | length >= 16
+      - harbor_admin_password | length >= 16
+      - harbor_s3_endpoint == 'https://s3.lab.canhdinh.com'
+      - harbor_s3_region == 'us-east-1'
+      - harbor_s3_bucket == 'homelab-harbor'
+      - harbor_s3_access_key | length > 0
+      - harbor_s3_secret_key | length > 0
+    fail_msg: Harbor requires Debian 13 amd64, its documented compute minimum, and the approved external services
+    quiet: true
+  no_log: true
+
+- name: Find Harbor root filesystem
+  ansible.builtin.set_fact:
+    harbor_root_mount: "{{ ansible_facts.mounts | selectattr('mount', 'equalto', '/') | first }}"
+
+- name: Assert Harbor root filesystem meets minimum size
+  ansible.builtin.assert:
+    that:
+      - harbor_root_mount.size_total | int >= 40000000000
+    fail_msg: Harbor requires a root disk of at least 40 GB
+    quiet: true

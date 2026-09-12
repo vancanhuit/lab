@@ -1,0 +1,44 @@
+---
+- name: Provision Harbor PostgreSQL database
+  hosts: postgres
+  become: true
+  tasks:
+    - name: Install PostgreSQL Python adapter
+      ansible.builtin.apt:
+        name: python3-psycopg
+        state: present
+
+    - name: Create Harbor PostgreSQL login role
+      community.postgresql.postgresql_user:
+        name: harbor
+        password: "{{ harbor_database_password }}"
+        role_attr_flags: LOGIN,NOSUPERUSER,NOCREATEDB,NOCREATEROLE,NOINHERIT,NOREPLICATION
+        state: present
+      become: true
+      become_user: postgres
+      environment:
+        PGOPTIONS: -c password_encryption=scram-sha-256
+      no_log: true
+
+    - name: Create Harbor PostgreSQL database
+      community.postgresql.postgresql_db:
+        name: harbor
+        owner: harbor
+        encoding: UTF8
+        template: template0
+        state: present
+      become: true
+      become_user: postgres
+
+- name: Provision Harbor S3 bucket and credentials
+  hosts: s3
+  become: true
+  roles:
+    - seaweedfs
+
+- name: Deploy Harbor with HTTPS
+  hosts: harbor
+  become: true
+  roles:
+    - harbor
+    - lego

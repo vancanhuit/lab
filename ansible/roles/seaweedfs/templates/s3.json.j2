@@ -24,6 +24,21 @@
         "Tagging:{{ seaweedfs_gitea_bucket }}",
         "Write:{{ seaweedfs_gitea_bucket }}"
       ]
+    },
+    {
+      "name": "harbor",
+      "credentials": [
+        {
+          "accessKey": {{ seaweedfs_harbor_access_key | to_json }},
+          "secretKey": {{ seaweedfs_harbor_secret_key | to_json }}
+        }
+      ],
+      "actions": [
+        "Read:{{ seaweedfs_harbor_bucket }}",
+        "List:{{ seaweedfs_harbor_bucket }}",
+        "Tagging:{{ seaweedfs_harbor_bucket }}",
+        "Write:{{ seaweedfs_harbor_bucket }}"
+      ]
     }
   ]
 }

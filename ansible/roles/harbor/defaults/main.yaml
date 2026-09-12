@@ -1,0 +1,11 @@
+---
+harbor_version: "2.15.0"
+harbor_installer_checksum: sha256:5b8b2854c16497fbc20f0868991ed6f5a1c1d43b64fecf3652e5c7fca9c7481c
+harbor_installer_url: >-
+  https://github.com/goharbor/harbor/releases/download/v{{ harbor_version }}/harbor-online-installer-v{{ harbor_version }}.tgz
+harbor_install_directory: /opt/harbor
+harbor_data_directory: /var/lib/harbor
+harbor_tls_directory: /etc/harbor/tls
+harbor_tls_cert_path: /etc/harbor/tls/server.crt
+harbor_tls_key_path: /etc/harbor/tls/server.key
+harbor_https_port: 443

@@ -1,0 +1,100 @@
+---
+- name: Verify Harbor deployment
+  hosts: harbor
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check Docker and Compose versions
+      ansible.builtin.command:
+        cmd: "{{ item }}"
+      loop:
+        - docker --version
+        - docker compose version
+      changed_when: false
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert Docker is running and enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['docker.service'].state == 'running'
+          - ansible_facts.services['docker.service'].status == 'enabled'
+
+    - name: Check Harbor container state
+      ansible.builtin.command:
+        cmd: docker compose ps --format json
+        chdir: /opt/harbor
+      register: harbor_container_state
+      changed_when: false
+
+    - name: Assert every Harbor container is running
+      ansible.builtin.assert:
+        that:
+          - harbor_container_state.stdout_lines | length >= 7
+          - >-
+            harbor_container_state.stdout_lines |
+            map('from_json') |
+            rejectattr('State', 'equalto', 'running') |
+            list | length == 0
+
+    - name: Check Harbor API health
+      ansible.builtin.uri:
+        url: https://harbor.lab.canhdinh.com/api/v2.0/health
+        validate_certs: true
+        return_content: true
+        status_code: 200
+      register: harbor_health
+      changed_when: false
+
+    - name: Assert Harbor reports healthy
+      ansible.builtin.assert:
+        that:
+          - harbor_health.json.status == 'healthy'
+
+    - name: Check OCI registry API
+      ansible.builtin.uri:
+        url: https://harbor.lab.canhdinh.com/v2/
+        validate_certs: true
+        status_code: 401
+      changed_when: false
+
+    - name: Check certificate validity and subject alternative name
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - x509
+          - -in
+          - /var/lib/harbor/secret/cert/server.crt
+          - -checkend
+          - '604800'
+          - -noout
+          - -ext
+          - subjectAltName
+      register: harbor_certificate
+      changed_when: false
+      failed_when: >-
+        harbor_certificate.rc != 0 or
+        'DNS:harbor.lab.canhdinh.com' not in harbor_certificate.stdout
+
+    - name: Verify Harbor can reach PostgreSQL over TLS
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - harbor-core
+          - /bin/sh
+          - -c
+          - test -n "$POSTGRESQL_HOST" && test "$POSTGRESQL_SSLMODE" = require
+      changed_when: false
+
+    - name: Verify Harbor registry uses S3 storage
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - registry
+          - /bin/sh
+          - -c
+          - grep -q 's3:' /etc/registry/config.yml
+      changed_when: false

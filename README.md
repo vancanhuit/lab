@@ -88,9 +88,11 @@ The secret-management configuration consists of:
 - Encrypted SOPS variable files:
   - [`ansible/group_vars/lab/secrets.sops.yaml`](ansible/group_vars/lab/secrets.sops.yaml) — shared secrets for all hosts in the `lab` group: `cloudflare_api_token`.
   - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](ansible/group_vars/gitea_stack/secrets.sops.yaml) — shared secrets for hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
+  - [`ansible/group_vars/harbor_stack/secrets.sops.yaml`](ansible/group_vars/harbor_stack/secrets.sops.yaml) — shared secrets for hosts in the `harbor_stack` group (`postgres` and `harbor`): `harbor_database_password`.
   - [`ansible/host_vars/dns/secrets.sops.yaml`](ansible/host_vars/dns/secrets.sops.yaml) — secrets owned by the `dns` host: `technitium_pfx_password`.
   - [`ansible/host_vars/gitea/secrets.sops.yaml`](ansible/host_vars/gitea/secrets.sops.yaml) — secrets owned by the `gitea` host: `gitea_s3_access_key`, `gitea_s3_secret_key`, `gitea_smtp_password`, `gitea_secret_key`, `gitea_internal_token`, `gitea_lfs_jwt_secret`, `gitea_admin_password`, `gitea_oauth2_jwt_secret`.
-  - [`ansible/host_vars/s3/secrets.sops.yaml`](ansible/host_vars/s3/secrets.sops.yaml) — secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`.
+  - [`ansible/host_vars/harbor/secrets.sops.yaml`](ansible/host_vars/harbor/secrets.sops.yaml) — secrets owned by the `harbor` host: `harbor_admin_password`, `harbor_s3_access_key`, `harbor_s3_secret_key`.
+  - [`ansible/host_vars/s3/secrets.sops.yaml`](ansible/host_vars/s3/secrets.sops.yaml) — secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`, `seaweedfs_harbor_access_key`, `seaweedfs_harbor_secret_key`.
 - `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
 
@@ -193,7 +195,7 @@ git status --short
 
 The `community.sops.sops` vars plugin runs on the Ansible controller:
 
-1. Ansible discovers the encrypted `.sops.yaml` files while loading inventory variables. Ansible's `host_group_vars` precedence merges `lab` group vars, then `gitea_stack` group vars, then host-specific vars before the SOPS plugin decrypts matching files.
+1. Ansible discovers the encrypted `.sops.yaml` files while loading inventory variables. Ansible's `host_group_vars` precedence merges `lab` group vars, service-stack group vars, then host-specific vars before the SOPS plugin decrypts matching files.
 2. The plugin invokes the local `sops` binary and obtains the age identity from the default key file or the configured environment override.
 3. SOPS authenticates and decrypts the YAML values in memory.
 4. Ansible merges those values into each host's final variable set according to standard precedence rules, so secrets are available only to hosts that inherit or own them.
@@ -512,7 +514,7 @@ Do not print `/etc/lego/cloudflare.env`, copy private keys into logs, or loosen 
 
 ## Deployment Sequence
 
-Run these stages in order. DNS must resolve the service hostnames before the other services request certificates. SeaweedFS must be available before Gitea starts with its S3 backend.
+Run these stages in order. DNS must resolve the service hostnames before the other services request certificates. PostgreSQL and SeaweedFS must be available before Gitea or Harbor starts with its external data services.
 
 ### 1. Deploy DNS
 
@@ -537,6 +539,7 @@ getent hosts postgres.lab.canhdinh.com
 getent hosts gitea.lab.canhdinh.com
 getent hosts kuma.lab.canhdinh.com
 getent hosts s3.lab.canhdinh.com
+getent hosts harbor.lab.canhdinh.com
 ```
 
 ### 2. Deploy PostgreSQL
@@ -573,7 +576,19 @@ ansible-playbook s3.yaml
 
 The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx HTTPS on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
 
-### 4. Deploy Gitea
+### 4. Deploy Harbor
+
+Harbor 2.15.0 runs on Docker Engine and Docker Compose installed using [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/). The playbook creates the `harbor` PostgreSQL role and database, creates the `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity, and deploys Harbor with trusted HTTPS. Registry blobs use SeaweedFS; Harbor metadata uses PostgreSQL with required TLS. Redis, generated configuration, logs, and Docker images remain local to the Harbor VM. Trivy is not installed.
+
+```sh
+ansible-playbook harbor.yaml
+ansible-playbook verify-harbor.yaml
+ansible-playbook harbor.yaml
+```
+
+The second deployment should report `changed=0` for `postgres`, `s3`, and `harbor`.
+
+### 5. Deploy Gitea
 
 Gitea depends on PostgreSQL and SeaweedFS from the previous stages. The Gitea playbook creates its PostgreSQL role and database before deploying Gitea with built-in HTTPS.
 
@@ -597,7 +612,7 @@ ansible-playbook gitea.yaml
 
 The second deployment should report `changed=0` for both the Gitea and PostgreSQL hosts.
 
-### 5. Deploy Uptime Kuma
+### 6. Deploy Uptime Kuma
 
 Uptime Kuma stores its state in a local SQLite database and has no PostgreSQL runtime dependency. The Kuma playbook deploys the native application behind Nginx with a Lego-managed TLS certificate.
 
@@ -904,6 +919,50 @@ sudo openssl x509 \
 
 Do not print the SQLite database contents or the private key.
 
+## Harbor Operations
+
+### First Login and Registry Use
+
+Open `https://harbor.lab.canhdinh.com/` and sign in with the default administrator username `admin` and the initial password stored in `harbor_admin_password`. Change that password after first login. Harbor uses `harbor_admin_password` only on its first startup; later Ansible runs do not reset the administrator password.
+
+Harbor controls repositories through projects and creates a public `library` project during installation. Create a private project for restricted images by following Harbor's [project creation procedure](https://goharbor.io/docs/2.15.0/working-with-projects/create-projects/), then authenticate and push an image:
+
+```sh
+docker login harbor.lab.canhdinh.com
+docker tag source_image harbor.lab.canhdinh.com/project/image:tag
+docker push harbor.lab.canhdinh.com/project/image:tag
+```
+
+Assign users the narrowest suitable project role. See Harbor's [user and project role documentation](https://goharbor.io/docs/2.15.0/administration/managing-users/) for the Limited Guest, Guest, Developer, Maintainer, and ProjectAdmin permissions.
+
+### Lifecycle and Reconfiguration
+
+Run lifecycle commands from the installer directory on the Harbor VM:
+
+```sh
+cd /opt/harbor
+sudo docker compose ps
+sudo docker compose stop
+sudo docker compose start
+sudo systemctl status lego-renew.timer
+```
+
+Use `docker compose stop` and `docker compose start` only for temporary operational stops. Make persistent configuration changes in the Ansible role or inventory and rerun `ansible-playbook harbor.yaml`; do not edit `/opt/harbor/harbor.yml` directly because Ansible overwrites it. The role follows Harbor's [reconfiguration lifecycle](https://goharbor.io/docs/2.15.0/install-config/reconfigure-manage-lifecycle/) by regenerating the Compose project when managed configuration changes.
+
+Run `ansible-playbook verify-harbor.yaml` after configuration changes. Do not print `/opt/harbor/harbor.yml` or generated files under `/opt/harbor/common/config` because they contain database and object-storage credentials. Do not run `docker compose down -v`, delete `/var/lib/harbor`, or remove the SeaweedFS bucket as routine troubleshooting steps.
+
+### Upgrade Procedure
+
+Do not change `harbor_version` as a routine package bump. Follow the upgrade guide for the target release. The [Harbor 2.15 upgrade guide](https://goharbor.io/docs/2.15.0/administration/upgrade/) supports migration from 2.12 or later. Before an upgrade:
+
+1. Stop writes to Harbor.
+2. Take and validate a consistent PostgreSQL backup.
+3. Back up or snapshot the `homelab-harbor` SeaweedFS bucket.
+4. Preserve `/opt/harbor/harbor.yml`, `/var/lib/harbor`, `/etc/harbor`, and `/var/lib/lego` for rollback.
+5. Update the pinned installer version and checksum together, migrate the configuration as required by Harbor, deploy, and run `ansible-playbook verify-harbor.yaml`.
+
+Harbor core performs database schema migration when the new release starts. Do not proceed without a rollback point for both PostgreSQL metadata and SeaweedFS registry blobs; neither copy is a complete Harbor backup by itself.
+
 ## Gitea Operations
 
 ### First Login
@@ -972,10 +1031,12 @@ sudo -u postgres pgbackrest --stanza=main check
 | --- | --- |
 | PostgreSQL relational data | pgBackRest local backups only; no off-host replication |
 | Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; the former Backblaze bucket is a temporary rollback copy, not a continuously updated backup |
+| Harbor registry blobs | SeaweedFS stores blobs in `homelab-harbor` on the dedicated 500 GiB ZFS volume; no off-host backup |
+| Harbor local state | Redis state, generated configuration, logs, certificates, and Docker images under `/var/lib/harbor`, `/opt/harbor`, `/etc/harbor`, and `/var/lib/lego` have no off-host backup |
 | Gitea repositories and generated state | `/var/lib/gitea` has no off-host backup |
 
 > [!WARNING]
-> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL backups also do not survive loss of the PostgreSQL host or its storage. SeaweedFS object storage requires off-host replication or backup before the Backblaze rollback copy is retired.
+> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL backups also do not survive loss of the PostgreSQL host or its storage. SeaweedFS object storage, including Harbor registry blobs, requires off-host replication or backup before the Backblaze rollback copy is retired.
 
 ## PostgreSQL Point-in-Time Restore
 

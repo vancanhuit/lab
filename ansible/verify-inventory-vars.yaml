@@ -20,6 +20,12 @@
       - seaweedfs_s3_secret_key
       - seaweedfs_gitea_access_key
       - seaweedfs_gitea_secret_key
+      - harbor_database_password
+      - harbor_admin_password
+      - harbor_s3_access_key
+      - harbor_s3_secret_key
+      - seaweedfs_harbor_access_key
+      - seaweedfs_harbor_secret_key
     inventory_secret_contract:
       dns:
         - cloudflare_api_token
@@ -27,6 +33,7 @@
       postgres:
         - cloudflare_api_token
         - gitea_database_password
+        - harbor_database_password
       gitea:
         - cloudflare_api_token
         - gitea_database_password
@@ -46,6 +53,14 @@
         - seaweedfs_s3_secret_key
         - seaweedfs_gitea_access_key
         - seaweedfs_gitea_secret_key
+        - seaweedfs_harbor_access_key
+        - seaweedfs_harbor_secret_key
+      harbor:
+        - cloudflare_api_token
+        - harbor_database_password
+        - harbor_admin_password
+        - harbor_s3_access_key
+        - harbor_s3_secret_key
       debian-incus: []
   tasks:
     - name: Assert each secret is visible only to its owners

@@ -1,6 +1,7 @@
 ---
 seaweedfs_domain: s3.lab.canhdinh.com
 seaweedfs_gitea_bucket: homelab-gitea
+seaweedfs_harbor_bucket: homelab-harbor
 lego_domain_names:
   - s3.lab.canhdinh.com
 lego_certificate_name: s3

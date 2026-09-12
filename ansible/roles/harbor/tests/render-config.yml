@@ -1,0 +1,78 @@
+---
+- name: Validate Harbor role contract
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    harbor_domain: harbor.lab.canhdinh.com
+    harbor_database_host: postgres.lab.canhdinh.com
+    harbor_database_name: harbor
+    harbor_database_user: harbor
+    harbor_database_password: test-database-password
+    harbor_admin_password: test-admin-password
+    harbor_s3_endpoint: https://s3.lab.canhdinh.com
+    harbor_s3_region: us-east-1
+    harbor_s3_bucket: homelab-harbor
+    harbor_s3_access_key: test-access-key
+    harbor_s3_secret_key: test-secret-key
+    ansible_facts:
+      distribution: Debian
+      distribution_major_version: '13'
+      distribution_release: trixie
+      architecture: x86_64
+      processor_vcpus: 2
+      memtotal_mb: 3900
+      mounts:
+        - mount: /
+          size_total: 40000000000
+  tasks:
+    - name: Load Harbor role defaults
+      ansible.builtin.include_vars:
+        file: "{{ (playbook_dir | dirname) ~ '/defaults/main.yaml' }}"
+
+    - name: Run Harbor validation
+      ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+    - name: Create template output directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: harbor_test_dir
+
+    - name: Render Harbor templates
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/' ~ item }}"
+        dest: "{{ harbor_test_dir.path }}/{{ item }}"
+        mode: '0600'
+      loop:
+        - harbor.yml.j2
+        - lego-deploy-hook.sh.j2
+
+    - name: Read rendered Harbor templates
+      ansible.builtin.slurp:
+        src: "{{ harbor_test_dir.path }}/{{ item }}"
+      loop:
+        - harbor.yml.j2
+        - lego-deploy-hook.sh.j2
+      register: harbor_rendered_files
+
+    - name: Assert Harbor configuration invariants
+      ansible.builtin.assert:
+        that:
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).hostname == 'harbor.lab.canhdinh.com'
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).external_database.harbor.ssl_mode == 'require'
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).storage_service.s3.forcepathstyle
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).storage_service.s3.bucket == 'homelab-harbor'
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).jobservice.logger_sweeper_duration == 1
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).notification.webhook_job_max_retry == 3
+          - (harbor_rendered_files.results[1].content | b64decode) is search('/var/lib/harbor/secret/cert/server\.crt')
+          - (harbor_rendered_files.results[1].content | b64decode) is search('docker compose.*restart proxy')
+
+    - name: Validate certificate hook shell syntax
+      ansible.builtin.command:
+        cmd: "sh -n {{ harbor_test_dir.path }}/lego-deploy-hook.sh.j2"
+      changed_when: false
+
+    - name: Remove template output directory
+      ansible.builtin.file:
+        path: "{{ harbor_test_dir.path }}"
+        state: absent

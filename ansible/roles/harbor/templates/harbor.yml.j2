@@ -1,0 +1,72 @@
+hostname: {{ harbor_domain }}
+
+https:
+  port: {{ harbor_https_port }}
+  certificate: {{ harbor_tls_cert_path }}
+  private_key: {{ harbor_tls_key_path }}
+
+harbor_admin_password: {{ harbor_admin_password | to_json }}
+
+data_volume: {{ harbor_data_directory }}
+
+storage_service:
+  s3:
+    accesskey: {{ harbor_s3_access_key | to_json }}
+    secretkey: {{ harbor_s3_secret_key | to_json }}
+    region: {{ harbor_s3_region }}
+    regionendpoint: {{ harbor_s3_endpoint }}
+    forcepathstyle: true
+    bucket: {{ harbor_s3_bucket }}
+    secure: true
+    skipverify: false
+    v4auth: true
+  redirect:
+    disable: false
+
+external_database:
+  harbor:
+    host: {{ harbor_database_host }}
+    port: 5432
+    db_name: {{ harbor_database_name }}
+    username: {{ harbor_database_user }}
+    password: {{ harbor_database_password | to_json }}
+    ssl_mode: require
+    max_idle_conns: 2
+    max_open_conns: 20
+
+jobservice:
+  max_job_workers: 5
+  job_loggers:
+    - STD_OUTPUT
+  logger_sweeper_duration: 1
+
+notification:
+  webhook_job_max_retry: 3
+  webhook_job_http_client_timeout: 3
+
+log:
+  level: info
+  local:
+    rotate_count: 10
+    rotate_size: 50M
+    location: /var/log/harbor
+
+proxy:
+  http_proxy:
+  https_proxy:
+  no_proxy:
+  components:
+    - core
+    - jobservice
+
+upload_purging:
+  enabled: true
+  age: 168h
+  interval: 24h
+  dryrun: false
+
+cache:
+  enabled: false
+  expire_hours: 24
+
+_version: "{{ harbor_version }}"

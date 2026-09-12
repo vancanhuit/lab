@@ -1,0 +1,14 @@
+---
+harbor_domain: harbor.lab.canhdinh.com
+harbor_database_host: postgres.lab.canhdinh.com
+harbor_database_name: harbor
+harbor_database_user: harbor
+harbor_s3_endpoint: https://s3.lab.canhdinh.com
+harbor_s3_region: us-east-1
+harbor_s3_bucket: homelab-harbor
+lego_domain_names:
+  - harbor.lab.canhdinh.com
+lego_certificate_name: harbor
+lego_hooks:
+  deploy:
+    script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/harbor/templates/lego-deploy-hook.sh.j2') }}"

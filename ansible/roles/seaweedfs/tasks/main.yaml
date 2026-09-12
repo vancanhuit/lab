@@ -179,3 +179,17 @@
     port: "{{ seaweedfs_s3_port }}"
     state: started
     timeout: 60
+
+- name: List SeaweedFS S3 buckets
+  ansible.builtin.command:
+    cmd: /usr/local/bin/weed shell
+    stdin: s3.bucket.list
+  changed_when: false
+  register: seaweedfs_bucket_list
+
+- name: Create Harbor S3 bucket
+  ansible.builtin.command:
+    cmd: /usr/local/bin/weed shell
+    stdin: "s3.bucket.create -name {{ seaweedfs_harbor_bucket }} -owner harbor"
+  when: seaweedfs_bucket_list.stdout_lines | select('match', '^\s*' ~ seaweedfs_harbor_bucket ~ '\s') | length == 0
+  changed_when: true

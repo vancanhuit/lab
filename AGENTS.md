@@ -8,8 +8,8 @@
 
 ## Structure
 
-- `ansible/{dns,postgres,gitea,kuma}.yaml` are live service deployment entrypoints. `setup-incus.yaml` targets the Incus host as remote user `lab`, unlike the default `admin` used for instances.
-- `ansible/verify-{postgres,gitea,kuma}.yaml` inspect live hosts after deployment. There is no DNS verification playbook.
+- `ansible/{dns,postgres,s3,harbor,gitea,kuma}.yaml` are live service deployment entrypoints. `setup-incus.yaml` targets the Incus host as remote user `lab`, unlike the default `admin` used for instances.
+- `ansible/verify-{postgres,s3,harbor,gitea,kuma}.yaml` inspect live hosts after deployment. There is no DNS verification playbook.
 - `ansible/roles/*/tests/render-config.yml` are controller-local role contract and template tests. `ansible/verify-inventory-vars.yaml` locally checks that encrypted variables are visible only to their intended inventory hosts.
 - `create-incus-instance.py` is a PEP 723 script run with `uv run create-incus-instance.py --help`; normal execution calls Incus and creates a stopped instance.
 
@@ -20,7 +20,7 @@
 - Syntax-check each affected playbook with `mise exec -- ansible-playbook --syntax-check <playbook>.yaml`, then lint affected Ansible paths with `mise exec -- ansible-lint <paths>`.
 - For the TruffleHog output filter, run `mise exec -- python -m unittest scripts.tests.test_sanitize_trufflehog_output` from the repository root.
 - Finish with `git diff --check`. Run `mise run security:secrets` when secret handling, scanner configuration, or commit-ready verification warrants the slower full-history networked scan.
-- Do not use deployment or live verification playbooks as routine local tests: they connect to and may mutate the homelab. When deployment is intended, preserve the dependency order `dns.yaml` -> `postgres.yaml` -> `s3.yaml` -> `gitea.yaml` -> `kuma.yaml`; rerun a deployment playbook to check idempotence (`changed=0`).
+- Do not use deployment or live verification playbooks as routine local tests: they connect to and may mutate the homelab. When deployment is intended, preserve the dependency order `dns.yaml` -> `postgres.yaml` -> `s3.yaml` -> `harbor.yaml` -> `gitea.yaml` -> `kuma.yaml`; rerun a deployment playbook to check idempotence (`changed=0`).
 
 ## Secrets And Operations
 

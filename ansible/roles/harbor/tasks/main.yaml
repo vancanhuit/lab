@@ -1,0 +1,174 @@
+---
+- name: Import Harbor validation tasks
+  ansible.builtin.import_tasks: validate.yaml
+
+- name: Install Docker repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - openssl
+      - ssl-cert
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install Docker repository signing key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/debian/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Configure Docker repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: [https://download.docker.com/linux/debian]
+    suites: ["{{ ansible_facts.distribution_release }}"]
+    components: [stable]
+    architectures: [amd64]
+    signed_by: /etc/apt/keyrings/docker.asc
+    state: present
+
+- name: Install Docker Engine and Compose
+  ansible.builtin.apt:
+    name:
+      - containerd.io
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Enable and start Docker
+  ansible.builtin.systemd_service:
+    name: docker.service
+    enabled: true
+    state: started
+
+- name: Create Harbor directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ harbor_data_directory }}", mode: '0700' }
+    - { path: "{{ harbor_tls_directory }}", mode: '0700' }
+
+- name: Download pinned Harbor installer
+  ansible.builtin.get_url:
+    url: "{{ harbor_installer_url }}"
+    dest: "/var/tmp/harbor-online-installer-v{{ harbor_version }}.tgz"
+    checksum: "{{ harbor_installer_checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: harbor_installer_archive
+
+- name: Check Harbor installer
+  ansible.builtin.stat:
+    path: "{{ harbor_install_directory }}/prepare"
+  register: harbor_installer
+
+- name: Extract Harbor installer
+  ansible.builtin.unarchive:
+    src: "/var/tmp/harbor-online-installer-v{{ harbor_version }}.tgz"
+    dest: /opt
+    remote_src: true
+    owner: root
+    group: root
+  when: harbor_installer_archive.changed or not harbor_installer.stat.exists
+  register: harbor_installer_extracted
+
+- name: Check Harbor TLS certificate
+  ansible.builtin.stat:
+    path: "{{ harbor_tls_cert_path }}"
+  register: harbor_tls_cert
+
+- name: Check Harbor TLS private key
+  ansible.builtin.stat:
+    path: "{{ harbor_tls_key_path }}"
+  register: harbor_tls_key
+
+- name: Reject partial Harbor TLS state
+  ansible.builtin.assert:
+    that:
+      - harbor_tls_cert.stat.exists == harbor_tls_key.stat.exists
+    fail_msg: Harbor TLS certificate and key must both exist or both be absent
+
+- name: Seed Harbor TLS certificate
+  ansible.builtin.copy:
+    src: /etc/ssl/certs/ssl-cert-snakeoil.pem
+    dest: "{{ harbor_tls_cert_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0644'
+  when: not harbor_tls_cert.stat.exists
+  register: harbor_tls_cert_seeded
+
+- name: Seed Harbor TLS private key
+  ansible.builtin.copy:
+    src: /etc/ssl/private/ssl-cert-snakeoil.key
+    dest: "{{ harbor_tls_key_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0600'
+  when: not harbor_tls_key.stat.exists
+  register: harbor_tls_key_seeded
+
+- name: Render Harbor configuration
+  ansible.builtin.template:
+    src: harbor.yml.j2
+    dest: "{{ harbor_install_directory }}/harbor.yml"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  register: harbor_configuration
+
+- name: Check generated Harbor Compose project
+  ansible.builtin.stat:
+    path: "{{ harbor_install_directory }}/docker-compose.yml"
+  register: harbor_compose_project
+
+- name: Generate Harbor Compose configuration
+  ansible.builtin.command:
+    cmd: ./prepare
+    chdir: "{{ harbor_install_directory }}"
+  when: >-
+    harbor_installer_extracted.changed or
+    harbor_configuration.changed or
+    harbor_tls_cert_seeded.changed or
+    harbor_tls_key_seeded.changed or
+    not harbor_compose_project.stat.exists
+  no_log: true
+  register: harbor_prepare
+  changed_when: true
+
+- name: Reconcile Harbor containers
+  ansible.builtin.command:
+    cmd: docker compose up -d --wait
+    chdir: "{{ harbor_install_directory }}"
+  register: harbor_compose_up
+  changed_when: harbor_compose_up.stderr is regex('(?m)(Created|Recreated|Started)')
+
+- name: Wait for Harbor HTTPS listener
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ harbor_https_port }}"
+    state: started
+    timeout: 180
