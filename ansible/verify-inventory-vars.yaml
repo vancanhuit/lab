@@ -16,6 +16,8 @@
       - gitea_lfs_jwt_secret
       - gitea_admin_password
       - gitea_oauth2_jwt_secret
+      - seaweedfs_s3_access_key
+      - seaweedfs_s3_secret_key
     inventory_secret_contract:
       dns:
         - cloudflare_api_token
@@ -36,6 +38,10 @@
         - gitea_oauth2_jwt_secret
       kuma:
         - cloudflare_api_token
+      s3:
+        - cloudflare_api_token
+        - seaweedfs_s3_access_key
+        - seaweedfs_s3_secret_key
       debian-incus: []
   tasks:
     - name: Assert each secret is visible only to its owners

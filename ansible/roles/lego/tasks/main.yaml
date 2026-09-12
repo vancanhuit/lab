@@ -84,6 +84,13 @@
   loop_control:
     label: "{{ item.key }}"
 
+- name: Read installed lego version
+  ansible.builtin.command:
+    cmd: /usr/local/bin/lego --version
+  changed_when: false
+  failed_when: false
+  register: lego_installed_version
+
 - name: Install lego ACME client binary from GitHub releases
   ansible.builtin.unarchive:
     src: >-
@@ -95,6 +102,7 @@
     owner: root
     group: root
     mode: '0755'
+  when: lego_version not in lego_installed_version.stdout
   vars:
     architecture: "{{ ansible_facts['architecture'] | replace('x86_64', 'amd64') | replace('aarch64', 'arm64') }}"
 

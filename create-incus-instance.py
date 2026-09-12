@@ -50,6 +50,15 @@ def parse_args() -> argparse.Namespace:
         help="DNS search domain to use (can be specified multiple times)",
         action="append",
     )
+    parser.add_argument(
+        "--storage-pool", help="Pool for a separate custom storage volume"
+    )
+    parser.add_argument(
+        "--storage-size", help="Size of the separate storage volume, for example 500GiB"
+    )
+    parser.add_argument(
+        "--storage-path", help="Absolute mount path inside the instance"
+    )
 
     return parser.parse_args()
 
@@ -113,6 +122,13 @@ def get_network_config(bridge: str) -> dict:
 
 def main() -> int:
     args = parse_args()
+    storage_options = (args.storage_pool, args.storage_size, args.storage_path)
+    if any(storage_options) and not all(storage_options):
+        print(
+            "--storage-pool, --storage-size, and --storage-path must be used together",
+            file=sys.stderr,
+        )
+        return 2
     instance_type = "virtual machine" if args.vm else "container"
     print(
         f"Creating Incus {instance_type} instance '{args.name}' with image '{args.image}' and profiles '{args.profiles}'"
@@ -134,6 +150,65 @@ def main() -> int:
 
     print(f"Instance '{args.name}' created successfully")
 
+    if all(storage_options):
+        volume_name = f"{args.name}-data"
+        volume = subprocess.run(
+            ["incus", "storage", "volume", "show", args.storage_pool, volume_name],
+            capture_output=True,
+            text=True,
+        )
+        if volume.returncode == 0:
+            current_size = subprocess.run(
+                [
+                    "incus",
+                    "storage",
+                    "volume",
+                    "get",
+                    args.storage_pool,
+                    volume_name,
+                    "size",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            if current_size != args.storage_size:
+                print(
+                    f"Existing volume '{volume_name}' has size '{current_size}', expected '{args.storage_size}'",
+                    file=sys.stderr,
+                )
+                subprocess.run(["incus", "delete", args.name], check=True)
+                return 2
+            print(f"Reusing existing storage volume '{volume_name}'")
+        else:
+            subprocess.run(
+                [
+                    "incus",
+                    "storage",
+                    "volume",
+                    "create",
+                    args.storage_pool,
+                    volume_name,
+                    f"size={args.storage_size}",
+                ],
+                check=True,
+            )
+        subprocess.run(
+            [
+                "incus",
+                "config",
+                "device",
+                "add",
+                args.name,
+                "data",
+                "disk",
+                f"pool={args.storage_pool}",
+                f"source={volume_name}",
+                f"path={args.storage_path}",
+            ],
+            check=True,
+        )
+
     if args.dhcp:
         print("DHCP is enabled, skipping static IP configuration")
         return 0
@@ -146,25 +221,25 @@ def main() -> int:
     network_config = get_network_config(args.incus_bridge)
     cloud_init_config = yaml.dump(
         data={
-                "version": 2,
-                "renderer": "networkd",
-                "ethernets": {
-                    interface_name: {
-                        "dhcp4": False,
-                        "routes": [
-                            {
-                                "to": "0.0.0.0/0",
-                                "via": network_config["gateway"],
-                            }
-                        ],
-                        "addresses": [network_config["address"]],
-                        "nameservers": {
-                            "addresses": nameservers,
-                            "search": search_domains,
-                        },
-                    }
-                },
+            "version": 2,
+            "renderer": "networkd",
+            "ethernets": {
+                interface_name: {
+                    "dhcp4": False,
+                    "routes": [
+                        {
+                            "to": "0.0.0.0/0",
+                            "via": network_config["gateway"],
+                        }
+                    ],
+                    "addresses": [network_config["address"]],
+                    "nameservers": {
+                        "addresses": nameservers,
+                        "search": search_domains,
+                    },
+                }
             },
+        },
         sort_keys=False,
         default_flow_style=False,
     )

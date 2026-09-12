@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "admin",
+      "credentials": [
+        {
+          "accessKey": {{ seaweedfs_s3_access_key | to_json }},
+          "secretKey": {{ seaweedfs_s3_secret_key | to_json }}
+        }
+      ],
+      "actions": ["Admin", "Read", "List", "Tagging", "Write"]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # Homelab with Tailscale VPN
 
-This repository contains the Ansible configuration for a Debian 13 homelab running Incus, Technitium DNS, [PostgreSQL](https://www.postgresql.org/docs/18/), [Gitea](https://docs.gitea.com/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale VPN.
+This repository contains the Ansible configuration for a Debian 13 homelab running Incus, Technitium DNS, [PostgreSQL](https://www.postgresql.org/docs/18/), [Gitea](https://docs.gitea.com/), [Uptime Kuma](https://github.com/louislam/uptime-kuma), and [SeaweedFS](https://github.com/seaweedfs/seaweedfs) over a Tailscale VPN.
 
 ## Environment
 
@@ -366,6 +366,18 @@ Additional options include:
 - `--profile` adds an Incus profile and can be repeated; the `debian` profile is included by default.
 - `--vm` creates a virtual machine instead of a container.
 - `--incus-bridge` selects the bridge inspected for static address allocation; the applied profiles still determine which network the instance NIC uses.
+- `--storage-pool`, `--storage-size`, and `--storage-path` create and attach one separate custom storage volume.
+
+Create the SeaweedFS container with a dedicated 500 GiB ZFS-backed data volume:
+
+```sh
+uv run --with pyyaml create-incus-instance.py s3 \
+  --dhcp \
+  --storage-pool pool1 \
+  --storage-size 500GiB \
+  --storage-path /var/lib/seaweedfs
+incus start s3
+```
 
 The script uses `incus create`, so the new instance remains stopped. Inspect its configuration, then start it explicitly:
 
@@ -523,6 +535,7 @@ getent hosts dns.lab.canhdinh.com
 getent hosts postgres.lab.canhdinh.com
 getent hosts gitea.lab.canhdinh.com
 getent hosts kuma.lab.canhdinh.com
+getent hosts s3.lab.canhdinh.com
 ```
 
 ### 2. Deploy PostgreSQL
@@ -595,6 +608,19 @@ cd ..
 ```
 
 The second deployment should report `changed=0` for `kuma`.
+
+### 5. Deploy SeaweedFS S3
+
+Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy and verify the authenticated S3 endpoint:
+
+```sh
+ansible-playbook s3.yaml
+ansible-playbook verify-s3.yaml
+ansible-playbook s3.yaml
+cd ..
+```
+
+The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx HTTPS on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
 
 ## Uptime Kuma Operations
 

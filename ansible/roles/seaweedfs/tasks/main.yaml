@@ -1,0 +1,181 @@
+---
+- name: Import validation tasks
+  ansible.builtin.import_tasks: validate.yaml
+
+- name: Install SeaweedFS runtime packages
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - nginx
+      - openssl
+      - ssl-cert
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create SeaweedFS group
+  ansible.builtin.group:
+    name: "{{ seaweedfs_group }}"
+    system: true
+    state: present
+
+- name: Create SeaweedFS user
+  ansible.builtin.user:
+    name: "{{ seaweedfs_user }}"
+    group: "{{ seaweedfs_group }}"
+    home: "{{ seaweedfs_data_directory }}"
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+    state: present
+
+- name: Create SeaweedFS directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ seaweedfs_data_directory }}", owner: "{{ seaweedfs_user }}", group: "{{ seaweedfs_group }}", mode: '0750' }
+    - { path: "{{ seaweedfs_data_directory }}/data", owner: "{{ seaweedfs_user }}", group: "{{ seaweedfs_group }}", mode: '0750' }
+    - { path: "{{ seaweedfs_data_directory }}/master", owner: "{{ seaweedfs_user }}", group: "{{ seaweedfs_group }}", mode: '0750' }
+    - { path: "{{ seaweedfs_config_directory }}", owner: root, group: "{{ seaweedfs_group }}", mode: '0750' }
+    - { path: "{{ seaweedfs_tls_directory }}", owner: root, group: www-data, mode: '0750' }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Download pinned SeaweedFS release
+  ansible.builtin.get_url:
+    url: "{{ seaweedfs_release_url }}"
+    dest: "/var/tmp/seaweedfs-{{ seaweedfs_version }}.tar.gz"
+    checksum: "{{ seaweedfs_archive_checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+  register: seaweedfs_archive
+
+- name: Check installed SeaweedFS binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/weed
+  register: seaweedfs_binary
+
+- name: Install SeaweedFS binary
+  ansible.builtin.unarchive:
+    src: "/var/tmp/seaweedfs-{{ seaweedfs_version }}.tar.gz"
+    dest: /usr/local/bin
+    include:
+      - weed
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+  when: seaweedfs_archive.changed or not seaweedfs_binary.stat.exists
+  notify: Restart SeaweedFS
+
+- name: Render SeaweedFS S3 credentials
+  ansible.builtin.template:
+    src: s3.json.j2
+    dest: "{{ seaweedfs_config_directory }}/s3.json"
+    owner: root
+    group: "{{ seaweedfs_group }}"
+    mode: '0640'
+  no_log: true
+  notify: Restart SeaweedFS
+
+- name: Check SeaweedFS TLS certificate
+  ansible.builtin.stat:
+    path: "{{ seaweedfs_tls_cert_path }}"
+  register: seaweedfs_tls_cert_state
+
+- name: Check SeaweedFS TLS key
+  ansible.builtin.stat:
+    path: "{{ seaweedfs_tls_key_path }}"
+  register: seaweedfs_tls_key_state
+
+- name: Reject partial SeaweedFS TLS state
+  ansible.builtin.assert:
+    that:
+      - seaweedfs_tls_cert_state.stat.exists == seaweedfs_tls_key_state.stat.exists
+    fail_msg: SeaweedFS TLS certificate and key must both exist or both be absent
+
+- name: Seed SeaweedFS TLS certificate
+  ansible.builtin.copy:
+    src: /etc/ssl/certs/ssl-cert-snakeoil.pem
+    dest: "{{ seaweedfs_tls_cert_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0644'
+  when: not seaweedfs_tls_cert_state.stat.exists
+
+- name: Seed SeaweedFS TLS key
+  ansible.builtin.copy:
+    src: /etc/ssl/private/ssl-cert-snakeoil.key
+    dest: "{{ seaweedfs_tls_key_path }}"
+    remote_src: true
+    owner: root
+    group: "{{ seaweedfs_group }}"
+    mode: '0640'
+  when: not seaweedfs_tls_key_state.stat.exists
+
+- name: Render SeaweedFS systemd service
+  ansible.builtin.template:
+    src: seaweedfs.service.j2
+    dest: /etc/systemd/system/seaweedfs.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart SeaweedFS
+
+- name: Render SeaweedFS Nginx site
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/sites-available/seaweedfs
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload Nginx
+
+- name: Disable default Nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload Nginx
+
+- name: Enable SeaweedFS Nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/seaweedfs
+    dest: /etc/nginx/sites-enabled/seaweedfs
+    state: link
+  notify: Reload Nginx
+
+- name: Validate Nginx configuration
+  ansible.builtin.command:
+    cmd: /usr/sbin/nginx -t
+  changed_when: false
+
+- name: Enable and start SeaweedFS
+  ansible.builtin.systemd_service:
+    name: seaweedfs.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Enable and start Nginx
+  ansible.builtin.systemd_service:
+    name: nginx.service
+    enabled: true
+    state: started
+
+- name: Flush SeaweedFS handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for SeaweedFS S3 HTTPS listener
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ seaweedfs_s3_port }}"
+    state: started
+    timeout: 60

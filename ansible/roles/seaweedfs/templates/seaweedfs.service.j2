@@ -1,0 +1,20 @@
+[Unit]
+Description=SeaweedFS single-node S3 service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ seaweedfs_user }}
+Group={{ seaweedfs_group }}
+ExecStart=/usr/local/bin/weed server -dir={{ seaweedfs_data_directory }}/data -master.dir={{ seaweedfs_data_directory }}/master -ip={{ seaweedfs_s3_bind_address }} -ip.bind={{ seaweedfs_s3_bind_address }} -volume.max=0 -volume.minFreeSpace={{ seaweedfs_min_free_space }} -master.telemetry=false -filer -s3 -s3.ip.bind={{ seaweedfs_s3_bind_address }} -s3.port={{ seaweedfs_s3_internal_port }} -s3.port.iceberg=0 -s3.port.lance=0 -s3.config={{ seaweedfs_config_directory }}/s3.json -s3.externalUrl=https://{{ seaweedfs_domain }}
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths={{ seaweedfs_data_directory }}
+
+[Install]
+WantedBy=multi-user.target

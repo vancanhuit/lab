@@ -1,0 +1,15 @@
+---
+seaweedfs_version: "4.46"
+seaweedfs_archive_checksum: sha256:f4c654a72353c36bd8ae03c8879b81588dc29ffee0fa87594d8716a3d9347ad5
+seaweedfs_release_url: "https://github.com/seaweedfs/seaweedfs/releases/download/{{ seaweedfs_version }}/linux_amd64.tar.gz"
+seaweedfs_user: seaweedfs
+seaweedfs_group: seaweedfs
+seaweedfs_data_directory: /var/lib/seaweedfs
+seaweedfs_config_directory: /etc/seaweedfs
+seaweedfs_tls_directory: /etc/seaweedfs/tls
+seaweedfs_tls_cert_path: /etc/seaweedfs/tls/server.crt
+seaweedfs_tls_key_path: /etc/seaweedfs/tls/server.key
+seaweedfs_s3_bind_address: 127.0.0.1
+seaweedfs_s3_internal_port: 8333
+seaweedfs_s3_port: 443
+seaweedfs_min_free_space: 10GiB

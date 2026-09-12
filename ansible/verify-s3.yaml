@@ -1,0 +1,66 @@
+---
+- name: Verify SeaweedFS S3 service
+  hosts: s3
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert SeaweedFS and Nginx are running
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['seaweedfs.service'].state == 'running'
+          - ansible_facts.services['seaweedfs.service'].status == 'enabled'
+          - ansible_facts.services['nginx.service'].state == 'running'
+          - ansible_facts.services['nginx.service'].status == 'enabled'
+
+    - name: Check certificate renewal timer state
+      ansible.builtin.command: # noqa: command-instead-of-module
+        cmd: systemctl is-enabled --quiet lego-renew.timer
+      changed_when: false
+
+    - name: Check certificate renewal timer activity
+      ansible.builtin.command: # noqa: command-instead-of-module
+        cmd: systemctl is-active --quiet lego-renew.timer
+      changed_when: false
+
+    - name: Read TCP listeners
+      ansible.builtin.command:
+        cmd: ss -tlnp
+      changed_when: false
+      register: seaweedfs_listeners
+
+    - name: Assert only the S3 endpoint is externally reachable
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_listeners.stdout is regex('(?m)0\.0\.0\.0:443\s')
+          - seaweedfs_listeners.stdout is not regex('(?m)0\.0\.0\.0:(8080|8333|8888|9333|18333)\s')
+
+    - name: Verify unauthenticated S3 requests are rejected
+      ansible.builtin.uri:
+        url: https://127.0.0.1/
+        validate_certs: false
+        status_code: 403
+
+    - name: Check certificate validity and subject alternative name
+      ansible.builtin.command:
+        cmd: >-
+          openssl x509 -in /etc/seaweedfs/tls/server.crt
+          -checkend 86400 -noout -ext subjectAltName
+      changed_when: false
+      register: seaweedfs_certificate
+      failed_when: >-
+        seaweedfs_certificate.rc != 0 or
+        'DNS:s3.lab.canhdinh.com' not in seaweedfs_certificate.stdout
+
+    - name: Check attached data filesystem
+      ansible.builtin.command:
+        cmd: findmnt --noheadings --output TARGET,SIZE /var/lib/seaweedfs
+      changed_when: false
+      register: seaweedfs_mount
+
+    - name: Assert attached data filesystem is approximately 500 GiB
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_mount.stdout is regex('^/var/lib/seaweedfs\s+500G')

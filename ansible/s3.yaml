@@ -1,0 +1,7 @@
+---
+- name: Deploy single-node SeaweedFS S3 service
+  hosts: s3
+  become: true
+  roles:
+    - seaweedfs
+    - lego

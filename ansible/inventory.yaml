@@ -4,6 +4,8 @@ lab:
       ansible_host: dns.lab.canhdinh.com
     kuma:
       ansible_host: kuma.lab.canhdinh.com
+    s3:
+      ansible_host: s3.lab.canhdinh.com
   children:
     gitea_stack:
       hosts:
