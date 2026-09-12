@@ -31,12 +31,22 @@
     - name: Assert every Harbor container is running
       ansible.builtin.assert:
         that:
-          - harbor_container_state.stdout_lines | length >= 7
+          - harbor_container_state.stdout_lines | length >= 8
           - >-
             harbor_container_state.stdout_lines |
             map('from_json') |
             rejectattr('State', 'equalto', 'running') |
             list | length == 0
+
+    - name: Assert Trivy scanner is healthy
+      ansible.builtin.assert:
+        that:
+          - >-
+            harbor_container_state.stdout_lines |
+            map('from_json') |
+            selectattr('Service', 'equalto', 'trivy-adapter') |
+            selectattr('Health', 'equalto', 'healthy') |
+            list | length == 1
 
     - name: Check Harbor API health
       ansible.builtin.uri:
@@ -51,6 +61,30 @@
       ansible.builtin.assert:
         that:
           - harbor_health.json.status == 'healthy'
+
+    - name: List registered Harbor scanners
+      ansible.builtin.uri:
+        url: https://harbor.lab.canhdinh.com/api/v2.0/scanners
+        url_username: admin
+        url_password: "{{ harbor_admin_password }}"
+        force_basic_auth: true
+        validate_certs: true
+        return_content: true
+        status_code: 200
+      register: harbor_scanners
+      changed_when: false
+      no_log: true
+
+    - name: Assert Trivy is the enabled default scanner
+      ansible.builtin.assert:
+        that:
+          - >-
+            harbor_scanners.json |
+            selectattr('name', 'equalto', 'Trivy') |
+            rejectattr('disabled') |
+            selectattr('is_default') |
+            selectattr('capabilities.support_vulnerability') |
+            list | length == 1
 
     - name: Check OCI registry API
       ansible.builtin.uri:

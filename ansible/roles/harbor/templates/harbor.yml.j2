@@ -34,6 +34,17 @@ external_database:
     max_idle_conns: 2
     max_open_conns: 20
 
+trivy:
+  ignore_unfixed: false
+  skip_update: false
+  skip_java_db_update: false
+  db_repository: ghcr.io/aquasecurity/trivy-db
+  java_db_repository: ghcr.io/aquasecurity/trivy-java-db
+  offline_scan: false
+  security_check: vuln
+  insecure: false
+  timeout: 5m0s
+
 jobservice:
   max_job_workers: 5
   job_loggers:
@@ -58,6 +69,7 @@ proxy:
   components:
     - core
     - jobservice
+    - trivy
 
 upload_purging:
   enabled: true

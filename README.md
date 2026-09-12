@@ -578,7 +578,7 @@ The second deployment should report `changed=0` for `s3`. SeaweedFS data and met
 
 ### 4. Deploy Harbor
 
-Harbor 2.15.0 runs on Docker Engine and Docker Compose installed using [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/). The playbook creates the `harbor` PostgreSQL role and database, creates the `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity, and deploys Harbor with trusted HTTPS. Registry blobs use SeaweedFS; Harbor metadata uses PostgreSQL with required TLS. Redis, generated configuration, logs, and Docker images remain local to the Harbor VM. Trivy is not installed.
+Harbor 2.15.0 runs on Docker Engine and Docker Compose installed using [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/). The playbook creates the `harbor` PostgreSQL role and database, creates the `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity, and deploys Harbor with trusted HTTPS and its bundled Trivy vulnerability scanner. Trivy updates its vulnerability databases from the upstream Aqua Security OCI repositories. Registry blobs use SeaweedFS; Harbor metadata uses PostgreSQL with required TLS. Redis, Trivy databases, generated configuration, logs, and Docker images remain local to the Harbor VM.
 
 ```sh
 ansible-playbook harbor.yaml

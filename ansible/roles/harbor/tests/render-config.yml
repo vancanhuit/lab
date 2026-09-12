@@ -62,6 +62,11 @@
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).external_database.harbor.ssl_mode == 'require'
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).storage_service.s3.forcepathstyle
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).storage_service.s3.bucket == 'homelab-harbor'
+          - not (harbor_rendered_files.results[0].content | b64decode | from_yaml).trivy.ignore_unfixed
+          - not (harbor_rendered_files.results[0].content | b64decode | from_yaml).trivy.skip_update
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).trivy.security_check == 'vuln'
+          - not (harbor_rendered_files.results[0].content | b64decode | from_yaml).trivy.insecure
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).proxy.components is contains('trivy')
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).jobservice.logger_sweeper_duration == 1
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).notification.webhook_job_max_retry == 3
           - (harbor_rendered_files.results[1].content | b64decode) is search('/var/lib/harbor/secret/cert/server\.crt')

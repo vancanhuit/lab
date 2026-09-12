@@ -1,0 +1,6 @@
+---
+- name: Restart Harbor proxy
+  ansible.builtin.command:
+    cmd: docker compose restart proxy
+    chdir: "{{ harbor_install_directory }}"
+  changed_when: true
