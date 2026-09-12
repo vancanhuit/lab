@@ -1,6 +1,6 @@
 # Homelab with Tailscale VPN
 
-This repository contains the Ansible configuration for a Debian 13 homelab running Incus, Technitium DNS, [PostgreSQL](https://www.postgresql.org/docs/18/), [Gitea](https://docs.gitea.com/), [Uptime Kuma](https://github.com/louislam/uptime-kuma), and [SeaweedFS](https://github.com/seaweedfs/seaweedfs) over a Tailscale VPN.
+This repository contains the Ansible configuration for a Debian 13 homelab running Incus, Technitium DNS, [PostgreSQL](https://www.postgresql.org/docs/18/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs), [Harbor](https://goharbor.io/docs/2.15.0/), [Gitea](https://docs.gitea.com/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale virtual private network (VPN).
 
 ## Environment
 
@@ -195,10 +195,10 @@ git status --short
 
 The `community.sops.sops` vars plugin runs on the Ansible controller:
 
-1. Ansible discovers the encrypted `.sops.yaml` files while loading inventory variables. Ansible's `host_group_vars` precedence merges `lab` group vars, service-stack group vars, then host-specific vars before the SOPS plugin decrypts matching files.
+1. Ansible discovers encrypted `.sops.yaml` files while loading inventory variables.
 2. The plugin invokes the local `sops` binary and obtains the age identity from the default key file or the configured environment override.
-3. SOPS authenticates and decrypts the YAML values in memory.
-4. Ansible merges those values into each host's final variable set according to standard precedence rules, so secrets are available only to hosts that inherit or own them.
+3. SOPS authenticates and decrypts each matching file in memory as Ansible loads it.
+4. Ansible merges the resulting values according to normal group and host precedence, so secrets are available only to hosts that inherit or own them.
 5. Only values required by a task are sent to managed hosts. The age private identity stays on the controller.
 
 The encrypted file naming convention matters: the vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files, while this repository's creation rule targets `.sops.yaml` files. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
@@ -244,6 +244,13 @@ cd ansible
 ansible-playbook setup-incus.yaml --ask-become-pass
 cd ..
 ```
+
+The playbook installs Incus, the Zabbly kernel and OpenZFS packages, host tuning, and group membership. It does not initialize Incus or create its storage pool, bridge, or profiles. Before creating instances:
+
+1. Initialize Incus.
+2. Create the `pool1` ZFS storage pool.
+3. Create and configure `incusbr0` as described below.
+4. Apply [`incus-debian-profile.yaml`](incus-debian-profile.yaml) as the `debian` profile.
 
 ### Incus Network Bridge
 
@@ -341,13 +348,13 @@ The setting applies to all hosts using that Ansible configuration. For a one-tim
 Use [`create-incus-instance.py`](create-incus-instance.py) through `uv` to create containers or virtual machines with the required image, profiles, bridge, and network mode. View all supported options:
 
 ```sh
-uv run --with pyyaml create-incus-instance.py --help
+uv run create-incus-instance.py --help
 ```
 
 Static IPv4 configuration is the default. This command creates a container, selects the first IPv4 address on `incusbr0` that is not reported by an existing instance, and writes the address, gateway, and DNS settings to cloud-init:
 
 ```sh
-uv run --with pyyaml create-incus-instance.py app01 \
+uv run create-incus-instance.py app01 \
    --nameserver 1.1.1.1 \
    --search-domain lab.canhdinh.com
 ```
@@ -357,7 +364,7 @@ Use the Technitium DNS server address instead of `1.1.1.1` when the instance mus
 To skip static cloud-init networking and let the guest request DHCP configuration, add `--dhcp`:
 
 ```sh
-uv run --with pyyaml create-incus-instance.py app02 --dhcp
+uv run create-incus-instance.py app02 --dhcp
 ```
 
 > [!IMPORTANT]
@@ -374,13 +381,15 @@ Additional options include:
 Create the SeaweedFS container with a dedicated 500 GiB ZFS-backed data volume:
 
 ```sh
-uv run --with pyyaml create-incus-instance.py s3 \
+uv run create-incus-instance.py s3 \
   --dhcp \
   --storage-pool pool1 \
   --storage-size 500GiB \
   --storage-path /var/lib/seaweedfs
 incus start s3
 ```
+
+The `debian` profile defaults to one CPU, 2 GiB of memory, and a 5 GiB root disk. Before deploying Harbor, override its instance to provide at least two virtual CPUs, 4 GiB of memory, and a 40 GiB root disk as required by the Harbor role validation.
 
 The script uses `incus create`, so the new instance remains stopped. Inspect its configuration, then start it explicitly:
 
@@ -391,7 +400,7 @@ incus start app01
 
 ## Public TLS Certificates with Lego
 
-The [`lego` Ansible role](ansible/roles/lego/) uses [Lego](https://go-acme.github.io/lego/) as an ACME client to obtain publicly trusted TLS certificates from [Let's Encrypt](https://letsencrypt.org/) for the internal Technitium DNS, PostgreSQL, and Gitea services.
+The [`lego` Ansible role](ansible/roles/lego/) uses [Lego](https://go-acme.github.io/lego/) as an Automated Certificate Management Environment (ACME) client. It obtains publicly trusted Transport Layer Security (TLS) certificates from [Let's Encrypt](https://letsencrypt.org/) for Technitium DNS, PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma.
 
 The services are reachable only through the homelab network and Tailscale, but their names are subdomains of the publicly registered `canhdinh.com` domain. Clients therefore trust the normal Let's Encrypt certificate chain without installing a private certificate authority.
 
@@ -456,10 +465,13 @@ The shared role owns issuance and renewal, while each service playbook owns the 
 | Service | Lego output | Active destination and behavior |
 | --- | --- | --- |
 | Technitium DNS | `/var/lib/lego/certificates/dns.pfx` | Installs `/etc/dns/dns.pfx` as `dns-server:dns-server` with mode `0600`, then restarts `dns.service` |
-| PostgreSQL 18 | `postgres.crt` and `postgres.key` | Validates expiry, certificate/key match, file readability, and PostgreSQL TLS configuration; stages and atomically swaps `/etc/postgresql/18/main/tls/server.crt` and `server.key`; reloads the cluster and rolls back if activation fails |
-| Gitea | `gitea.crt` and `gitea.key` | Validates expiry and certificate/key match; atomically replaces `/etc/gitea/tls/server.crt` and `server.key`; runs `systemctl reload-or-restart gitea.service` |
+| PostgreSQL 18 | `postgres.crt` and `postgres.key` | Validates expiry, certificate/key match, file readability, and PostgreSQL TLS configuration; stages and renames each file under `/etc/postgresql/18/main/tls/`; reloads the cluster and rolls back if activation fails |
+| SeaweedFS S3 | `s3.crt` and `s3.key` | Validates expiry and certificate/key match; stages and renames each file under `/etc/seaweedfs/tls/`; validates and reloads Nginx |
+| Harbor | `harbor.crt` and `harbor.key` | Validates expiry and certificate/key match; updates `/etc/harbor/tls/` and runtime copies under `/var/lib/harbor/secret/cert/`; restarts the Harbor proxy container |
+| Gitea | `gitea.crt` and `gitea.key` | Validates expiry and certificate/key match; stages and renames each file under `/etc/gitea/tls/`; runs `systemctl reload-or-restart gitea.service` |
+| Uptime Kuma | `kuma.crt` and `kuma.key` | Validates expiry and certificate/key match; stages and renames each file under `/etc/uptime-kuma/tls/`; validates and reloads Nginx |
 
-Technitium requires a password-protected SHA-256 PFX. PostgreSQL and Gitea consume PEM certificate/key pairs with service-specific ownership and restrictive private-key permissions.
+Technitium requires a password-protected SHA-256 PFX. PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma consume PEM certificate/key pairs with service-specific ownership and restrictive private-key permissions.
 
 ### Automatic Renewal
 
@@ -566,7 +578,7 @@ The second deployment should report `changed=0` for the PostgreSQL host.
 
 ### 3. Deploy SeaweedFS S3
 
-Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy and verify the authenticated S3 endpoint:
+Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy SeaweedFS. The verification playbook checks the HTTPS boundary, rejects unauthenticated requests, validates the certificate, services, timers, and data mount:
 
 ```sh
 ansible-playbook s3.yaml
@@ -576,9 +588,11 @@ ansible-playbook s3.yaml
 
 The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx HTTPS on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
 
+The role creates the `homelab-harbor` bucket. A fresh Gitea deployment also requires the `homelab-gitea` bucket, which the current role does not create. Create it before deploying Gitea; existing installations migrated from Backblaze already contain it.
+
 ### 4. Deploy Harbor
 
-Harbor 2.15.0 runs on Docker Engine and Docker Compose installed using [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/). The playbook creates the `harbor` PostgreSQL role and database, creates the `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity, and deploys Harbor with trusted HTTPS and its bundled Trivy vulnerability scanner. Trivy updates its vulnerability databases from the upstream Aqua Security OCI repositories. Registry blobs use SeaweedFS; Harbor metadata uses PostgreSQL with required TLS. Redis, Trivy databases, generated configuration, logs, and Docker images remain local to the Harbor VM.
+Harbor 2.15.2 runs on Docker Engine and Docker Compose installed using [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/). The playbook creates the `harbor` PostgreSQL role and database, creates the `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity, and deploys Harbor with trusted HTTPS and its bundled Trivy vulnerability scanner. Trivy updates its vulnerability databases from the upstream Aqua Security OCI repositories. Registry blobs use SeaweedFS; Harbor metadata uses PostgreSQL with required TLS. Valkey, Trivy databases, generated configuration, logs, and Docker images remain local to the Harbor VM.
 
 ```sh
 ansible-playbook harbor.yaml
@@ -587,6 +601,8 @@ ansible-playbook harbor.yaml
 ```
 
 The second deployment should report `changed=0` for `postgres`, `s3`, and `harbor`.
+
+Verification confirms the Harbor version, service and certificate health, PostgreSQL TLS configuration, S3 driver selection, and Trivy registration. It does not push or pull an artifact, perform S3 object I/O, run a vulnerability scan, or validate a Trivy database update.
 
 ### 5. Deploy Gitea
 
@@ -693,14 +709,16 @@ Create the `Homelab` monitor group:
 4. Set **Retries** to `3`.
 5. Save the group.
 
-Add the following eight monitors to the `Homelab` group:
+Add the following ten monitors to the `Homelab` group:
 
 | Monitor Name | Type | Target | Notes |
 | --- | --- | --- | --- |
 | **Uptime Kuma HTTPS** | HTTPS | `https://kuma.lab.canhdinh.com/` | Kuma self-check |
 | **Gitea HTTPS** | HTTPS | `https://gitea.lab.canhdinh.com/` | Gitea web interface |
+| **Harbor HTTPS** | HTTPS | `https://harbor.lab.canhdinh.com/api/v2.0/health` | Harbor API health |
+| **SeaweedFS S3 HTTPS** | HTTPS | `https://s3.lab.canhdinh.com/` | Expected HTTP status: `403` without credentials |
 | **PostgreSQL TCP** | Port | `postgres.lab.canhdinh.com:5432` | PostgreSQL listener |
-| **Technitium DNS Lookup** | DNS | Hostname: `kuma.lab.canhdinh.com`<br>Resolver: `dns.lab.canhdinh.com`<br>Expected: `10.205.234.102` | DNS resolution |
+| **Technitium DNS Lookup** | DNS | Hostname: `kuma.lab.canhdinh.com`<br>Resolver: `dns.lab.canhdinh.com`<br>Expected: current address assigned to `kuma.lab.canhdinh.com` | DNS resolution |
 | **Incus Host Ping** | Ping | `debian-incus` or `10.205.234.1` | Incus host reachability |
 | **DNS Host Ping** | Ping | `dns.lab.canhdinh.com` | DNS instance reachability |
 | **PostgreSQL Host Ping** | Ping | `postgres.lab.canhdinh.com` | PostgreSQL instance reachability |
@@ -800,7 +818,7 @@ Run all restore commands on the Kuma host:
    sudo cp -p /var/lib/uptime-kuma/kuma.db /var/lib/uptime-kuma/kuma.db.pre-restore
    ```
 
-6. Atomically install the restored database:
+6. Install the validated restored database while Kuma is stopped:
 
    ```sh
    sudo install -o kuma -g kuma -m 0600 /tmp/kuma-restore.db /var/lib/uptime-kuma/kuma.db
@@ -847,7 +865,7 @@ The Kuma role follows these upgrade steps automatically:
 6. Update the `/opt/uptime-kuma/current` symlink to point to the new release directory.
 7. Restart the service and verify the upgraded endpoint.
 
-The role retains the active release and the newest previous release. If the upgrade fails, the service remains stopped and the previous release is still available under `/opt/uptime-kuma/releases/<previous-commit-sha>/`.
+The role retains the active release and the newest previous release after a successful deployment. A failure before activation leaves the current release running. A restart or health-check failure after activation can leave the new release selected and the service failed; the role does not roll back the symlink automatically.
 
 Recover the previous release manually by identifying the previous commit directory, then:
 
@@ -923,7 +941,7 @@ Do not print the SQLite database contents or the private key.
 
 ### First Login and Registry Use
 
-Open `https://harbor.lab.canhdinh.com/` and sign in with the default administrator username `admin` and the initial password stored in `harbor_admin_password`. Change that password after first login. Harbor uses `harbor_admin_password` only on its first startup; later Ansible runs do not reset the administrator password.
+Open `https://harbor.lab.canhdinh.com/` and sign in with the default administrator username `admin` and the initial password stored in `harbor_admin_password`. Change that password after first login, then update `harbor_admin_password` in `ansible/host_vars/harbor/secrets.sops.yaml` to the current password. Harbor uses the configured value only on its first startup, but `verify-harbor.yaml` uses it to authenticate API checks.
 
 Harbor controls repositories through projects and creates a public `library` project during installation. Create a private project for restricted images by following Harbor's [project creation procedure](https://goharbor.io/docs/2.15.0/working-with-projects/create-projects/), then authenticate and push an image:
 
@@ -934,6 +952,19 @@ docker push harbor.lab.canhdinh.com/project/image:tag
 ```
 
 Assign users the narrowest suitable project role. See Harbor's [user and project role documentation](https://goharbor.io/docs/2.15.0/administration/managing-users/) for the Limited Guest, Guest, Developer, Maintainer, and ProjectAdmin permissions.
+
+### Vulnerability scanning
+
+The bundled Trivy adapter is Harbor's enabled default scanner. It downloads vulnerability and Java databases from Aqua Security's OCI repositories and verifies registry certificates. The managed configuration scans for known vulnerabilities and includes vulnerabilities without an available fix.
+
+To scan an artifact, open its project and repository, select the artifact, and click **Scan**. Configure scheduled scans or scan-on-push in Harbor when automatic coverage is required. Check scanner registration and container health with:
+
+```sh
+cd ansible
+ansible-playbook verify-harbor.yaml
+```
+
+The verification playbook confirms that Trivy is healthy, enabled, default, and vulnerability-capable. It does not execute an artifact scan or prove that vulnerability databases are current.
 
 ### Lifecycle and Reconfiguration
 
@@ -963,6 +994,8 @@ Do not change `harbor_version` as a routine package bump. Follow the upgrade gui
 
 Harbor core performs database schema migration when the new release starts. Do not proceed without a rollback point for both PostgreSQL metadata and SeaweedFS registry blobs; neither copy is a complete Harbor backup by itself.
 
+The [Harbor 2.15.2 release](https://github.com/goharbor/harbor/releases/tag/v2.15.2) upgrades the bundled PostgreSQL database from version 15 to 18. That migration does not apply here because Harbor uses the separately managed PostgreSQL 18 service.
+
 ## Gitea Operations
 
 ### First Login
@@ -990,7 +1023,7 @@ SeaweedFS grants Gitea a bucket-scoped identity with read, list, tagging, and wr
 
 Run `ansible-playbook verify-gitea.yaml` after storage configuration changes. Do not inspect `/etc/gitea/app.ini` in shared or recorded terminals because it contains object-storage credentials.
 
-The migration from Backblaze to SeaweedFS completed on 2026-09-12. The final write-frozen comparison found two matching objects totaling 4,887 bytes, with no content differences. The former Backblaze bucket remains unchanged as a temporary rollback source.
+The migration from Backblaze to SeaweedFS was manually verified on 2026-09-12. The write-frozen comparison found two matching objects totaling 4,887 bytes, with no content differences at that time. Confirm the former Backblaze bucket still exists and remains suitable before treating it as a rollback source.
 
 Changing storage providers requires data migration as well as configuration deployment:
 
@@ -1032,11 +1065,12 @@ sudo -u postgres pgbackrest --stanza=main check
 | PostgreSQL relational data | pgBackRest local backups only; no off-host replication |
 | Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; the former Backblaze bucket is a temporary rollback copy, not a continuously updated backup |
 | Harbor registry blobs | SeaweedFS stores blobs in `homelab-harbor` on the dedicated 500 GiB ZFS volume; no off-host backup |
-| Harbor local state | Redis state, generated configuration, logs, certificates, and Docker images under `/var/lib/harbor`, `/opt/harbor`, `/etc/harbor`, and `/var/lib/lego` have no off-host backup |
+| Harbor local state | Valkey state, Trivy databases, generated configuration, logs, certificates, and Docker images under `/var/lib/harbor`, `/opt/harbor`, `/etc/harbor`, and `/var/lib/lego` have no off-host backup |
 | Gitea repositories and generated state | `/var/lib/gitea` has no off-host backup |
+| Uptime Kuma SQLite state | Validated gzip backups under `/var/backups/uptime-kuma/`; newest 14 retained by count; no off-host replication |
 
 > [!WARNING]
-> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL backups also do not survive loss of the PostgreSQL host or its storage. SeaweedFS object storage, including Harbor registry blobs, requires off-host replication or backup before the Backblaze rollback copy is retired.
+> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. SeaweedFS object storage, including Harbor registry blobs, requires off-host replication or backup before the Backblaze rollback copy is retired.
 
 ## PostgreSQL Point-in-Time Restore
 
