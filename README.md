@@ -1,12 +1,12 @@
 # Homelab with Tailscale VPN
 
-This repository contains the Ansible configuration for a Debian 13 homelab running Incus, Technitium DNS, [PostgreSQL](https://www.postgresql.org/docs/18/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs), [Harbor](https://goharbor.io/docs/2.15.0/), [Gitea](https://docs.gitea.com/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale virtual private network (VPN).
+This repository contains the Ansible configuration for a Debian 13 homelab running Incus, [Technitium DNS](https://technitium.com/dns/), [PostgreSQL](https://www.postgresql.org/docs/18/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs), [Harbor](https://goharbor.io/docs/2.15.0/), [Gitea](https://docs.gitea.com/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale virtual private network (VPN).
 
 ## Environment
 
 | Component | Configuration |
 | --- | --- |
-| Hardware | Dell Optiplex 7000 Micro, Intel Core i7-12700T (14 cores, 20 threads), 64 GB RAM, 2 TB NVMe SSD |
+| Hardware | Dell OptiPlex 7000 Micro, Intel Core i7-12700T (14 cores, 20 threads), 64 GB RAM, 2 TB NVMe SSD |
 | Public domain | `canhdinh.com`, hosted by [Cloudflare DNS](https://developers.cloudflare.com/dns/) |
 | Private domain | `lab.canhdinh.com`, resolved through [Tailscale split DNS](https://tailscale.com/kb/1054/dns#restricted-nameservers) |
 | Host OS | Debian 13 |
@@ -37,7 +37,7 @@ sudo tailscale set --ssh
 > [!WARNING]
 > Enabling Tailscale SSH can cause an existing SSH connection to the host's Tailscale IP to hang. Run the command from a local console or ensure another recovery path is available.
 
-Enabling the host is only one half of the setup. The tailnet policy must also permit both network access to the Incus host and Tailscale SSH access from the authorized administrator identities to the existing local `lab` user. Tailscale SSH authenticates the tailnet identity but does not create local operating-system accounts.
+Enabling Tailscale SSH on the host is only half of the setup. The tailnet policy must also permit network access to the Incus host and Tailscale SSH access from authorized administrator identities to the existing local `lab` user. Tailscale SSH authenticates the tailnet identity but does not create local operating-system accounts.
 
 With MagicDNS enabled and the policy applied, connect from another tailnet device:
 
@@ -47,9 +47,9 @@ ssh lab@debian-incus
 
 Use a narrowly scoped SSH policy and require check mode for interactive administrative access where practical. If Ansible connects through Tailscale SSH, ensure the selected policy supports non-interactive automation; check mode can require browser re-authentication and interrupt unattended runs.
 
-Commands in this runbook are executed from the repository root unless a step changes directory.
+Run commands in this README from the repository root unless a step changes directory.
 
-## Install Tooling
+## Install tooling
 
 Install [`mise`](https://mise.jdx.dev/):
 
@@ -65,9 +65,9 @@ mise run ansible:deps
 mise run hooks:install
 ```
 
-The one-time hook installation configures Cocogitto to reject non-conventional commit messages and runs Gitleaks plus [TruffleHog](https://github.com/trufflesecurity/trufflehog) before every push. Run both secret scanners directly with `mise run security:secrets`.
+`mise run hooks:install` configures Cocogitto to reject non-conventional commit messages and runs Gitleaks and [TruffleHog](https://github.com/trufflesecurity/trufflehog) before every push. Run both secret scanners directly with `mise run security:secrets`.
 
-Gitleaks performs a redacted full-history pattern scan. TruffleHog blocks credentials that are verified as active and candidates whose verification could not complete because of a provider or network error. TruffleHog may contact credential-provider APIs during verification; its repository wrapper reports only detector, status, file, line, and commit metadata so matched values are not printed.
+Gitleaks performs a redacted full-history pattern scan. TruffleHog blocks credentials verified as active and candidates it cannot verify because of a provider or network error. TruffleHog may contact credential-provider APIs during verification; its repository wrapper reports only detector, status, file, line, and commit metadata so matched values are not printed.
 
 List the available repository tasks:
 
@@ -75,30 +75,30 @@ List the available repository tasks:
 mise task ls
 ```
 
-## Secret Management with SOPS and age
+## Secret management with SOPS and age
 
 This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets encrypted in Git. SOPS encrypts the values in structured files while preserving enough YAML structure for useful reviews. age provides the asymmetric key pair that controls who can decrypt the file.
 
-### Repository Configuration
+### Repository configuration
 
 The secret-management configuration consists of:
 
 - `mise.toml`, which pins the `sops` and `age` versions and defines the `secrets:edit`, `secrets:view`, and `secrets:check` tasks.
 - [`ansible/.sops.yaml`](ansible/.sops.yaml), which applies its age recipient to files ending in `.sops.yaml`.
 - Encrypted SOPS variable files:
-  - [`ansible/group_vars/lab/secrets.sops.yaml`](ansible/group_vars/lab/secrets.sops.yaml) — shared secrets for all hosts in the `lab` group: `cloudflare_api_token`.
-  - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](ansible/group_vars/gitea_stack/secrets.sops.yaml) — shared secrets for hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
-  - [`ansible/group_vars/harbor_stack/secrets.sops.yaml`](ansible/group_vars/harbor_stack/secrets.sops.yaml) — shared secrets for hosts in the `harbor_stack` group (`postgres` and `harbor`): `harbor_database_password`.
-  - [`ansible/host_vars/dns/secrets.sops.yaml`](ansible/host_vars/dns/secrets.sops.yaml) — secrets owned by the `dns` host: `technitium_pfx_password`.
-  - [`ansible/host_vars/gitea/secrets.sops.yaml`](ansible/host_vars/gitea/secrets.sops.yaml) — secrets owned by the `gitea` host: `gitea_s3_access_key`, `gitea_s3_secret_key`, `gitea_smtp_password`, `gitea_secret_key`, `gitea_internal_token`, `gitea_lfs_jwt_secret`, `gitea_admin_password`, `gitea_oauth2_jwt_secret`.
-  - [`ansible/host_vars/harbor/secrets.sops.yaml`](ansible/host_vars/harbor/secrets.sops.yaml) — secrets owned by the `harbor` host: `harbor_admin_password`, `harbor_s3_access_key`, `harbor_s3_secret_key`.
-  - [`ansible/host_vars/s3/secrets.sops.yaml`](ansible/host_vars/s3/secrets.sops.yaml) — secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`, `seaweedfs_harbor_access_key`, `seaweedfs_harbor_secret_key`.
+  - [`ansible/group_vars/lab/secrets.sops.yaml`](ansible/group_vars/lab/secrets.sops.yaml), containing the secrets shared by all hosts in the `lab` group: `cloudflare_api_token`.
+  - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](ansible/group_vars/gitea_stack/secrets.sops.yaml), containing the secrets shared by hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
+  - [`ansible/group_vars/harbor_stack/secrets.sops.yaml`](ansible/group_vars/harbor_stack/secrets.sops.yaml), containing the secrets shared by hosts in the `harbor_stack` group (`postgres` and `harbor`): `harbor_database_password`.
+  - [`ansible/host_vars/dns/secrets.sops.yaml`](ansible/host_vars/dns/secrets.sops.yaml), containing secrets owned by the `dns` host: `technitium_pfx_password`.
+  - [`ansible/host_vars/gitea/secrets.sops.yaml`](ansible/host_vars/gitea/secrets.sops.yaml), containing secrets owned by the `gitea` host: `gitea_s3_access_key`, `gitea_s3_secret_key`, `gitea_smtp_password`, `gitea_secret_key`, `gitea_internal_token`, `gitea_lfs_jwt_secret`, `gitea_admin_password`, `gitea_oauth2_jwt_secret`.
+  - [`ansible/host_vars/harbor/secrets.sops.yaml`](ansible/host_vars/harbor/secrets.sops.yaml), containing secrets owned by the `harbor` host: `harbor_admin_password`, `harbor_s3_access_key`, `harbor_s3_secret_key`.
+  - [`ansible/host_vars/s3/secrets.sops.yaml`](ansible/host_vars/s3/secrets.sops.yaml), containing secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`, `seaweedfs_harbor_access_key`, `seaweedfs_harbor_secret_key`.
 - `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
 
 The age recipient in `ansible/.sops.yaml` is a public key and is safe to commit. The corresponding age identity is the private key and must never be committed, pasted into tickets or chat, or stored in shell history.
 
-### How Encryption Works
+### How encryption works
 
 SOPS uses envelope encryption for each file:
 
@@ -110,7 +110,7 @@ SOPS uses envelope encryption for each file:
 
 The encrypted data key and metadata can be committed safely, but losing every matching age identity makes the secrets unrecoverable. Possession of a matching private identity grants access to every file encrypted for that recipient.
 
-### Configure an Operator Identity
+### Configure an operator identity
 
 SOPS looks for age identities at `${XDG_CONFIG_HOME:-$HOME/.config}/sops/age/keys.txt` by default. Create a new identity only if one has not already been provisioned:
 
@@ -125,17 +125,17 @@ age-keygen -o "$identity_dir/keys.txt"
 > [!CAUTION]
 > Do not overwrite an existing identity file. Before relying on it for production secrets, store the complete private identity in a protected [Bitwarden Secure Note](https://bitwarden.com/help/managing-items/#item-types) or an encrypted [Proton Pass](https://proton.me/pass) note. Losing the only copy makes the encrypted secrets unrecoverable and blocks deployments, maintenance, and disaster recovery.
 
-[Proton Pass security](https://proton.me/pass/security) uses zero-knowledge, end-to-end encryption, and its free plan includes unlimited notes and devices. It is a good free alternative when Bitwarden is not used.
+[Proton Pass](https://proton.me/pass/security) uses zero-knowledge, end-to-end encryption, and its free plan includes unlimited notes and devices. It can hold the recovery copy when Bitwarden is not used.
 
 Treat the password-manager copy as an operational continuity requirement:
 
 - Protect the selected password-manager account with a strong, unique master password and multi-factor authentication, such as [Bitwarden two-step login](https://bitwarden.com/help/setup-two-step-login/).
 - Restrict the vault item or organization collection to operators authorized to decrypt homelab secrets.
 - Preserve the complete identity file content and label it with the matching public age recipient.
-- After storing or updating the item, restore it temporarily on a trusted system, verify decryption to `/dev/null`, and securely remove the temporary copy.
+- After storing or updating the item, temporarily restore the identity on a trusted system, verify decryption to `/dev/null`, and securely remove the temporary copy.
 - Review access and recovery procedures when operators or devices change.
 
-The local identity file remains the working copy for SOPS. Bitwarden or Proton Pass holds the recovery copy that prevents loss of one workstation from interrupting Ansible operations.
+The local identity file remains the working copy for SOPS. Bitwarden or Proton Pass holds the recovery copy so the loss of one workstation does not interrupt Ansible operations.
 
 Print only the public recipient derived from the private identity:
 
@@ -152,7 +152,7 @@ export ANSIBLE_SOPS_AGE_KEYFILE=/secure/path/keys.txt
 
 Environment variables containing private key material, such as `SOPS_AGE_KEY`, are supported but are less suitable for interactive use because environment contents can leak through process inspection, debugging output, or shell configuration.
 
-### Edit and Inspect Secrets
+### Edit and inspect secrets
 
 Edit an encrypted file through SOPS rather than decrypting it to a persistent plaintext file. Specify the file relative to `ansible/` with the `SOPS_FILE` environment variable:
 
@@ -191,7 +191,7 @@ git diff -- ansible/host_vars/gitea/secrets.sops.yaml
 git status --short
 ```
 
-### Ansible Decryption Flow
+### Ansible decryption flow
 
 The `community.sops.sops` vars plugin runs on the Ansible controller:
 
@@ -201,9 +201,9 @@ The `community.sops.sops` vars plugin runs on the Ansible controller:
 4. Ansible merges the resulting values according to normal group and host precedence, so secrets are available only to hosts that inherit or own them.
 5. Only values required by a task are sent to managed hosts. The age private identity stays on the controller.
 
-The encrypted file naming convention matters: the vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files, while this repository's creation rule targets `.sops.yaml` files. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
+The vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files, while this repository's creation rule targets only `.sops.yaml` files. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
 
-### Add or Rotate Recipients
+### Add or rotate recipients
 
 When onboarding another operator or rotating a key:
 
@@ -223,7 +223,7 @@ When onboarding another operator or rotating a key:
 
 Changing `ansible/.sops.yaml` alone affects new encryption operations; it does not automatically rewrite recipient metadata in files that are already encrypted. Keep at least one tested recovery identity until rotation is complete.
 
-## Bootstrap the Incus Host
+## Bootstrap the Incus host
 
 The NVMe disk reserves approximately 1.8 TB for the Incus ZFS pool and keeps the host root filesystem small:
 
@@ -245,14 +245,14 @@ ansible-playbook setup-incus.yaml --ask-become-pass
 cd ..
 ```
 
-The playbook installs Incus, the Zabbly kernel and OpenZFS packages, host tuning, and group membership. It does not initialize Incus or create its storage pool, bridge, or profiles. Before creating instances:
+The playbook installs Incus, the Zabbly kernel, and the OpenZFS packages, applies host tuning, and configures group membership. It does not initialize Incus or create its storage pool, bridge, or profiles. Before creating instances:
 
 1. Initialize Incus.
 2. Create the `pool1` ZFS storage pool.
 3. Create and configure `incusbr0` as described below.
 4. Apply [`incus-debian-profile.yaml`](incus-debian-profile.yaml) as the `debian` profile.
 
-### Incus Network Bridge
+### Incus network bridge
 
 The Debian profile in [`incus-debian-profile.yaml`](incus-debian-profile.yaml) connects each instance's `eth0` device to `incusbr0`. The [Incus bridge network](https://linuxcontainers.org/incus/docs/main/reference/network_bridge/) itself is configured on the Incus host and is not created by the current Ansible playbook.
 
@@ -269,7 +269,7 @@ config:
  ipv6.dhcp: "false"
 ```
 
-This configuration has the following operational implications:
+This configuration means:
 
 - `10.205.234.1` is the bridge gateway for the `10.205.234.0/24` instance network.
 - Incus DHCP is disabled. The [built-in DHCP server in Technitium](https://technitium.com/dns/help.html#dhcp-server) provides dynamic leases for instances that use DHCP mode.
@@ -279,9 +279,9 @@ This configuration has the following operational implications:
 - IPv6 addressing and DHCP are disabled.
 - The Incus host advertises `10.205.234.0/24` through its Tailscale subnet router so tailnet clients can reach instances directly.
 
-The lab [disables SNAT for Tailscale subnet routes](https://tailscale.com/docs/features/subnet-routers#disable-snat) with `--snat-subnet-routes=false`. This preserves each connecting device's original Tailscale client IP, allowing services, logs, and access controls to identify the real client instead of the Incus subnet router.
+The lab [disables SNAT for Tailscale subnet routes](https://tailscale.com/docs/features/subnet-routers#disable-snat) with `--snat-subnet-routes=false`. This preserves each connecting device's Tailscale IP address, so services, logs, and access controls identify the client rather than the Incus subnet router.
 
-Tailscale normally requires devices behind a non-SNAT subnet router to return `100.64.0.0/10` traffic through that router. No additional route-table entry is required inside these instances: their existing default route already uses `10.205.234.1`, which is the Incus host and Tailscale subnet router, so reply traffic follows the correct path.
+Tailscale normally requires devices behind a non-SNAT subnet router to return `100.64.0.0/10` traffic through that router. No additional routing-table entry is required inside these instances: their existing default route already uses `10.205.234.1`, which is the Incus host and Tailscale subnet router, so reply traffic follows the correct path.
 
 Configure a Technitium DHCP scope for the Incus network with:
 
@@ -303,7 +303,7 @@ ip -4 route show 10.205.234.0/24
 
 Confirm that the `10.205.234.0/24` route is advertised and approved in the Tailscale admin console before deploying services.
 
-### Configure Instance SSH Keys
+### Configure instance SSH keys
 
 Tailscale SSH manages access to the Incus host as the local `lab` user. Internal Debian instances do not run Tailscale and use standard OpenSSH instead. This lab uses the default Ed25519 identity at `$HOME/.ssh/id_ed25519`. If it does not already exist, generate it on the administrator workstation:
 
@@ -334,16 +334,16 @@ The profile creates the internal instance account as `admin`, which differs from
 ssh admin@<instance-hostname-or-ip>
 ```
 
-OpenSSH and Ansible discover the default `id_ed25519` identity automatically. If a non-default key name is used and the key is not loaded into an SSH agent or selected by SSH client configuration, set its path explicitly in `ansible/ansible.cfg`:
+OpenSSH and Ansible discover the default `id_ed25519` identity automatically. If you use a non-default key name and do not load the key into an SSH agent or select it in the SSH client configuration, set its path explicitly in `ansible/ansible.cfg`:
 
 ```ini
 [defaults]
 private_key_file = ~/.ssh/homelab-incus
 ```
 
-The setting applies to all hosts using that Ansible configuration. For a one-time run, use `--private-key ~/.ssh/homelab-incus`; when different hosts require different keys, prefer the host variable `ansible_ssh_private_key_file` in inventory instead of a global default.
+This setting applies to every host that uses the Ansible configuration. For a one-time run, use `--private-key ~/.ssh/homelab-incus`. If different hosts require different keys, set the `ansible_ssh_private_key_file` host variable in inventory instead of using a global default.
 
-### Create Incus Instances
+### Create Incus instances
 
 Use [`create-incus-instance.py`](create-incus-instance.py) through `uv` to create containers or virtual machines with the required image, profiles, bridge, and network mode. View all supported options:
 
@@ -376,7 +376,7 @@ Additional options include:
 - `--profile` adds an Incus profile and can be repeated; the `debian` profile is included by default.
 - `--vm` creates a virtual machine instead of a container.
 - `--incus-bridge` selects the bridge inspected for static address allocation; the applied profiles still determine which network the instance NIC uses.
-- `--storage-pool`, `--storage-size`, and `--storage-path` create and attach one separate custom storage volume.
+- `--storage-pool`, `--storage-size`, and `--storage-path` create or reuse, then attach a custom storage volume.
 
 Create the SeaweedFS container with a dedicated 500 GiB ZFS-backed data volume:
 
@@ -389,7 +389,7 @@ uv run create-incus-instance.py s3 \
 incus start s3
 ```
 
-The `debian` profile defaults to one CPU, 2 GiB of memory, and a 5 GiB root disk. Before deploying Harbor, override its instance to provide at least two virtual CPUs, 4 GiB of memory, and a 40 GiB root disk as required by the Harbor role validation.
+The `debian` profile defaults to one CPU, 2 GiB of memory, and a 5 GiB root disk. Before deploying Harbor, provide at least two virtual CPUs, 3,800 MiB of reported memory, and a 40 GB root filesystem. Provisioning 4 GiB of memory and a 40 GiB disk safely exceeds those validation thresholds.
 
 The script uses `incus create`, so the new instance remains stopped. Inspect its configuration, then start it explicitly:
 
@@ -398,21 +398,21 @@ incus config show app01 --expanded
 incus start app01
 ```
 
-## Public TLS Certificates with Lego
+## Public TLS certificates with lego
 
-The [`lego` Ansible role](ansible/roles/lego/) uses [Lego](https://go-acme.github.io/lego/) as an Automated Certificate Management Environment (ACME) client. It obtains publicly trusted Transport Layer Security (TLS) certificates from [Let's Encrypt](https://letsencrypt.org/) for Technitium DNS, PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma.
+The [`lego` Ansible role](ansible/roles/lego/) uses [lego](https://go-acme.github.io/lego/) as an Automated Certificate Management Environment (ACME) client. It obtains publicly trusted Transport Layer Security (TLS) certificates from [Let's Encrypt](https://letsencrypt.org/) for Technitium DNS, PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma.
 
 The services are reachable only through the homelab network and Tailscale, but their names are subdomains of the publicly registered `canhdinh.com` domain. Clients therefore trust the normal Let's Encrypt certificate chain without installing a private certificate authority.
 
-### Why DNS-01 Works for Internal Services
+### Why DNS-01 works for internal services
 
-The role uses the [ACME DNS-01 challenge](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge) through the [Lego Cloudflare provider](https://go-acme.github.io/lego/dns/cloudflare/). Let's Encrypt validates control of each hostname by querying a temporary public TXT record at `_acme-challenge.<hostname>`.
+The role uses the [ACME DNS-01 challenge](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge) through the [lego Cloudflare provider](https://go-acme.github.io/lego/dns/cloudflare/). Let's Encrypt validates control of each hostname by querying a temporary public TXT record at `_acme-challenge.<hostname>`.
 
 Validation checks public DNS ownership, not service reachability. The service does not need a public IP address, a public A/AAAA record, an inbound port, or a reverse proxy. Tailscale split DNS can continue resolving `*.lab.canhdinh.com` to private addresses while Cloudflare publishes only the ACME challenge records required for issuance.
 
 The role currently accepts explicit hostnames only and rejects wildcard entries. Every publicly trusted certificate is submitted to [Certificate Transparency logs](https://letsencrypt.org/docs/ct-logs/), so names such as `dns.lab.canhdinh.com`, `postgres.lab.canhdinh.com`, and `gitea.lab.canhdinh.com` are publicly discoverable and must not be considered secret.
 
-### Role Inputs and Files
+### Role inputs and files
 
 Each service playbook configures the shared role with:
 
@@ -425,7 +425,7 @@ Each service playbook configures the shared role with:
 | `lego_pfx` | Optional password and format for PKCS#12/PFX output |
 | `lego_hooks` | Optional `pre`, `deploy`, or `post` commands/scripts |
 
-The role installs pinned Lego `5.3.1` and manages these root-owned paths on each service host:
+The role installs the pinned `lego` 5.3.1 binary and manages these root-owned paths on each service host:
 
 | Path | Purpose | Mode |
 | --- | --- | --- |
@@ -437,13 +437,13 @@ The role installs pinned Lego `5.3.1` and manages these root-owned paths on each
 
 The Cloudflare token comes from the SOPS-encrypted `cloudflare_api_token` variable. It has only `Zone / Zone / Read` and `Zone / DNS / Edit` permissions and is scoped to `canhdinh.com`. Do not use a Cloudflare Global API Key or commit a decrypted token.
 
-### Issuance and Reconciliation Flow
+### Issuance and reconciliation flow
 
 During each playbook run, the role:
 
 1. Validates hostnames, certificate name, ACME server, renewal threshold, PFX settings, and hook definitions before changing the host.
-2. Installs the pinned Lego binary and creates the configuration, state, and hook directories.
-3. Renders a root-only Lego configuration using EC P-256 keys for the ACME account and leaf certificate.
+2. Installs the pinned `lego` binary and creates the configuration, state, and hook directories.
+3. Renders a root-only lego configuration using EC P-256 keys for the ACME account and leaf certificate.
 4. Renders the root-only Cloudflare environment file.
 5. Runs the same reconciliation command used by automatic renewal:
 
@@ -451,18 +451,18 @@ During each playbook run, the role:
     /usr/local/bin/lego --config /etc/lego/config.yaml
     ```
 
-6. Lego creates the `_acme-challenge` TXT record through the Cloudflare API and checks propagation through `1.1.1.1` and `1.0.0.1`. The role allows up to 180 seconds for propagation and polls every five seconds.
-7. Let's Encrypt validates the TXT record and issues the certificate. Lego stores the certificate and private key under `/var/lib/lego/certificates/`, using `lego_certificate_name` for the filenames.
-8. When certificate material changes, Lego runs the configured deploy hook so the target service receives the new identity.
+6. The `lego` client creates the `_acme-challenge` TXT record through the Cloudflare API and checks propagation through `1.1.1.1` and `1.0.0.1`. The role allows up to 180 seconds for propagation and polls every five seconds.
+7. Let's Encrypt validates the TXT record and issues the certificate. The `lego` client stores the certificate and private key under `/var/lib/lego/certificates/`, using `lego_certificate_name` for the filenames.
+8. When certificate material changes, the `lego` client runs the configured deploy hook so the target service receives the new identity.
 9. The role enables the daily renewal timer.
 
 Preserve `/var/lib/lego`; it contains the ACME account and certificate state needed for stable reconciliation. Repeatedly deleting this state and requesting replacement certificates can consume [Let's Encrypt rate limits](https://letsencrypt.org/docs/rate-limits/).
 
-### Service Deployment Hooks
+### Service deployment hooks
 
 The shared role owns issuance and renewal, while each service playbook owns the final certificate format, destination, permissions, validation, and reload behavior:
 
-| Service | Lego output | Active destination and behavior |
+| Service | lego output | Active destination and behavior |
 | --- | --- | --- |
 | Technitium DNS | `/var/lib/lego/certificates/dns.pfx` | Installs `/etc/dns/dns.pfx` as `dns-server:dns-server` with mode `0600`, then restarts `dns.service` |
 | PostgreSQL 18 | `postgres.crt` and `postgres.key` | Validates expiry, certificate/key match, file readability, and PostgreSQL TLS configuration; stages and renames each file under `/etc/postgresql/18/main/tls/`; reloads the cluster and rolls back if activation fails |
@@ -471,19 +471,19 @@ The shared role owns issuance and renewal, while each service playbook owns the 
 | Gitea | `gitea.crt` and `gitea.key` | Validates expiry and certificate/key match; stages and renames each file under `/etc/gitea/tls/`; runs `systemctl reload-or-restart gitea.service` |
 | Uptime Kuma | `kuma.crt` and `kuma.key` | Validates expiry and certificate/key match; stages and renames each file under `/etc/uptime-kuma/tls/`; validates and reloads Nginx |
 
-Technitium requires a password-protected SHA-256 PFX. PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma consume PEM certificate/key pairs with service-specific ownership and restrictive private-key permissions.
+Technitium requires a password-protected SHA-256 PFX. PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma consume PEM certificate and key pairs with service-specific ownership and restrictive private-key permissions.
 
-### Automatic Renewal
+### Automatic renewal
 
-The role installs `lego-renew.service` as a oneshot unit that runs the reconciliation command and `lego-renew.timer` with:
+The role installs `lego-renew.service` as a oneshot unit that runs the reconciliation command. It configures `lego-renew.timer` with:
 
 - `OnCalendar=daily`
 - `Persistent=true`, so a missed run executes after the host returns
-- `RandomizedDelaySec=1h`, which avoids every host contacting the ACME service simultaneously
+- `RandomizedDelaySec=1h`, which prevents all hosts from contacting the ACME service simultaneously
 
-Lego renews only when the certificate enters its renewal window. Successful renewal invokes the same deploy hook used during initial issuance, so the service begins using the replacement certificate without a full Ansible run.
+The `lego` client renews a certificate only when it enters its renewal window. Successful renewal invokes the same deploy hook used during initial issuance, so the service begins using the replacement certificate without a full Ansible run.
 
-### Operations and Troubleshooting
+### Operations and troubleshooting
 
 Inspect the timer and recent renewal activity on a service host:
 
@@ -524,9 +524,9 @@ If issuance or renewal fails:
 
 Do not print `/etc/lego/cloudflare.env`, copy private keys into logs, or loosen key permissions to troubleshoot access. The role marks secret-rendering tasks with `no_log`, but operators must apply the same discipline to manual commands.
 
-## Deployment Sequence
+## Deployment sequence
 
-Run these stages in order. DNS must resolve the service hostnames before the other services request certificates. PostgreSQL and SeaweedFS must be available before Gitea or Harbor starts with its external data services.
+Run these stages in order. DNS must resolve the service hostnames before the other services request certificates. PostgreSQL and SeaweedFS must be available before Gitea or Harbor starts using those external data services.
 
 ### 1. Deploy DNS
 
@@ -578,7 +578,7 @@ The second deployment should report `changed=0` for the PostgreSQL host.
 
 ### 3. Deploy SeaweedFS S3
 
-Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy SeaweedFS. The verification playbook checks the HTTPS boundary, rejects unauthenticated requests, validates the certificate, services, timers, and data mount:
+Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy SeaweedFS. The verification playbook checks the HTTPS boundary and confirms that unauthenticated requests are rejected. It also validates the certificate, services, timers, and data mount:
 
 ```sh
 ansible-playbook s3.yaml
@@ -586,7 +586,7 @@ ansible-playbook verify-s3.yaml
 ansible-playbook s3.yaml
 ```
 
-The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx HTTPS on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
+The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx's HTTPS listener on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
 
 The role creates the `homelab-harbor` bucket. A fresh Gitea deployment also requires the `homelab-gitea` bucket, which the current role does not create. Create it before deploying Gitea; existing installations migrated from Backblaze already contain it.
 
@@ -630,7 +630,7 @@ The second deployment should report `changed=0` for both the Gitea and PostgreSQ
 
 ### 6. Deploy Uptime Kuma
 
-Uptime Kuma stores its state in a local SQLite database and has no PostgreSQL runtime dependency. The Kuma playbook deploys the native application behind Nginx with a Lego-managed TLS certificate.
+Uptime Kuma stores its state in a local SQLite database and has no PostgreSQL runtime dependency. The Kuma playbook deploys the native application behind Nginx with a lego-managed TLS certificate.
 
 ```sh
 ansible-playbook kuma.yaml
@@ -653,14 +653,13 @@ cd ..
 
 The second deployment should report `changed=0` for `kuma`.
 
-## Uptime Kuma Operations
+## Uptime Kuma operations
 
-### First Login and Setup
+### First login and setup
 
 Open `https://kuma.lab.canhdinh.com/` and configure the initial administrator account:
 
-- **Username:** `kuma-admin`
-- **Password:** Generate a strong, unique password in your password manager and enter it during account creation. Ansible does not create the administrator or store this password.
+Use `kuma-admin` as the username. Generate a strong, unique password in your password manager and enter it during account creation. Ansible does not create the administrator or store this password.
 
 After first login, enable two-factor authentication:
 
@@ -668,7 +667,7 @@ After first login, enable two-factor authentication:
 2. Configure TOTP using an authenticator app such as [Aegis](https://getaegis.app/), [2FAS](https://2fas.com/), or [Bitwarden Authenticator](https://bitwarden.com/products/authenticator/).
 3. Store recovery codes in a secure location.
 
-### Trust Proxy Configuration
+### Trust proxy configuration
 
 Uptime Kuma runs behind Nginx with TLS termination. Configure the trust-proxy setting to preserve the original client IP:
 
@@ -676,9 +675,9 @@ Uptime Kuma runs behind Nginx with TLS termination. Configure the trust-proxy se
 2. Under **HTTP Headers**, set **Trust Proxy** to `Yes`.
 3. Save the settings.
 
-This ensures logs, rate limiting, and access controls see the real client address instead of the Nginx proxy.
+Kuma's logs, rate limiting, and access controls will then use the client address instead of the Nginx proxy address.
 
-### Brevo Notification Configuration
+### Brevo notification configuration
 
 Configure the native Brevo notification provider for alert emails. Store these values in your password manager; they are entered directly in Kuma and are not managed by Ansible or SOPS.
 
@@ -689,9 +688,9 @@ Configure the native Brevo notification provider for alert emails. Store these v
 
    | Field | Source |
    | --- | --- |
-   | **API Key** | Brevo API key stored in the password manager |
-   | **From Address** | Verified Brevo sender address stored in the password manager |
-   | **From Name** | Sender display name stored in the password manager |
+   | API Key | Brevo API key stored in the password manager |
+   | From Address | Verified Brevo sender address stored in the password manager |
+   | From Name | Sender display name stored in the password manager |
 
 5. Click **Test** to send a confirmation email.
 6. Verify the test email arrives before attaching the notification to monitors.
@@ -699,7 +698,7 @@ Configure the native Brevo notification provider for alert emails. Store these v
 > [!WARNING]
 > Do not commit the Brevo API key or include it in screenshots or logs.
 
-### Monitor Configuration
+### Monitor configuration
 
 Create the `Homelab` monitor group:
 
@@ -711,18 +710,18 @@ Create the `Homelab` monitor group:
 
 Add the following ten monitors to the `Homelab` group:
 
-| Monitor Name | Type | Target | Notes |
+| Monitor name | Type | Target | Notes |
 | --- | --- | --- | --- |
-| **Uptime Kuma HTTPS** | HTTPS | `https://kuma.lab.canhdinh.com/` | Kuma self-check |
-| **Gitea HTTPS** | HTTPS | `https://gitea.lab.canhdinh.com/` | Gitea web interface |
-| **Harbor HTTPS** | HTTPS | `https://harbor.lab.canhdinh.com/api/v2.0/health` | Harbor API health |
-| **SeaweedFS S3 HTTPS** | HTTPS | `https://s3.lab.canhdinh.com/` | Expected HTTP status: `403` without credentials |
-| **PostgreSQL TCP** | Port | `postgres.lab.canhdinh.com:5432` | PostgreSQL listener |
-| **Technitium DNS Lookup** | DNS | Hostname: `kuma.lab.canhdinh.com`<br>Resolver: `dns.lab.canhdinh.com`<br>Expected: current address assigned to `kuma.lab.canhdinh.com` | DNS resolution |
-| **Incus Host Ping** | Ping | `debian-incus` or `10.205.234.1` | Incus host reachability |
-| **DNS Host Ping** | Ping | `dns.lab.canhdinh.com` | DNS instance reachability |
-| **PostgreSQL Host Ping** | Ping | `postgres.lab.canhdinh.com` | PostgreSQL instance reachability |
-| **Gitea Host Ping** | Ping | `gitea.lab.canhdinh.com` | Gitea instance reachability |
+| Uptime Kuma HTTPS | HTTPS | `https://kuma.lab.canhdinh.com/` | Kuma self-check |
+| Gitea HTTPS | HTTPS | `https://gitea.lab.canhdinh.com/` | Gitea web interface |
+| Harbor HTTPS | HTTPS | `https://harbor.lab.canhdinh.com/api/v2.0/health` | Harbor API health |
+| SeaweedFS S3 HTTPS | HTTPS | `https://s3.lab.canhdinh.com/` | Expected HTTP status: `403` without credentials |
+| PostgreSQL TCP | Port | `postgres.lab.canhdinh.com:5432` | PostgreSQL listener |
+| Technitium DNS Lookup | DNS | Hostname: `kuma.lab.canhdinh.com`<br>Resolver: `dns.lab.canhdinh.com`<br>Expected: current address assigned to `kuma.lab.canhdinh.com` | DNS resolution |
+| Incus Host Ping | Ping | `debian-incus` or `10.205.234.1` | Incus host reachability |
+| DNS Host Ping | Ping | `dns.lab.canhdinh.com` | DNS instance reachability |
+| PostgreSQL Host Ping | Ping | `postgres.lab.canhdinh.com` | PostgreSQL instance reachability |
+| Gitea Host Ping | Ping | `gitea.lab.canhdinh.com` | Gitea instance reachability |
 
 For each monitor:
 
@@ -738,12 +737,9 @@ For each monitor:
 
 All other monitors will send alert notifications through Brevo when they fail, subject to the retry policy.
 
-### Backup Operations
+### Backup operations
 
-Uptime Kuma runs an automatic daily backup timer:
-
-- **uptime-kuma-backup.timer:** Daily with a one-hour random delay, persistent across reboots
-- Schedule: `OnCalendar=daily`, `Persistent=true`, `RandomizedDelaySec=1h`
+Uptime Kuma runs `uptime-kuma-backup.timer` daily with a one-hour randomized delay. The timer is persistent across reboots: `OnCalendar=daily`, `Persistent=true`, `RandomizedDelaySec=1h`.
 
 Inspect the timer:
 
@@ -771,12 +767,12 @@ List available backup archives:
 sudo ls -lh /var/backups/uptime-kuma/
 ```
 
-Backup archives are stored as root-only gzipped SQLite database files under `/var/backups/uptime-kuma/` with names such as `kuma-20260810T020015Z.db.gz`. The newest 14 backups are retained by count.
+Backup archives are stored as root-only gzipped SQLite database files under `/var/backups/uptime-kuma/` with names such as `kuma-20260810T020015Z.db.gz`. The timer retains the 14 newest backups.
 
 > [!WARNING]
-> Backup archives are stored locally and have no off-host replication. Loss of the Kuma host causes permanent backup loss.
+> Backup archives exist only on the Kuma host. Losing the host also loses the archives permanently.
 
-### Restore Procedure
+### Restore procedure
 
 > [!CAUTION]
 > Restoration overwrites the current Kuma database. Confirm the backup timestamp before restoring.
@@ -812,7 +808,7 @@ Run all restore commands on the Kuma host:
 
    Replace `YYYYMMDDTHHMMSSZ` with the actual backup timestamp. Expected validation output: `ok`
 
-5. Preserve the current database as a backup:
+5. Preserve the current database as a local rollback copy:
 
    ```sh
    sudo cp -p /var/lib/uptime-kuma/kuma.db /var/lib/uptime-kuma/kuma.db.pre-restore
@@ -839,7 +835,7 @@ Run all restore commands on the Kuma host:
    curl -sSf https://kuma.lab.canhdinh.com/ >/dev/null && echo "HTTPS OK"
    ```
 
-### Upgrade Procedure
+### Upgrade procedure
 
 Before changing `uptime_kuma_version` or `uptime_kuma_release_commit`, take a manual backup:
 
@@ -848,20 +844,20 @@ sudo systemctl start uptime-kuma-backup.service
 sudo journalctl -u uptime-kuma-backup.service -n 50 --no-pager
 ```
 
-Update `uptime_kuma_version` and `uptime_kuma_release_commit` in the Kuma role defaults, then rerun the deployment:
+Update `uptime_kuma_version` and `uptime_kuma_release_commit` in the Kuma role defaults. Update the supported-version assertions in `roles/uptime_kuma/tasks/validate.yaml`, the expected versions in `verify-kuma.yaml`, and the role test expectations in `roles/uptime_kuma/tests/render-config.yml`. Then run the role test and deployment:
 
 ```sh
 cd ansible
 ansible-playbook kuma.yaml
 ```
 
-The Kuma role follows these upgrade steps automatically:
+The Kuma role performs these steps automatically:
 
 1. Check out the pinned commit from the [Uptime Kuma GitHub repository](https://github.com/louislam/uptime-kuma) to `/opt/uptime-kuma/releases/<commit-sha>`.
 2. Install locked production dependencies with `npm ci --omit=dev --no-audit`.
 3. Download the matching frontend with `npm run download-dist`.
 4. Verify the checked-out version matches `uptime_kuma_version` via `package.json`.
-5. If the database exists and release activation is required, trigger a pre-activation SQLite backup via `uptime-kuma-backup.service`.
+5. When release activation is required and the database exists, trigger a pre-activation SQLite backup through `uptime-kuma-backup.service`.
 6. Update the `/opt/uptime-kuma/current` symlink to point to the new release directory.
 7. Restart the service and verify the upgraded endpoint.
 
@@ -902,7 +898,7 @@ sudo ss -tlnp | grep :443
 curl -vI https://kuma.lab.canhdinh.com/ 2>&1 | grep -E '^(\*|>|<)'
 ```
 
-Inspect the Lego TLS certificate:
+Inspect the lego TLS certificate:
 
 ```sh
 sudo systemctl status lego-renew.timer
@@ -927,7 +923,7 @@ sudo -u kuma sqlite3 /var/lib/uptime-kuma/kuma.db 'PRAGMA integrity_check;'
 sudo -u kuma sqlite3 /var/lib/uptime-kuma/kuma.db 'SELECT COUNT(*) FROM monitor;'
 ```
 
-Inspect the active TLS certificate deployed by Lego:
+Inspect the active TLS certificate deployed by lego:
 
 ```sh
 sudo openssl x509 \
@@ -937,9 +933,9 @@ sudo openssl x509 \
 
 Do not print the SQLite database contents or the private key.
 
-## Harbor Operations
+## Harbor operations
 
-### First Login and Registry Use
+### First login and registry use
 
 Open `https://harbor.lab.canhdinh.com/` and sign in with the default administrator username `admin` and the initial password stored in `harbor_admin_password`. Change that password after first login, then update `harbor_admin_password` in `ansible/host_vars/harbor/secrets.sops.yaml` to the current password. Harbor uses the configured value only on its first startup, but `verify-harbor.yaml` uses it to authenticate API checks.
 
@@ -951,22 +947,22 @@ docker tag source_image harbor.lab.canhdinh.com/project/image:tag
 docker push harbor.lab.canhdinh.com/project/image:tag
 ```
 
-Assign users the narrowest suitable project role. See Harbor's [user and project role documentation](https://goharbor.io/docs/2.15.0/administration/managing-users/) for the Limited Guest, Guest, Developer, Maintainer, and ProjectAdmin permissions.
+Assign users the narrowest suitable project role. See Harbor's [user and project role documentation](https://goharbor.io/docs/2.15.0/administration/managing-users/) for the Limited Guest, Guest, Developer, Maintainer, and Project Admin permissions.
 
 ### Vulnerability scanning
 
 The bundled Trivy adapter is Harbor's enabled default scanner. It downloads vulnerability and Java databases from Aqua Security's OCI repositories and verifies registry certificates. The managed configuration scans for known vulnerabilities and includes vulnerabilities without an available fix.
 
-To scan an artifact, open its project and repository, select the artifact, and click **Scan**. Configure scheduled scans or scan-on-push in Harbor when automatic coverage is required. Check scanner registration and container health with:
+To scan an artifact, open its project and repository, select the artifact, and click **Scan**. Configure scheduled scans or scan-on-push in Harbor to automate scanning. Check scanner registration and container health with:
 
 ```sh
 cd ansible
 ansible-playbook verify-harbor.yaml
 ```
 
-The verification playbook confirms that Trivy is healthy, enabled, default, and vulnerability-capable. It does not execute an artifact scan or prove that vulnerability databases are current.
+The verification playbook confirms that Trivy is healthy, enabled as the default scanner, and supports vulnerability scanning. It does not execute an artifact scan or prove that vulnerability databases are current.
 
-### Lifecycle and Reconfiguration
+### Lifecycle and reconfiguration
 
 Run lifecycle commands from the installer directory on the Harbor VM:
 
@@ -978,11 +974,11 @@ sudo docker compose start
 sudo systemctl status lego-renew.timer
 ```
 
-Use `docker compose stop` and `docker compose start` only for temporary operational stops. Make persistent configuration changes in the Ansible role or inventory and rerun `ansible-playbook harbor.yaml`; do not edit `/opt/harbor/harbor.yml` directly because Ansible overwrites it. The role follows Harbor's [reconfiguration lifecycle](https://goharbor.io/docs/2.15.0/install-config/reconfigure-manage-lifecycle/) by regenerating the Compose project when managed configuration changes.
+Use `docker compose stop` and `docker compose start` only for temporary shutdowns. Make persistent configuration changes in the Ansible role or inventory and rerun `ansible-playbook harbor.yaml`; do not edit `/opt/harbor/harbor.yml` directly because Ansible overwrites it. The role follows Harbor's [reconfiguration lifecycle](https://goharbor.io/docs/2.15.0/install-config/reconfigure-manage-lifecycle/) by regenerating the Compose project when managed configuration changes.
 
 Run `ansible-playbook verify-harbor.yaml` after configuration changes. Do not print `/opt/harbor/harbor.yml` or generated files under `/opt/harbor/common/config` because they contain database and object-storage credentials. Do not run `docker compose down -v`, delete `/var/lib/harbor`, or remove the SeaweedFS bucket as routine troubleshooting steps.
 
-### Upgrade Procedure
+### Upgrade procedure
 
 Do not change `harbor_version` as a routine package bump. Follow the upgrade guide for the target release. The [Harbor 2.15 upgrade guide](https://goharbor.io/docs/2.15.0/administration/upgrade/) supports migration from 2.12 or later. Before an upgrade:
 
@@ -990,21 +986,22 @@ Do not change `harbor_version` as a routine package bump. Follow the upgrade gui
 2. Take and validate a consistent PostgreSQL backup.
 3. Back up or snapshot the `homelab-harbor` SeaweedFS bucket.
 4. Preserve `/opt/harbor/harbor.yml`, `/var/lib/harbor`, `/etc/harbor`, and `/var/lib/lego` for rollback.
-5. Update the pinned installer version and checksum together, migrate the configuration as required by Harbor, deploy, and run `ansible-playbook verify-harbor.yaml`.
+5. Update the pinned installer version and checksum together. Also update the supported-version assertion in `roles/harbor/tasks/validate.yaml`, the expected version in `verify-harbor.yaml`, and the version expectation in `roles/harbor/tests/render-config.yml`.
+6. Migrate the configuration as required by Harbor, run the role test, deploy, and run `ansible-playbook verify-harbor.yaml`.
 
 Harbor core performs database schema migration when the new release starts. Do not proceed without a rollback point for both PostgreSQL metadata and SeaweedFS registry blobs; neither copy is a complete Harbor backup by itself.
 
 The [Harbor 2.15.2 release](https://github.com/goharbor/harbor/releases/tag/v2.15.2) upgrades the bundled PostgreSQL database from version 15 to 18. That migration does not apply here because Harbor uses the separately managed PostgreSQL 18 service.
 
-## Gitea Operations
+## Gitea operations
 
-### First Login
+### First login
 
 Open `https://gitea.lab.canhdinh.com/` and sign in as `gitea-admin`. The initial password is stored in the SOPS key `gitea_admin_password`; Gitea requires an immediate password change on first login.
 
 User registration is enabled, and new accounts must confirm their email address through the configured Brevo transactional mail service.
 
-### Health Checks
+### Health checks
 
 Run these commands on the Gitea host:
 
@@ -1015,7 +1012,7 @@ sudo -u git /usr/local/bin/gitea doctor check --default --config /etc/gitea/app.
 sudo systemctl status lego-renew.timer
 ```
 
-### Object Storage
+### Object storage
 
 Gitea uses the local SeaweedFS S3-compatible API as its object-storage backend. It stores LFS objects, user and repository avatars, attachments, repository archives, packages, Actions logs, and Actions artifacts in the `homelab-gitea` bucket. Git repository object data remains under `/var/lib/gitea` on the Gitea host.
 
@@ -1023,7 +1020,7 @@ SeaweedFS grants Gitea a bucket-scoped identity with read, list, tagging, and wr
 
 Run `ansible-playbook verify-gitea.yaml` after storage configuration changes. Do not inspect `/etc/gitea/app.ini` in shared or recorded terminals because it contains object-storage credentials.
 
-The migration from Backblaze to SeaweedFS was manually verified on 2026-09-12. The write-frozen comparison found two matching objects totaling 4,887 bytes, with no content differences at that time. Confirm the former Backblaze bucket still exists and remains suitable before treating it as a rollback source.
+The migration from Backblaze to SeaweedFS was manually verified on 2026-09-12. A comparison performed while writes were frozen found two matching objects totaling 4,887 bytes and no content differences. Confirm the former Backblaze bucket still exists and remains suitable before treating it as a rollback source.
 
 Changing storage providers requires data migration as well as configuration deployment:
 
@@ -1034,9 +1031,9 @@ Changing storage providers requires data migration as well as configuration depl
 5. Run `ansible-playbook verify-gitea.yaml` and test existing object-backed content through Gitea.
 6. Retain the source bucket for a rollback period.
 
-To roll back during that period, stop Gitea, sync the final SeaweedFS delta back to Backblaze, and verify object count, byte total, and contents before changing the inventory. Restore `gitea_s3_endpoint` to `s3.us-west-004.backblazeb2.com`, `gitea_s3_region` to `us-west-004`, and `gitea_s3_bucket_lookup_type` to `auto`; then run `ansible-playbook gitea.yaml --limit gitea` and `ansible-playbook verify-gitea.yaml`. Do not switch the endpoint before the reverse sync passes.
+To roll back during that period, stop Gitea and sync the final SeaweedFS delta back to Backblaze. Verify the object count, byte total, and contents before changing the inventory. Restore `gitea_s3_endpoint` to `s3.us-west-004.backblazeb2.com`, `gitea_s3_region` to `us-west-004`, and `gitea_s3_bucket_lookup_type` to `auto`. Then run `ansible-playbook gitea.yaml --limit gitea` and `ansible-playbook verify-gitea.yaml`. Do not switch the endpoint before the reverse sync passes.
 
-### Upgrade Procedure
+### Upgrade procedure
 
 Stop Gitea and take a consistent backup before changing `gitea_version`:
 
@@ -1044,11 +1041,11 @@ Stop Gitea and take a consistent backup before changing `gitea_version`:
 sudo systemctl stop gitea.service
 ```
 
-Do not upgrade until the repository and generated-state backup limitation below is acceptable.
+Do not upgrade until you accept the repository and generated-state backup limitation described under [Backup coverage](#backup-coverage). A Gitea upgrade also requires updating the supported-version assertion in `roles/gitea/tasks/validate.yaml`, the expected version in `verify-gitea.yaml`, and the version expectations in `roles/gitea/tests/render-config.yml`. Then run the role test, deployment, and verification playbook.
 
-## PostgreSQL Operations
+## PostgreSQL operations
 
-### Backup and Health Checks
+### Backup and health checks
 
 Run these commands on the PostgreSQL host:
 
@@ -1058,7 +1055,7 @@ sudo -u postgres pgbackrest --stanza=main info
 sudo -u postgres pgbackrest --stanza=main check
 ```
 
-## Backup Coverage
+## Backup coverage
 
 | Data | Coverage |
 | --- | --- |
@@ -1070,9 +1067,9 @@ sudo -u postgres pgbackrest --stanza=main check
 | Uptime Kuma SQLite state | Validated gzip backups under `/var/backups/uptime-kuma/`; newest 14 retained by count; no off-host replication |
 
 > [!WARNING]
-> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. SeaweedFS object storage, including Harbor registry blobs, requires off-host replication or backup before the Backblaze rollback copy is retired.
+> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. SeaweedFS object storage has no off-host backup. Add off-host protection for Harbor registry blobs and Gitea objects before retiring the former Backblaze rollback copy.
 
-## PostgreSQL Point-in-Time Restore
+## PostgreSQL point-in-time restore
 
 > [!CAUTION]
 > This procedure is destructive and can permanently discard current data. Confirm the backup timeline and target before moving the current data directory.
