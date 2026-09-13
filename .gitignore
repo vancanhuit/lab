@@ -1,4 +1,5 @@
 .ruff_cache/
+.ansible/
 __pycache__/
 *.py[cod]
 # CocoIndex Code (ccc)

@@ -36,26 +36,57 @@ ansible-playbook gitea-runner.yaml
 
 The playbook obtains the global registration token directly from Gitea as the `git` account, passes it only during first registration, and removes the temporary token file. The persistent `/var/lib/gitea-runner/.runner` file contains the runner identity and API credentials and is restricted to mode `0600`.
 
-The deployment installs Gitea Runner 3.3.0, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities. Language runtimes are intentionally not installed until a workflow requires a specific version.
+The deployment installs Gitea Runner 3.3.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
 
 ## Use the runner
 
 Enable Actions in each existing repository that should run workflows. New repositories include the Actions unit by default. Add workflow files under `.gitea/workflows/` and select the host runner explicitly:
 
 ```yaml
-name: Verify
-on: [push]
+name: Runner smoke test
+
+on:
+  push:
+  workflow_dispatch:
 
 jobs:
-  verify:
+  smoke:
     runs-on: debian-amd64
     steps:
-      - uses: actions/checkout@v4
-      - run: git --version
-      - run: docker version
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Verify checkout
+        run: test -f .gitea/workflows/smoke.yml
+      - name: Verify host runner
+        run: |
+          test "$(id -un)" = gitea-runner
+          git --version
+          docker version
+      - name: Verify Harbor Docker Hub proxy
+        run: docker run --rm harbor.lab.canhdinh.com/dockerhub/library/hello-world:latest
 ```
 
 Do not use `ubuntu-latest` as an alias for this runner. The explicit `debian-amd64:host` registration label prevents workflows written for disposable GitHub-hosted runners from accidentally executing on the persistent VM.
+
+The runner includes Node.js 24 LTS for JavaScript actions. A successful `actions/checkout@v7` step downloads the action, fetches the repository from Gitea, and checks out the workflow commit:
+
+![Successful actions checkout v7 workflow step](images/gitea/actions-checkout-v7.webp)
+
+The repository Actions page lists workflow runs and their result, trigger, branch, commit, and duration:
+
+![Successful Gitea Actions runs](images/gitea/actions-runs.webp)
+
+## Smoke test
+
+The `actions-runner-smoke-test` repository verifies host execution, Docker access, and the Harbor Docker Hub proxy cache. Its workflow runs this image through the proxy project:
+
+```sh
+docker run --rm harbor.lab.canhdinh.com/dockerhub/library/hello-world:latest
+```
+
+Open a run and expand a step to inspect its logs. A successful proxy test shows the image pulled from `harbor.lab.canhdinh.com/dockerhub` and the `Hello from Docker!` output:
+
+![Successful Harbor proxy cache workflow step](images/gitea/actions-harbor-proxy.webp)
 
 ## Operations
 

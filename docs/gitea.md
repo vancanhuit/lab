@@ -6,6 +6,12 @@ Open `https://gitea.lab.canhdinh.com/` and sign in as `gitea-admin`. The initial
 
 User registration is enabled, and new accounts must confirm their email address through the configured Brevo transactional mail service.
 
+## Repository interface
+
+Repositories expose source browsing, issues, pull requests, Actions, packages, projects, releases, and other enabled units from the repository navigation bar.
+
+![Gitea repository overview](images/gitea/repository-overview.webp)
+
 ## Health checks
 
 Run these commands on the Gitea host:

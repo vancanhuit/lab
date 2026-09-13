@@ -5,6 +5,7 @@
   vars:
     gitea_runner_binary_path: /usr/local/bin/gitea-runner
     gitea_runner_expected_version: "3.3.0"
+    gitea_runner_expected_node_version: "v24.21.0"
     gitea_runner_user: gitea-runner
     gitea_runner_registration_path: /var/lib/gitea-runner/.runner
     gitea_runner_docker_mount: /var/lib/docker
@@ -15,6 +16,13 @@
       register: gitea_runner_version_check
       changed_when: false
       failed_when: gitea_runner_expected_version not in gitea_runner_version_check.stdout
+
+    - name: Check Node.js version
+      ansible.builtin.command:
+        cmd: node --version
+      register: gitea_runner_node_version_check
+      changed_when: false
+      failed_when: gitea_runner_node_version_check.stdout != gitea_runner_expected_node_version
 
     - name: Gather service facts
       ansible.builtin.service_facts:

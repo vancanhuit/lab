@@ -161,6 +161,41 @@
     signed_by: /etc/apt/keyrings/docker.asc
     state: present
 
+- name: Install NodeSource repository signing key
+  ansible.builtin.get_url:
+    url: "{{ gitea_runner_nodesource_key_url }}"
+    dest: /etc/apt/keyrings/nodesource-repo.gpg.key
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read NodeSource repository key fingerprint
+  ansible.builtin.command:
+    cmd: gpg --batch --show-keys --with-colons /etc/apt/keyrings/nodesource-repo.gpg.key
+  register: gitea_runner_nodesource_key_check
+  changed_when: false
+  failed_when: >-
+    'fpr:::::::::' ~ gitea_runner_nodesource_key_fingerprint ~ ':'
+    not in gitea_runner_nodesource_key_check.stdout
+
+- name: Configure NodeSource Node.js repository
+  ansible.builtin.deb822_repository:
+    name: nodesource
+    types: [deb]
+    uris: ["https://deb.nodesource.com/node_{{ gitea_runner_node_major }}.x"]
+    suites: [nodistro]
+    components: [main]
+    architectures: [amd64]
+    signed_by: /etc/apt/keyrings/nodesource-repo.gpg.key
+    state: present
+  register: gitea_runner_nodesource_repository
+
+- name: Install pinned Node.js 24 LTS
+  ansible.builtin.apt:
+    name: "nodejs={{ gitea_runner_node_version }}-1nodesource1"
+    state: present
+    update_cache: "{{ gitea_runner_nodesource_repository.changed }}"
+
 - name: Create Docker configuration directory
   ansible.builtin.file:
     path: /etc/docker

@@ -14,6 +14,10 @@ gitea_runner_instance_url: https://gitea.lab.canhdinh.com/
 gitea_runner_name: gitea-runner
 gitea_runner_labels:
   - debian-amd64:host
+gitea_runner_node_major: 24
+gitea_runner_node_version: "24.21.0"
+gitea_runner_nodesource_key_url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+gitea_runner_nodesource_key_fingerprint: 6F71F525282841EEDAF851B42F59B5F99B1BE0B4
 gitea_runner_docker_device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_incus_data
 gitea_runner_docker_mount: /var/lib/docker
 gitea_runner_packages:
@@ -23,6 +27,7 @@ gitea_runner_packages:
   - curl
   - git
   - git-lfs
+  - gnupg
   - jq
   - openssh-client
   - rsync

@@ -12,6 +12,8 @@
       - gitea_runner_checksum is match('^sha256:[0-9a-f]{64}$')
       - gitea_runner_instance_url == 'https://gitea.lab.canhdinh.com/'
       - gitea_runner_labels == ['debian-amd64:host']
+      - gitea_runner_node_major | int == 24
+      - gitea_runner_node_version == '24.21.0'
       - gitea_runner_docker_device is match('^/dev/disk/by-id/')
       - gitea_runner_docker_mount == '/var/lib/docker'
     fail_msg: Gitea Runner requires the approved Debian 13 amd64 VM, registration, label, and dedicated Docker disk
