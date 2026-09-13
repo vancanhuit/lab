@@ -1,0 +1,26 @@
+log:
+  level: info
+runner:
+  file: {{ gitea_runner_registration_path | to_json }}
+  capacity: 1
+  timeout: 3h
+  shutdown_timeout: 3h
+  labels: {{ gitea_runner_labels | to_json }}
+  workdir_cleanup_age: 24h
+  idle_cleanup_interval: 10m
+cache:
+  enabled: true
+  dir: {{ (gitea_runner_home ~ '/cache') | to_json }}
+container:
+  privileged: false
+  valid_volumes: []
+  require_docker: true
+host:
+  workdir_parent: {{ (gitea_runner_home ~ '/work') | to_json }}
+health_check:
+  enabled: true
+  min_free_disk_space_mb: 2048
+metrics:
+  enabled: true
+  addr: 127.0.0.1:9101
+  readiness_grace: 30s

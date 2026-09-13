@@ -59,6 +59,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--storage-path", help="Absolute mount path inside the instance"
     )
+    parser.add_argument(
+        "--storage-type",
+        choices=("filesystem", "block"),
+        default="filesystem",
+        help="Content type for the separate custom volume",
+    )
 
     return parser.parse_args()
 
@@ -123,9 +129,24 @@ def get_network_config(bridge: str) -> dict:
 def main() -> int:
     args = parse_args()
     storage_options = (args.storage_pool, args.storage_size, args.storage_path)
-    if any(storage_options) and not all(storage_options):
+    if (
+        args.storage_type == "filesystem"
+        and any(storage_options)
+        and not all(storage_options)
+    ):
         print(
             "--storage-pool, --storage-size, and --storage-path must be used together",
+            file=sys.stderr,
+        )
+        return 2
+    if args.storage_type == "block" and (
+        not args.vm
+        or not args.storage_pool
+        or not args.storage_size
+        or args.storage_path
+    ):
+        print(
+            "block storage requires --vm, --storage-pool, and --storage-size, and does not accept --storage-path",
             file=sys.stderr,
         )
         return 2
@@ -150,7 +171,7 @@ def main() -> int:
 
     print(f"Instance '{args.name}' created successfully")
 
-    if all(storage_options):
+    if args.storage_pool:
         volume_name = f"{args.name}-data"
         volume = subprocess.run(
             ["incus", "storage", "volume", "show", args.storage_pool, volume_name],
@@ -158,6 +179,14 @@ def main() -> int:
             text=True,
         )
         if volume.returncode == 0:
+            current_type = yaml.safe_load(volume.stdout).get("content_type")
+            if current_type != args.storage_type:
+                print(
+                    f"Existing volume '{volume_name}' has content type '{current_type}', expected '{args.storage_type}'",
+                    file=sys.stderr,
+                )
+                subprocess.run(["incus", "delete", args.name], check=True)
+                return 2
             current_size = subprocess.run(
                 [
                     "incus",
@@ -181,33 +210,32 @@ def main() -> int:
                 return 2
             print(f"Reusing existing storage volume '{volume_name}'")
         else:
-            subprocess.run(
-                [
-                    "incus",
-                    "storage",
-                    "volume",
-                    "create",
-                    args.storage_pool,
-                    volume_name,
-                    f"size={args.storage_size}",
-                ],
-                check=True,
-            )
-        subprocess.run(
-            [
+            create_volume = [
                 "incus",
-                "config",
-                "device",
-                "add",
-                args.name,
-                "data",
-                "disk",
-                f"pool={args.storage_pool}",
-                f"source={volume_name}",
-                f"path={args.storage_path}",
-            ],
-            check=True,
-        )
+                "storage",
+                "volume",
+                "create",
+                args.storage_pool,
+                volume_name,
+                f"size={args.storage_size}",
+            ]
+            if args.storage_type == "block":
+                create_volume.append("--type=block")
+            subprocess.run(create_volume, check=True)
+        device = [
+            "incus",
+            "config",
+            "device",
+            "add",
+            args.name,
+            "data",
+            "disk",
+            f"pool={args.storage_pool}",
+            f"source={volume_name}",
+        ]
+        if args.storage_type == "filesystem":
+            device.append(f"path={args.storage_path}")
+        subprocess.run(device, check=True)
 
     if args.dhcp:
         print("DHCP is enabled, skipping static IP configuration")

@@ -1,0 +1,373 @@
+---
+- name: Import Gitea Runner validation tasks
+  ansible.builtin.import_tasks: validate.yaml
+
+- name: Check the dedicated Docker block device
+  ansible.builtin.stat:
+    path: "{{ gitea_runner_docker_device }}"
+  register: gitea_runner_docker_device_stat
+
+- name: Require the dedicated Docker block device
+  ansible.builtin.assert:
+    that:
+      - gitea_runner_docker_device_stat.stat.exists
+      - gitea_runner_docker_device_stat.stat.islnk
+    fail_msg: "Dedicated Docker device {{ gitea_runner_docker_device }} is missing"
+
+- name: Resolve the dedicated Docker block device
+  ansible.builtin.command:
+    argv:
+      - readlink
+      - -f
+      - "{{ gitea_runner_docker_device }}"
+  register: gitea_runner_docker_device_realpath
+  changed_when: false
+
+- name: Check the dedicated Docker device type
+  ansible.builtin.command:
+    argv:
+      - lsblk
+      - --noheadings
+      - --nodeps
+      - --output
+      - TYPE
+      - "{{ gitea_runner_docker_device_realpath.stdout }}"
+  register: gitea_runner_docker_device_type
+  changed_when: false
+
+- name: Check the dedicated Docker device filesystem
+  ansible.builtin.command:
+    argv:
+      - blkid
+      - --output
+      - value
+      - --match-tag
+      - TYPE
+      - "{{ gitea_runner_docker_device_realpath.stdout }}"
+  register: gitea_runner_docker_filesystem
+  changed_when: false
+  failed_when: gitea_runner_docker_filesystem.rc not in [0, 2]
+
+- name: Check the dedicated Docker device mount target
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --raw
+      - --source
+      - "{{ gitea_runner_docker_device_realpath.stdout }}"
+      - --output
+      - TARGET
+  register: gitea_runner_docker_existing_mount
+  changed_when: false
+  failed_when: gitea_runner_docker_existing_mount.rc not in [0, 1]
+
+- name: Validate the dedicated Docker device state
+  ansible.builtin.assert:
+    that:
+      - gitea_runner_docker_device_type.stdout | trim == 'disk'
+      - gitea_runner_docker_filesystem.stdout | trim in ['', 'ext4']
+      - gitea_runner_docker_existing_mount.stdout | trim in ['', gitea_runner_docker_mount]
+    fail_msg: The Docker device must be a dedicated unformatted or ext4 disk mounted only at /var/lib/docker
+
+- name: Create Docker mount point
+  ansible.builtin.file:
+    path: "{{ gitea_runner_docker_mount }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0711'
+  when: gitea_runner_docker_existing_mount.stdout | trim == ''
+
+- name: Check the unmounted Docker directory is empty
+  ansible.builtin.command:
+    argv:
+      - find
+      - "{{ gitea_runner_docker_mount }}"
+      - -mindepth
+      - '1'
+      - -maxdepth
+      - '1'
+      - -print
+      - -quit
+  register: gitea_runner_docker_mount_contents
+  changed_when: false
+  when: gitea_runner_docker_existing_mount.stdout | trim == ''
+
+- name: Refuse to hide existing Docker data
+  ansible.builtin.assert:
+    that:
+      - gitea_runner_docker_mount_contents.stdout == ''
+    fail_msg: "{{ gitea_runner_docker_mount }} must be empty before mounting the dedicated disk"
+  when: gitea_runner_docker_existing_mount.stdout | trim == ''
+
+- name: Create the Docker ext4 filesystem
+  community.general.filesystem:
+    dev: "{{ gitea_runner_docker_device_realpath.stdout }}"
+    fstype: ext4
+  when: gitea_runner_docker_filesystem.stdout | trim == ''
+
+- name: Read the Docker filesystem UUID
+  ansible.builtin.command:
+    argv:
+      - blkid
+      - --output
+      - value
+      - --match-tag
+      - UUID
+      - "{{ gitea_runner_docker_device_realpath.stdout }}"
+  register: gitea_runner_docker_uuid
+  changed_when: false
+
+- name: Mount the dedicated Docker filesystem
+  ansible.posix.mount:
+    path: "{{ gitea_runner_docker_mount }}"
+    src: "UUID={{ gitea_runner_docker_uuid.stdout }}"
+    fstype: ext4
+    opts: defaults
+    state: mounted
+
+- name: Install Docker repository prerequisites and runner tools
+  ansible.builtin.apt:
+    name: "{{ ['acl'] + gitea_runner_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create APT keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Install Docker repository signing key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/debian/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Configure Docker repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: [deb]
+    uris: [https://download.docker.com/linux/debian]
+    suites: ["{{ ansible_facts.distribution_release }}"]
+    components: [stable]
+    architectures: [amd64]
+    signed_by: /etc/apt/keyrings/docker.asc
+    state: present
+
+- name: Create Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Create containerd configuration directory
+  ansible.builtin.file:
+    path: /etc/containerd
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure Docker log rotation
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Docker
+
+- name: Configure containerd data on the Docker filesystem
+  ansible.builtin.template:
+    src: containerd.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart containerd
+
+- name: Install Docker Engine and plugins
+  ansible.builtin.apt:
+    name:
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Create Gitea Runner system group
+  ansible.builtin.group:
+    name: "{{ gitea_runner_group }}"
+    system: true
+    state: present
+
+- name: Create Gitea Runner system user
+  ansible.builtin.user:
+    name: "{{ gitea_runner_user }}"
+    group: "{{ gitea_runner_group }}"
+    groups: [docker]
+    append: true
+    home: "{{ gitea_runner_home }}"
+    create_home: true
+    shell: /usr/sbin/nologin
+    system: true
+    state: present
+
+- name: Create Gitea Runner directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ gitea_runner_home }}"
+      owner: "{{ gitea_runner_user }}"
+      group: "{{ gitea_runner_group }}"
+      mode: '0750'
+    - path: "{{ gitea_runner_home }}/cache"
+      owner: "{{ gitea_runner_user }}"
+      group: "{{ gitea_runner_group }}"
+      mode: '0750'
+    - path: "{{ gitea_runner_home }}/work"
+      owner: "{{ gitea_runner_user }}"
+      group: "{{ gitea_runner_group }}"
+      mode: '0750'
+    - path: "{{ gitea_runner_config_directory }}"
+      owner: root
+      group: "{{ gitea_runner_group }}"
+      mode: '0750'
+
+- name: Download verified Gitea Runner binary
+  ansible.builtin.get_url:
+    url: "{{ gitea_runner_download_url }}"
+    dest: "{{ gitea_runner_binary_path }}"
+    checksum: "{{ gitea_runner_checksum }}"
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart Gitea Runner
+
+- name: Render Gitea Runner configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ gitea_runner_config_path }}"
+    owner: root
+    group: "{{ gitea_runner_group }}"
+    mode: '0640'
+  notify: Restart Gitea Runner
+
+- name: Check Gitea Runner registration
+  ansible.builtin.stat:
+    path: "{{ gitea_runner_registration_path }}"
+  register: gitea_runner_registration
+
+- name: Register Gitea Runner
+  when: not gitea_runner_registration.stat.exists
+  block:
+    - name: Generate instance runner registration token
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/gitea
+          - --config
+          - /etc/gitea/app.ini
+          - actions
+          - generate-runner-token
+      become: true
+      become_user: git
+      environment:
+        USER: git
+        HOME: /home/git
+        GITEA_WORK_DIR: /var/lib/gitea
+      delegate_to: gitea
+      register: gitea_runner_token
+      changed_when: false
+      no_log: true
+
+    - name: Create temporary registration token file
+      ansible.builtin.tempfile:
+        state: file
+        suffix: .gitea-runner-token
+      register: gitea_runner_token_file
+      no_log: true
+
+    - name: Write registration token
+      ansible.builtin.copy:
+        content: "{{ gitea_runner_token.stdout | trim }}\n"
+        dest: "{{ gitea_runner_token_file.path }}"
+        owner: "{{ gitea_runner_user }}"
+        group: "{{ gitea_runner_group }}"
+        mode: '0600'
+      no_log: true
+
+    - name: Register runner with the Gitea instance
+      ansible.builtin.command:
+        argv:
+          - "{{ gitea_runner_binary_path }}"
+          - --config
+          - "{{ gitea_runner_config_path }}"
+          - register
+          - --no-interactive
+          - --instance
+          - "{{ gitea_runner_instance_url }}"
+          - --token-file
+          - "{{ gitea_runner_token_file.path }}"
+          - --name
+          - "{{ gitea_runner_name }}"
+      args:
+        chdir: "{{ gitea_runner_home }}"
+      become: true
+      become_user: "{{ gitea_runner_user }}"
+      environment:
+        HOME: "{{ gitea_runner_home }}"
+      changed_when: true
+      no_log: true
+  always:
+    - name: Remove temporary registration token file
+      ansible.builtin.file:
+        path: "{{ gitea_runner_token_file.path | default('/nonexistent') }}"
+        state: absent
+      no_log: true
+
+- name: Protect Gitea Runner registration state
+  ansible.builtin.file:
+    path: "{{ gitea_runner_registration_path }}"
+    owner: "{{ gitea_runner_user }}"
+    group: "{{ gitea_runner_group }}"
+    mode: '0600'
+
+- name: Render Gitea Runner systemd service
+  ansible.builtin.template:
+    src: gitea-runner.service.j2
+    dest: /etc/systemd/system/gitea-runner.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd daemon
+    - Restart Gitea Runner
+
+- name: Flush Gitea Runner handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start Docker and Gitea Runner services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - containerd.service
+    - docker.service
+    - gitea-runner.service

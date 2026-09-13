@@ -1,0 +1,67 @@
+---
+- name: Validate Gitea Runner role contract
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_facts:
+      distribution: Debian
+      distribution_major_version: '13'
+      distribution_release: trixie
+      architecture: x86_64
+      virtualization_role: guest
+      processor_vcpus: 2
+      memtotal_mb: 3900
+  tasks:
+    - name: Load Gitea Runner role defaults
+      ansible.builtin.include_vars:
+        file: "{{ (playbook_dir | dirname) ~ '/defaults/main.yaml' }}"
+
+    - name: Run Gitea Runner validation
+      ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+    - name: Create template output directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: gitea_runner_test_dir
+
+    - name: Render Gitea Runner templates
+      ansible.builtin.template:
+        src: "{{ (playbook_dir | dirname) ~ '/templates/' ~ item }}"
+        dest: "{{ gitea_runner_test_dir.path }}/{{ item }}"
+        mode: '0600'
+      loop:
+        - config.yaml.j2
+        - containerd.toml.j2
+        - daemon.json.j2
+        - gitea-runner.service.j2
+
+    - name: Read rendered Gitea Runner templates
+      ansible.builtin.slurp:
+        src: "{{ gitea_runner_test_dir.path }}/{{ item }}"
+      loop:
+        - config.yaml.j2
+        - containerd.toml.j2
+        - daemon.json.j2
+        - gitea-runner.service.j2
+      register: gitea_runner_rendered_files
+
+    - name: Assert Gitea Runner configuration invariants
+      ansible.builtin.assert:
+        that:
+          - (gitea_runner_rendered_files.results[0].content | b64decode | from_yaml).runner.labels == ['debian-amd64:host']
+          - (gitea_runner_rendered_files.results[0].content | b64decode | from_yaml).runner.capacity == 1
+          - (gitea_runner_rendered_files.results[0].content | b64decode | from_yaml).container.require_docker
+          - not (gitea_runner_rendered_files.results[0].content | b64decode | from_yaml).container.privileged
+          - (gitea_runner_rendered_files.results[0].content | b64decode | from_yaml).metrics.addr == '127.0.0.1:9101'
+          - (gitea_runner_rendered_files.results[1].content | b64decode) is search('root = "/var/lib/docker/containerd"')
+          - (gitea_runner_rendered_files.results[2].content | b64decode | from_json)['log-driver'] == 'local'
+          - (gitea_runner_rendered_files.results[3].content | b64decode) is search('User=gitea-runner')
+          - (gitea_runner_rendered_files.results[3].content | b64decode) is search('SupplementaryGroups=docker')
+          - (gitea_runner_rendered_files.results[3].content | b64decode) is search('RequiresMountsFor=/var/lib/docker')
+          - (gitea_runner_rendered_files.results[3].content | b64decode) is search('TimeoutStopSec=3h')
+
+    - name: Remove template output directory
+      ansible.builtin.file:
+        path: "{{ gitea_runner_test_dir.path }}"
+        state: absent

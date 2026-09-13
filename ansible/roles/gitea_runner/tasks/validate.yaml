@@ -1,0 +1,19 @@
+---
+- name: Validate Gitea Runner deployment inputs
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - ansible_facts.virtualization_role == 'guest'
+      - ansible_facts.processor_vcpus | int >= 2
+      - ansible_facts.memtotal_mb | int >= 3800
+      - gitea_runner_version == '3.3.0'
+      - gitea_runner_checksum is match('^sha256:[0-9a-f]{64}$')
+      - gitea_runner_instance_url == 'https://gitea.lab.canhdinh.com/'
+      - gitea_runner_labels == ['debian-amd64:host']
+      - gitea_runner_docker_device is match('^/dev/disk/by-id/')
+      - gitea_runner_docker_mount == '/var/lib/docker'
+    fail_msg: Gitea Runner requires the approved Debian 13 amd64 VM, registration, label, and dedicated Docker disk
+    quiet: true
+  no_log: true

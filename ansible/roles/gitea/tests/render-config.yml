@@ -154,6 +154,8 @@
           - gitea_app_ini_rendered is search('SHOW_REGISTRATION_BUTTON = true')
           - gitea_app_ini_rendered is search('REGISTER_EMAIL_CONFIRM = true')
           - gitea_app_ini_rendered is search('REQUIRE_SIGNIN_VIEW = true')
+          - gitea_app_ini_rendered is search('\\[actions\\]')
+          - gitea_app_ini_rendered is search('ENABLED = true')
           - gitea_app_ini_rendered is search('MODE = console')
           - gitea_app_ini_rendered is search('\[oauth2\]')
           - gitea_app_ini_rendered is search('JWT_SECRET = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"')

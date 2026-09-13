@@ -1,0 +1,19 @@
+---
+- name: Reload systemd daemon
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart containerd
+  ansible.builtin.systemd_service:
+    name: containerd.service
+    state: restarted
+
+- name: Restart Docker
+  ansible.builtin.systemd_service:
+    name: docker.service
+    state: restarted
+
+- name: Restart Gitea Runner
+  ansible.builtin.systemd_service:
+    name: gitea-runner.service
+    state: restarted

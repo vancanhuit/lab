@@ -61,6 +61,8 @@
         - harbor_admin_password
         - harbor_s3_access_key
         - harbor_s3_secret_key
+      gitea_runner:
+        - cloudflare_api_token
       debian-incus: []
   tasks:
     - name: Assert each secret is visible only to its owners

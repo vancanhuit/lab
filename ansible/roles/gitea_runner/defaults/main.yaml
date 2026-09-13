@@ -1,0 +1,33 @@
+---
+gitea_runner_version: "3.3.0"
+gitea_runner_checksum: sha256:1e65d199de326d133f7012aee36f1dd6fefa9447f2092ef20be0369032c1a65e
+gitea_runner_download_url: >-
+  https://dl.gitea.com/gitea-runner/{{ gitea_runner_version }}/gitea-runner-{{ gitea_runner_version }}-linux-amd64
+gitea_runner_user: gitea-runner
+gitea_runner_group: gitea-runner
+gitea_runner_home: /var/lib/gitea-runner
+gitea_runner_config_directory: /etc/gitea-runner
+gitea_runner_config_path: /etc/gitea-runner/config.yaml
+gitea_runner_binary_path: /usr/local/bin/gitea-runner
+gitea_runner_registration_path: /var/lib/gitea-runner/.runner
+gitea_runner_instance_url: https://gitea.lab.canhdinh.com/
+gitea_runner_name: gitea-runner
+gitea_runner_labels:
+  - debian-amd64:host
+gitea_runner_docker_device: /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_incus_data
+gitea_runner_docker_mount: /var/lib/docker
+gitea_runner_packages:
+  - bash
+  - build-essential
+  - ca-certificates
+  - curl
+  - git
+  - git-lfs
+  - jq
+  - openssh-client
+  - rsync
+  - tar
+  - unzip
+  - wget
+  - xz-utils
+  - zip

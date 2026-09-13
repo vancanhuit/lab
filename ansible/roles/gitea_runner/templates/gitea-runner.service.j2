@@ -1,0 +1,22 @@
+[Unit]
+Description=Gitea Actions runner
+Documentation=https://docs.gitea.com/runner/
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+RequiresMountsFor={{ gitea_runner_docker_mount }}
+
+[Service]
+Type=simple
+User={{ gitea_runner_user }}
+Group={{ gitea_runner_group }}
+SupplementaryGroups=docker
+WorkingDirectory={{ gitea_runner_home }}
+Environment=HOME={{ gitea_runner_home }}
+ExecStart={{ gitea_runner_binary_path }} daemon --config {{ gitea_runner_config_path }}
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=3h
+
+[Install]
+WantedBy=multi-user.target

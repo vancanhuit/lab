@@ -1,0 +1,87 @@
+---
+- name: Verify Gitea Actions runner
+  hosts: gitea_runner
+  become: true
+  vars:
+    gitea_runner_binary_path: /usr/local/bin/gitea-runner
+    gitea_runner_expected_version: "3.3.0"
+    gitea_runner_user: gitea-runner
+    gitea_runner_registration_path: /var/lib/gitea-runner/.runner
+    gitea_runner_docker_mount: /var/lib/docker
+  tasks:
+    - name: Check Gitea Runner version
+      ansible.builtin.command:
+        cmd: "{{ gitea_runner_binary_path }} --version"
+      register: gitea_runner_version_check
+      changed_when: false
+      failed_when: gitea_runner_expected_version not in gitea_runner_version_check.stdout
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert Docker and Gitea Runner services are running and enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services[item] is defined
+          - ansible_facts.services[item].state == 'running'
+          - ansible_facts.services[item].status == 'enabled'
+      loop:
+        - containerd.service
+        - docker.service
+        - gitea-runner.service
+
+    - name: Read Docker mount source
+      ansible.builtin.command:
+        argv:
+          - findmnt
+          - --noheadings
+          - --output
+          - SOURCE,FSTYPE
+          - "{{ gitea_runner_docker_mount }}"
+      register: gitea_runner_mount_check
+      changed_when: false
+
+    - name: Assert Docker uses its dedicated ext4 filesystem
+      ansible.builtin.assert:
+        that:
+          - gitea_runner_mount_check.stdout is search('ext4')
+          - gitea_runner_mount_check.stdout is not search('/dev/sda')
+
+    - name: Check registration file metadata
+      ansible.builtin.stat:
+        path: "{{ gitea_runner_registration_path }}"
+      register: gitea_runner_registration
+
+    - name: Assert registration state is protected
+      ansible.builtin.assert:
+        that:
+          - gitea_runner_registration.stat.exists
+          - gitea_runner_registration.stat.pw_name == gitea_runner_user
+          - gitea_runner_registration.stat.mode == '0600'
+
+    - name: Check Docker access as the runner account
+      ansible.builtin.command:
+        cmd: docker info --format '{{ '{{' }}json .ServerVersion{{ '}}' }}'
+      become: true
+      become_user: "{{ gitea_runner_user }}"
+      register: gitea_runner_docker_check
+      changed_when: false
+
+    - name: Check Gitea Runner health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:9101/readyz
+        status_code: 200
+      register: gitea_runner_health
+      changed_when: false
+
+    - name: Read Gitea Runner configuration
+      ansible.builtin.slurp:
+        path: /etc/gitea-runner/config.yaml
+      register: gitea_runner_config
+
+    - name: Assert host runner label and Docker requirements
+      ansible.builtin.assert:
+        that:
+          - (gitea_runner_config.content | b64decode | from_yaml).runner.labels == ['debian-amd64:host']
+          - (gitea_runner_config.content | b64decode | from_yaml).container.require_docker
+          - not (gitea_runner_config.content | b64decode | from_yaml).container.privileged

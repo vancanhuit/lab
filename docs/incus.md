@@ -153,7 +153,8 @@ Additional options include:
 - `--profile` adds an Incus profile and can be repeated; the `debian` profile is included by default.
 - `--vm` creates a virtual machine instead of a container.
 - `--incus-bridge` selects the bridge inspected for static address allocation; the applied profiles still determine which network the instance NIC uses.
-- `--storage-pool`, `--storage-size`, and `--storage-path` create or reuse, then attach a custom storage volume.
+- `--storage-pool`, `--storage-size`, and `--storage-path` create or reuse, then attach a custom filesystem volume.
+- `--storage-type block` creates a block volume for a VM. It requires `--vm`, `--storage-pool`, and `--storage-size`, and does not accept `--storage-path`.
 
 Create the SeaweedFS container with a dedicated 500 GiB ZFS-backed data volume:
 
@@ -165,6 +166,22 @@ uv run create-incus-instance.py s3 \
   --storage-path /var/lib/seaweedfs
 incus start s3
 ```
+
+Create the Gitea Actions runner VM with DHCP and a dedicated 100 GiB block volume for Docker:
+
+```sh
+uv run create-incus-instance.py gitea-runner \
+  --vm \
+  --dhcp \
+  --storage-pool pool1 \
+  --storage-size 100GiB \
+  --storage-type block
+incus config set gitea-runner limits.cpu=2 limits.memory=4GiB
+incus config device set gitea-runner root size=20GiB
+incus start gitea-runner
+```
+
+The block volume is named `gitea-runner-data` and attached as device `data`. Inside the VM, udev exposes it at `/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_incus_data`; the Gitea Runner role validates that identifier before creating an ext4 filesystem and mounting it at `/var/lib/docker`.
 
 The `debian` profile defaults to one CPU, 2 GiB of memory, and a 5 GiB root disk. Before deploying Harbor, provide at least two virtual CPUs, 3,800 MiB of reported memory, and a 40 GB root filesystem. Provisioning 4 GiB of memory and a 40 GiB disk safely exceeds those validation thresholds.
 

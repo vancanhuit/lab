@@ -107,7 +107,21 @@ ansible-playbook gitea.yaml
 
 The second deployment should report `changed=0` for both the Gitea and PostgreSQL hosts.
 
-## 6. Deploy Uptime Kuma
+## 6. Deploy the Gitea Actions runner
+
+Provision the dedicated VM and Docker block volume as described in [Gitea Actions runner](gitea-runner.md), then create a Technitium DHCP reservation and private A record for `gitea-runner.lab.canhdinh.com`.
+
+Deploy and verify the runner:
+
+```sh
+ansible-playbook gitea-runner.yaml
+ansible-playbook verify-gitea-runner.yaml
+ansible-playbook gitea-runner.yaml
+```
+
+The deployment obtains the instance registration token from the Gitea CLI without storing it in inventory. The second deployment should report `changed=0` for both `gitea` and `gitea_runner`.
+
+## 7. Deploy Uptime Kuma
 
 Uptime Kuma stores its state in a local SQLite database and has no PostgreSQL runtime dependency. The Kuma playbook deploys the native application behind Nginx with a lego-managed TLS certificate.
 

@@ -1,6 +1,6 @@
 # Homelab with Tailscale VPN
 
-This repository contains the Ansible configuration for a Debian 13 homelab running Incus, [Technitium DNS](https://technitium.com/dns/), [PostgreSQL](https://www.postgresql.org/docs/18/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs), [Harbor](https://goharbor.io/docs/2.15.0/), [Gitea](https://docs.gitea.com/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale virtual private network (VPN).
+This repository contains the Ansible configuration for a Debian 13 homelab running Incus, [Technitium DNS](https://technitium.com/dns/), [PostgreSQL](https://www.postgresql.org/docs/18/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs), [Harbor](https://goharbor.io/docs/2.15.0/), [Gitea](https://docs.gitea.com/), [Gitea Actions](https://docs.gitea.com/runner/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale virtual private network (VPN).
 
 ## Environment
 
@@ -32,4 +32,5 @@ Start with [Getting started](docs/getting-started.md), then follow the deploymen
 | [Uptime Kuma operations](docs/uptime-kuma.md) | Initial setup, monitoring, backup, restore, upgrade, and troubleshooting |
 | [Harbor operations](docs/harbor.md) | Registry use, vulnerability scanning, lifecycle, and upgrades |
 | [Gitea operations](docs/gitea.md) | Initial access, object storage, migration rollback, and upgrades |
+| [Gitea Actions runner](docs/gitea-runner.md) | Dedicated VM provisioning, deployment, workflows, and upgrades |
 | [Backups and PostgreSQL](docs/backups-and-postgresql.md) | Backup coverage, health checks, and point-in-time restore |
