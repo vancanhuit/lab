@@ -17,12 +17,12 @@
 - name: Assert pinned application and runtime versions
   ansible.builtin.assert:
     that:
-      - uptime_kuma_version == '2.5.3'
+      - uptime_kuma_version == '2.5.4'
       - uptime_kuma_release_commit is match('^[0-9a-f]{40}$')
-      - uptime_kuma_release_commit == '1f0755fb044fe08e99fccde6722062fb2bf6c8f4'
+      - uptime_kuma_release_commit == 'ed828eac9f5c7d46328f957854ad08545306b868'
       - uptime_kuma_node_major | int == 24
-      - uptime_kuma_node_version == '24.20.0'
-    fail_msg: This role is validated only for Uptime Kuma 2.5.3 on Node.js 24.20.0
+      - uptime_kuma_node_version == '24.21.0'
+    fail_msg: This role is validated only for Uptime Kuma 2.5.4 on Node.js 24.21.0
     quiet: true
 
 - name: Assert service identity
