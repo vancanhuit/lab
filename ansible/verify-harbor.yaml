@@ -129,7 +129,7 @@
         harbor_certificate.rc != 0 or
         'DNS:harbor.lab.canhdinh.com' not in harbor_certificate.stdout
 
-    - name: Verify Harbor can reach PostgreSQL over TLS
+    - name: Verify Harbor PostgreSQL TLS configuration and system CA bundle
       ansible.builtin.command:
         argv:
           - docker
@@ -137,7 +137,11 @@
           - harbor-core
           - /bin/sh
           - -c
-          - test -n "$POSTGRESQL_HOST" && test "$POSTGRESQL_SSLMODE" = require
+          - >-
+            test "$POSTGRESQL_HOST" = postgres.lab.canhdinh.com &&
+            test "$POSTGRESQL_SSLMODE" = verify-full &&
+            test -r /etc/pki/tls/certs/ca-bundle.crt &&
+            test -s /etc/pki/tls/certs/ca-bundle.crt
       changed_when: false
 
     - name: Verify Harbor registry uses S3 storage

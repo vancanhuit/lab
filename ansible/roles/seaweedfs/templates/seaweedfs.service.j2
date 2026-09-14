@@ -2,6 +2,8 @@
 Description=SeaweedFS single-node S3 service
 After=network-online.target
 Wants=network-online.target
+RequiresMountsFor={{ seaweedfs_data_directory }}
+AssertPathIsMountPoint={{ seaweedfs_data_directory }}
 
 [Service]
 Type=simple

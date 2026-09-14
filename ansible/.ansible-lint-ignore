@@ -1,0 +1,8 @@
+# SOPS ciphertext is generated and cannot be wrapped without corrupting it.
+group_vars/gitea_stack/secrets.sops.yaml yaml[line-length] skip
+group_vars/harbor_stack/secrets.sops.yaml yaml[line-length] skip
+group_vars/lab/secrets.sops.yaml yaml[line-length] skip
+host_vars/dns/secrets.sops.yaml yaml[line-length] skip
+host_vars/gitea/secrets.sops.yaml yaml[line-length] skip
+host_vars/harbor/secrets.sops.yaml yaml[line-length] skip
+host_vars/s3/secrets.sops.yaml yaml[line-length] skip

@@ -2,6 +2,9 @@
 - name: Import validation tasks
   ansible.builtin.import_tasks: validate.yaml
 
+- name: Require the SeaweedFS data mount before deployment
+  ansible.builtin.import_tasks: verify-mount.yaml
+
 - name: Install SeaweedFS runtime packages
   ansible.builtin.apt:
     name:
@@ -187,9 +190,14 @@
   changed_when: false
   register: seaweedfs_bucket_list
 
-- name: Create Harbor S3 bucket
+- name: Create application S3 buckets
   ansible.builtin.command:
     cmd: /usr/local/bin/weed shell
-    stdin: "s3.bucket.create -name {{ seaweedfs_harbor_bucket }} -owner harbor"
-  when: seaweedfs_bucket_list.stdout_lines | select('match', '^\s*' ~ seaweedfs_harbor_bucket ~ '\s') | length == 0
+    stdin: "s3.bucket.create -name {{ item.bucket }} -owner {{ item.owner }}"
+  loop:
+    - { bucket: "{{ seaweedfs_gitea_bucket }}", owner: gitea }
+    - { bucket: "{{ seaweedfs_harbor_bucket }}", owner: harbor }
+  loop_control:
+    label: "{{ item.bucket }}"
+  when: seaweedfs_bucket_list.stdout_lines | select('match', '^\s*' ~ (item.bucket | regex_escape) ~ '(\s|$)') | length == 0
   changed_when: true

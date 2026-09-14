@@ -60,7 +60,8 @@
         that:
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).hostname == 'harbor.lab.canhdinh.com'
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml)._version == '2.15.2'
-          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).external_database.harbor.ssl_mode == 'require'
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).external_database.harbor.host == 'postgres.lab.canhdinh.com'
+          - (harbor_rendered_files.results[0].content | b64decode | from_yaml).external_database.harbor.ssl_mode == 'verify-full'
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).storage_service.s3.forcepathstyle
           - (harbor_rendered_files.results[0].content | b64decode | from_yaml).storage_service.s3.bucket == 'homelab-harbor'
           - not (harbor_rendered_files.results[0].content | b64decode | from_yaml).trivy.ignore_unfixed

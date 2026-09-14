@@ -14,6 +14,19 @@ docker push harbor.lab.canhdinh.com/project/image:tag
 
 Assign users the narrowest suitable project role. See Harbor's [user and project role documentation](https://goharbor.io/docs/2.15.0/administration/managing-users/) for the Limited Guest, Guest, Developer, Maintainer, and Project Admin permissions.
 
+## PostgreSQL TLS
+
+Harbor connects to `postgres.lab.canhdinh.com` with `ssl_mode: verify-full`.
+The PostgreSQL server must present its lego-managed Let's Encrypt certificate
+before Harbor starts. Harbor 2.15.2 uses [pgx](https://github.com/goharbor/harbor/blob/v2.15.2/src/common/dao/pgsql.go)
+for database connections and migrations; its [TLS implementation](https://github.com/jackc/pgx/blob/v5.10.0/pgconn/config.go)
+verifies the certificate chain and hostname using system trust when no custom CA
+is configured. The Harbor core image provides its CA bundle at
+`/etc/pki/tls/certs/ca-bundle.crt`.
+
+`verify-harbor.yaml` checks the running core container's database hostname,
+`verify-full` setting, and readable, nonempty CA bundle alongside Harbor API health.
+
 ## Vulnerability scanning
 
 The bundled Trivy adapter is Harbor's enabled default scanner. It downloads vulnerability and Java databases from Aqua Security's OCI repositories and verifies registry certificates. The managed configuration scans for known vulnerabilities and includes vulnerabilities without an available fix.

@@ -30,7 +30,7 @@ external_database:
     db_name: {{ harbor_database_name }}
     username: {{ harbor_database_user }}
     password: {{ harbor_database_password | to_json }}
-    ssl_mode: require
+    ssl_mode: verify-full
     max_idle_conns: 2
     max_open_conns: 20
 

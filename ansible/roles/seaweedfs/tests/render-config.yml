@@ -30,6 +30,45 @@
         state: directory
       register: seaweedfs_test_dir
 
+    - name: Select an existing mount for the positive fixture
+      ansible.builtin.set_fact:
+        seaweedfs_data_directory: /
+
+    - name: Accept an existing mount using the production guard
+      ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/verify-mount.yaml' }}"
+
+    - name: Select an ordinary directory for the negative fixture
+      ansible.builtin.set_fact:
+        seaweedfs_data_directory: "{{ seaweedfs_test_dir.path }}"
+
+    - name: Reject an ordinary directory using the production guard
+      block:
+        - name: Check the unmounted directory
+          ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/verify-mount.yaml' }}"
+
+        - name: Fail if the mount guard accepted an ordinary directory
+          ansible.builtin.fail:
+            msg: Mount guard accepted an unmounted data directory
+      rescue:
+        - name: Require a mountpoint rejection
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.rc | default(-1) == 32
+
+    - name: Restore the deployment data directory
+      ansible.builtin.set_fact:
+        seaweedfs_data_directory: /var/lib/seaweedfs
+
+    - name: Assert the mount guard precedes deployment changes and runs in check mode
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_tasks[1]['ansible.builtin.import_tasks'] == 'verify-mount.yaml'
+          - not seaweedfs_mount_tasks[0].check_mode
+          - not seaweedfs_mount_tasks[0].changed_when
+      vars:
+        seaweedfs_tasks: "{{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/tasks/main.yaml') | from_yaml }}"
+        seaweedfs_mount_tasks: "{{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/tasks/verify-mount.yaml') | from_yaml }}"
+
     - name: Render SeaweedFS templates
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/' ~ item }}"
@@ -73,6 +112,8 @@
           - seaweedfs_service is search('-s3.port=8333')
           - seaweedfs_service is search('-s3.externalUrl=https://s3\.lab\.canhdinh\.com')
           - seaweedfs_service is search('ReadWritePaths=/var/lib/seaweedfs')
+          - "'RequiresMountsFor=/var/lib/seaweedfs' in seaweedfs_service.splitlines()"
+          - "'AssertPathIsMountPoint=/var/lib/seaweedfs' in seaweedfs_service.splitlines()"
           - seaweedfs_nginx is search('listen 443 ssl')
           - seaweedfs_nginx is search('proxy_pass http://127\.0\.0\.1:8333')
           - seaweedfs_nginx is search('proxy_request_buffering off')
@@ -83,6 +124,39 @@
       ansible.builtin.command:
         cmd: "sh -n {{ seaweedfs_test_dir.path }}/lego-deploy-hook.sh.j2"
       changed_when: false
+
+    - name: Load production bucket creation task
+      ansible.builtin.set_fact:
+        seaweedfs_bucket_task: >-
+          {{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/tasks/main.yaml') |
+             from_yaml | selectattr('name', 'equalto', 'Create application S3 buckets') | first }}
+
+    - name: Prepare local bucket provisioning test
+      ansible.builtin.copy:
+        dest: "{{ seaweedfs_test_dir.path }}/buckets.yml"
+        mode: '0600'
+        content: >-
+          {{ [seaweedfs_bucket_task | combine({
+                'ansible.builtin.command': seaweedfs_bucket_task['ansible.builtin.command'] | combine({'cmd': '/bin/cat'}),
+                'register': 'seaweedfs_test_bucket_creation'
+              })] | to_nice_yaml }}
+
+    - name: Test bucket provisioning for fresh and existing storage
+      ansible.builtin.include_tasks: bucket-case.yml
+      loop:
+        - { listed: [], created: [homelab-gitea, homelab-harbor] }
+        - { listed: ['homelab-harbor owner:harbor'], created: [homelab-gitea] }
+        - { listed: ['homelab-gitea owner:gitea'], created: [homelab-harbor] }
+        - { listed: ['  homelab-gitea owner:gitea', 'homelab-harbor owner:harbor'], created: [] }
+        - { listed: ['homelab-gitea', 'homelab-harbor'], created: [] }
+        - { listed: ['homelab-gitea-old owner:gitea'], created: [homelab-gitea, homelab-harbor] }
+      loop_control:
+        loop_var: seaweedfs_bucket_case
+
+    - name: Assert production bucket command
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_bucket_task['ansible.builtin.command'].cmd == '/usr/local/bin/weed shell'
 
     - name: Remove template output directory
       ansible.builtin.file:

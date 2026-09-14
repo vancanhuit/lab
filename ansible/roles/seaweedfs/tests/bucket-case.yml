@@ -1,0 +1,24 @@
+---
+- name: Set bucket listing fixture
+  ansible.builtin.set_fact:
+    seaweedfs_bucket_list:
+      stdout_lines: "{{ seaweedfs_bucket_case.listed }}"
+
+- name: Execute production bucket task with an echo-only command
+  ansible.builtin.include_tasks: "{{ seaweedfs_test_dir.path }}/buckets.yml"
+
+- name: Assert only missing buckets would be created
+  ansible.builtin.assert:
+    that:
+      - >-
+        seaweedfs_test_bucket_creation.results | selectattr('changed') |
+        map(attribute='item.bucket') | list == seaweedfs_bucket_case.created
+
+- name: Assert bucket owners and creation commands
+  ansible.builtin.assert:
+    that:
+      - item.item.owner == ('gitea' if item.item.bucket == seaweedfs_gitea_bucket else 'harbor')
+      - item.stdout == 's3.bucket.create -name ' ~ item.item.bucket ~ ' -owner ' ~ item.item.owner
+  loop: "{{ seaweedfs_test_bucket_creation.results | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.bucket }}"
