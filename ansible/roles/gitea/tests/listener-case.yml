@@ -1,0 +1,27 @@
+---
+- name: Reset listener fixture result
+  ansible.builtin.set_fact:
+    gitea_listener_accepted: true
+
+- name: Run production listener assertions
+  block:
+    - name: Verify listener fixture
+      ansible.builtin.include_tasks: ../tasks/verify-listeners.yaml
+      vars:
+        gitea_ports_check:
+          stdout: "{{ item.stdout }}"
+  rescue:
+    - name: Require a listener assertion failure
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result.msg == 'Port configuration incorrect'
+          - ansible_failed_result.assertion is defined
+
+    - name: Record rejected listener fixture
+      ansible.builtin.set_fact:
+        gitea_listener_accepted: false
+
+- name: Assert listener fixture outcome
+  ansible.builtin.assert:
+    that:
+      - gitea_listener_accepted == item.expected

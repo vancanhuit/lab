@@ -1,0 +1,13 @@
+---
+- name: Calculate release variables for fixture architecture
+  ansible.builtin.include_tasks: ../tasks/release-vars.yaml
+  vars:
+    ansible_facts:
+      architecture: "{{ item.source }}"
+
+- name: Assert production release calculations
+  ansible.builtin.assert:
+    that:
+      - gitea_release_architecture == item.expected
+      - gitea_release_filename == 'gitea-1.27.3-linux-' ~ item.expected
+      - gitea_release_url == 'https://dl.gitea.com/gitea/1.27.3/gitea-1.27.3-linux-' ~ item.expected

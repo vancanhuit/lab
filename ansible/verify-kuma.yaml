@@ -55,28 +55,8 @@
       register: uptime_kuma_listener_check
       changed_when: false
 
-    - name: Extract port 3001 listeners
-      ansible.builtin.set_fact:
-        uptime_kuma_port_3001_listeners: >-
-          {{ uptime_kuma_listener_check.stdout_lines |
-             select('regex', '.*:3001\s.*') |
-             list }}
-
-    - name: Assert exactly one Uptime Kuma listener on 127.0.0.1:3001
-      ansible.builtin.assert:
-        that:
-          - uptime_kuma_port_3001_listeners | length == 1
-          - uptime_kuma_port_3001_listeners[0] is regex('127\\.0\\.0\\.1:3001\\s.*\\buptime-kuma\\b')
-        fail_msg: >-
-          Expected exactly one Uptime Kuma listener on 127.0.0.1:3001, but found
-          {{ uptime_kuma_port_3001_listeners | length }} listeners:
-          {{ uptime_kuma_port_3001_listeners | to_nice_yaml }}
-
-    - name: Assert Nginx listening on 443
-      ansible.builtin.assert:
-        that:
-          - uptime_kuma_listener_check.stdout is regex('(?m):443\\s.*\\bnginx\\b')
-        fail_msg: Expected Nginx listening on port 443
+    - name: Verify Uptime Kuma listener boundaries
+      ansible.builtin.import_tasks: roles/uptime_kuma/tasks/verify-listeners.yaml
 
     - name: Validate Nginx configuration
       ansible.builtin.command:
@@ -115,32 +95,8 @@
         - { path: /etc/uptime-kuma/tls/server.key, label: TLS private key, owner: null, group: www-data, mode: '0640' }
       register: uptime_kuma_protected_paths
 
-    - name: Assert protected paths exist
-      ansible.builtin.assert:
-        that:
-          - item.stat.exists
-        fail_msg: "{{ item.item.label }} does not exist at {{ item.item.path }}"
-        success_msg: "{{ item.item.label }} exists"
-      loop: "{{ uptime_kuma_protected_paths.results }}"
-      loop_control:
-        label: "{{ item.item.path }}"
-
-    - name: Assert protected path ownership and modes
-      ansible.builtin.assert:
-        that:
-          - item.item.owner is none or item.stat.pw_name == item.item.owner
-          - item.item.group is none or item.stat.gr_name == item.item.group
-          - item.stat.mode == item.item.mode
-        fail_msg: >-
-          {{ item.item.label }} at {{ item.item.path }} has incorrect permissions:
-          owner={{ item.stat.pw_name }} (expected {{ item.item.owner | default('any') }}),
-          group={{ item.stat.gr_name }} (expected {{ item.item.group | default('any') }}),
-          mode={{ item.stat.mode }} (expected {{ item.item.mode }})
-        success_msg: "{{ item.item.label }} permissions correct"
-      loop: "{{ uptime_kuma_protected_paths.results }}"
-      loop_control:
-        label: "{{ item.item.path }}"
-      when: item.stat.exists
+    - name: Verify Uptime Kuma protected paths
+      ansible.builtin.import_tasks: roles/uptime_kuma/tasks/verify-paths.yaml
 
     - name: Create an on-demand Uptime Kuma backup
       ansible.builtin.systemd_service:

@@ -58,22 +58,16 @@
 
     - name: Compute release URLs from backfilled values
       ansible.builtin.set_fact:
-        gitea_release_base_url: "{{ gitea_release_base_url | default('https://dl.gitea.com/gitea/' ~ gitea_version) }}"
-        gitea_release_key_url: "{{ gitea_release_key_url | default('https://keys.openpgp.org/vks/v1/by-fingerprint/' ~ gitea_release_key_fingerprint) }}"
+        gitea_release_base_url: "{{ gitea_release_base_url | default(gitea_role_defaults.gitea_release_base_url) }}"
+        gitea_release_key_url: "{{ gitea_release_key_url | default(gitea_role_defaults.gitea_release_key_url) }}"
 
-    - name: Validate release architecture mapping
-      ansible.builtin.assert:
-        that:
-          - mapped_architecture == item.expected
-          - release_filename == 'gitea-1.27.3-linux-' ~ item.expected
+    - name: Test production release calculations
+      ansible.builtin.include_tasks: release-case.yml
       loop:
         - source: x86_64
           expected: amd64
         - source: aarch64
           expected: arm64
-      vars:
-        mapped_architecture: "{{ item.source | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}"
-        release_filename: "gitea-1.27.3-linux-{{ mapped_architecture }}"
 
     - name: Validate release URLs
       ansible.builtin.assert:
@@ -207,33 +201,14 @@
             that:
               - ansible_failed_result.msg is search('gitea_s3_endpoint must be a host name without an http:// or https:// scheme')
 
-    # Test admin row matching logic from admin.yaml
-    - name: Test admin row matching - exact match gitea-admin
-      ansible.builtin.assert:
-        that:
-          - >-
-            (['ID Username Email IsActive', '1 gitea-admin admin@example.com true'] |
-             select('match', '^\\s*\\d+\\s+' ~ ('gitea-admin' | regex_escape) ~ '\\s+') |
-             list | length) == 1
-        fail_msg: "Admin row matching failed for exact gitea-admin username"
-
-    - name: Test admin row matching - no false positive for gitea-admin-test
-      ansible.builtin.assert:
-        that:
-          - >-
-            (['ID Username Email IsActive', '1 gitea-admin-test admin@example.com true'] |
-             select('match', '^\\s*\\d+\\s+' ~ ('gitea-admin' | regex_escape) ~ '\\s+') |
-             list | length) == 0
-        fail_msg: "Admin row matching false positive for gitea-admin-test"
-
-    - name: Test admin row matching - username with regex metacharacters
-      ansible.builtin.assert:
-        that:
-          - >-
-            (['ID Username Email IsActive', '1 git+admin admin@example.com true'] |
-             select('match', '^\\s*\\d+\\s+' ~ ('git+admin' | regex_escape) ~ '\\s+') |
-             list | length) == 1
-        fail_msg: "Admin row matching failed for username with regex metacharacters"
+    - name: Test production administrator matching
+      ansible.builtin.include_tasks: admin-case.yml
+      loop:
+        - { username: gitea-admin, row: '1 gitea-admin admin@example.com true', expected: true }
+        - { username: gitea-admin, row: '1 gitea-admin-test admin@example.com true', expected: false }
+        - { username: git+admin, row: '1 git+admin admin@example.com true', expected: true }
+        - { username: git+admin, row: '1 gittadmin admin@example.com true', expected: false }
+        - { username: gitea-admin, row: '', expected: false }
 
     # Test package requirements
     - name: Read main.yaml task file
@@ -354,80 +329,30 @@
           host=127.0.0.1, port={{ gitea_expected_port_template }},
           state=started, delay=1, timeout=120, connect_timeout=5
 
-    # Test listener verification predicates (for verify-gitea.yaml)
-    # Fixture simulates actual ss -H -ltnp output where address precedes process name
-    - name: Define valid listener fixture - gitea on 443, sshd on 22
-      ansible.builtin.set_fact:
-        gitea_ss_valid_fixture: |
-          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
-          LISTEN 0      4096            [::]:22           [::]:*    users:(("sshd",pid=1234,fd=4))
-          LISTEN 0      4096               *:443             *:*    users:(("gitea",pid=5678,fd=5))
-
-    - name: Assert OLD predicate fails on valid fixture (demonstrates bug)
-      ansible.builtin.assert:
-        that:
-          # Old pattern: gitea[^\n]*:443 - expects gitea BEFORE :443
-          # This should NOT match because address comes BEFORE process name
-          - gitea_ss_valid_fixture is not regex('gitea[^\\n]*:443\\b')
-        fail_msg: "Old predicate incorrectly matched valid ss output"
-
-    - name: Assert NEW predicate succeeds on valid fixture
-      ansible.builtin.assert:
-        that:
-          # New pattern: :443 followed by users:((\"gitea\", on same line
-          - gitea_ss_valid_fixture is regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
-          # No listener on :3000
-          - gitea_ss_valid_fixture is not regex(':3000\\b')
-          # No gitea on :22 (sshd on 22 is allowed)
-          - gitea_ss_valid_fixture is not regex('(?m)^.*:22\\b.*users:\\(\\("gitea",')
-        fail_msg: "New predicate failed on valid ss output"
-
-    - name: Define counterexample - gitea only on 4430 (not 443)
-      ansible.builtin.set_fact:
-        gitea_ss_on_4430: |
-          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
-          LISTEN 0      4096               *:4430            *:*    users:(("gitea",pid=5678,fd=5))
-
-    - name: Assert counterexample - gitea on 4430 fails :443 check
-      ansible.builtin.assert:
-        that:
-          - gitea_ss_on_4430 is not regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
-        fail_msg: "Predicate should NOT match gitea on port 4430"
-
-    - name: Define counterexample - gitea on port 22 (security violation)
-      ansible.builtin.set_fact:
-        gitea_ss_on_22: |
-          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("gitea",pid=5678,fd=3))
-          LISTEN 0      4096               *:443             *:*    users:(("gitea",pid=5678,fd=5))
-
-    - name: Assert counterexample - gitea on 22 is detected
-      ansible.builtin.assert:
-        that:
-          - gitea_ss_on_22 is regex('(?m)^.*:22\\b.*users:\\(\\("gitea",')
-        fail_msg: "Predicate should detect gitea on port 22"
-
-    - name: Define counterexample - listener on port 3000
-      ansible.builtin.set_fact:
-        gitea_ss_with_3000: |
-          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
-          LISTEN 0      4096               *:443             *:*    users:(("gitea",pid=5678,fd=5))
-          LISTEN 0      4096         0.0.0.0:3000      0.0.0.0:*    users:(("node",pid=9999,fd=6))
-
-    - name: Assert counterexample - listener on 3000 is detected
-      ansible.builtin.assert:
-        that:
-          - gitea_ss_with_3000 is regex(':3000\\b')
-        fail_msg: "Predicate should detect any listener on port 3000"
-
-    - name: Define counterexample - process named gitea-wrapper on 443
-      ansible.builtin.set_fact:
-        gitea_ss_wrapper_on_443: |
-          LISTEN 0      4096         0.0.0.0:22        0.0.0.0:*    users:(("sshd",pid=1234,fd=3))
-          LISTEN 0      4096               *:443             *:*    users:(("gitea-wrapper",pid=5678,fd=5))
-
-    - name: Assert counterexample - gitea-wrapper should NOT match exact gitea predicate
-      ansible.builtin.assert:
-        that:
-          # Pattern with comma requires exact "gitea" followed by comma
-          - gitea_ss_wrapper_on_443 is not regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
-        fail_msg: "Predicate should NOT match process gitea-wrapper"
+    - name: Test production listener verification
+      ansible.builtin.include_tasks: listener-case.yml
+      loop:
+        - name: HTTPS with system SSH
+          expected: true
+          stdout: |
+            LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1234,fd=3))
+            LISTEN 0 4096 [::]:22 [::]:* users:(("sshd",pid=1234,fd=4))
+            LISTEN 0 4096 *:443 *:* users:(("gitea",pid=5678,fd=5))
+        - name: Wrong HTTPS port
+          expected: false
+          stdout: 'LISTEN 0 4096 *:4430 *:* users:(("gitea",pid=5678,fd=5))'
+        - name: Gitea SSH enabled
+          expected: false
+          stdout: |
+            LISTEN 0 4096 *:443 *:* users:(("gitea",pid=5678,fd=5))
+            LISTEN 0 4096 0.0.0.0:22 0.0.0.0:* users:(("gitea",pid=5678,fd=3))
+        - name: Extra HTTP listener
+          expected: false
+          stdout: |
+            LISTEN 0 4096 *:443 *:* users:(("gitea",pid=5678,fd=5))
+            LISTEN 0 4096 0.0.0.0:3000 0.0.0.0:* users:(("node",pid=9999,fd=6))
+        - name: Wrong HTTPS process
+          expected: false
+          stdout: 'LISTEN 0 4096 *:443 *:* users:(("gitea-wrapper",pid=5678,fd=5))'
+      loop_control:
+        label: "{{ item.name }}"

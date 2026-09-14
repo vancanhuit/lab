@@ -68,18 +68,8 @@
     group: root
     mode: '0755'
 
-- name: Calculate release architecture and URLs
-  ansible.builtin.set_fact:
-    gitea_release_architecture: >-
-      {{ ansible_facts.architecture | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}
-
-- name: Calculate release filenames and URLs
-  ansible.builtin.set_fact:
-    gitea_release_filename: "gitea-{{ gitea_version }}-linux-{{ gitea_release_architecture }}"
-
-- name: Calculate release URL
-  ansible.builtin.set_fact:
-    gitea_release_url: "{{ gitea_release_base_url }}/{{ gitea_release_filename }}"
+- name: Calculate release download variables
+  ansible.builtin.import_tasks: release-vars.yaml
 
 - name: Download Gitea release key
   ansible.builtin.get_url:

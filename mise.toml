@@ -18,6 +18,19 @@ description = "Install Ansible Galaxy collections from requirements.yml"
 dir = "ansible"
 run = "ansible-galaxy collection install -r requirements.yaml"
 
+[tasks."ansible:test"]
+description = "Run controller-local role and backup behavior tests"
+dir = "ansible"
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+for playbook in roles/*/tests/render-config.yml; do
+  ansible-playbook -i localhost, "$playbook"
+done
+sh roles/uptime_kuma/tests/test-backup-behavior.sh
+'''
+
 [tasks."hooks:install"]
 description = "Install repository Git hooks"
 run = "cog install-hook --all --overwrite"

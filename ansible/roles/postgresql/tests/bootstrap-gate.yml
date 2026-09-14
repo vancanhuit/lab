@@ -1,0 +1,31 @@
+---
+- name: Test PostgreSQL bootstrap gate in the actual execution mode
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Evaluate fixture probes
+      ansible.builtin.include_tasks: bootstrap-case.yml
+      loop:
+        - name: fresh host
+          apt: { rc: 1 }
+          runtime: { stat: { exists: false } }
+          expected_in_check_mode: false
+        - name: deployed host
+          apt: { rc: 0 }
+          runtime: { stat: { exists: true } }
+          expected_in_check_mode: true
+        - name: missing apt module
+          apt: { rc: 1 }
+          runtime: { stat: { exists: true } }
+          expected_in_check_mode: false
+        - name: missing PostgreSQL binary
+          apt: { rc: 0 }
+          runtime: { stat: { exists: false } }
+          expected_in_check_mode: false
+        - name: missing probe results
+          apt: {}
+          runtime: {}
+          expected_in_check_mode: false
+      loop_control:
+        label: "{{ item.name }}"

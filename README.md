@@ -18,6 +18,24 @@ The Incus host uses Zabbly builds for:
 - [ZFS](https://github.com/zabbly/zfs)
 - [Linux kernel](https://github.com/zabbly/linux)
 
+## Local tests
+
+After installing the [local tooling](docs/getting-started.md), run:
+
+```bash
+mise run ansible:test
+```
+
+This runs every role's `tests/render-config.yml` and the Kuma backup behavior test
+against local fixtures. It uses an isolated localhost inventory, requires no age
+identity or live hosts, and covers template rendering, input validation, and shared
+production checks. Expected validation failures appear as rescued tasks.
+
+Run `verify-*.yaml` after deployment to check live service state; `verify-kuma.yaml`
+also creates a backup and applies retention. The separate
+`verify-inventory-vars.yaml` checks encrypted inventory ownership and requires the
+configured age identity. See the [deployment guide](docs/deployment.md).
+
 ## Documentation
 
 Start with [Getting started](docs/getting-started.md), then follow the deployment guide. Run repository commands from the repository root unless a page says otherwise.

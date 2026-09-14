@@ -1,0 +1,14 @@
+---
+- name: Match administrator fixture using production task
+  ansible.builtin.include_tasks: ../tasks/admin-state.yaml
+  vars:
+    gitea_admin_username: "{{ item.username }}"
+    gitea_admin_list:
+      stdout_lines:
+        - ID Username Email IsActive
+        - "{{ item.row }}"
+
+- name: Assert administrator fixture result
+  ansible.builtin.assert:
+    that:
+      - gitea_admin_exists == item.expected

@@ -1,0 +1,11 @@
+---
+- name: Evaluate production bootstrap gate with fixture probes
+  ansible.builtin.include_tasks: ../tasks/bootstrap-gate.yaml
+  vars:
+    postgresql_python3_apt_check: "{{ item.apt }}"
+    postgresql_runtime_binary: "{{ item.runtime }}"
+
+- name: Assert bootstrap gate outcome
+  ansible.builtin.assert:
+    that:
+      - postgresql_bootstrap_ready == (item.expected_in_check_mode if ansible_check_mode else true)

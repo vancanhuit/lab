@@ -34,16 +34,8 @@
       register: gitea_ports_check
       changed_when: false
 
-    - name: Assert Gitea on :443, nothing on :3000, no Gitea on :22
-      ansible.builtin.assert:
-        that:
-          # ss output format: "LISTEN ... *:PORT ... users:(("process",...)))"
-          # Address precedes process name, so match :443 followed by gitea
-          - gitea_ports_check.stdout is regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
-          - gitea_ports_check.stdout is not regex(':3000\\b')
-          # Allow sshd on :22, but not gitea
-          - gitea_ports_check.stdout is not regex('(?m)^.*:22\\b.*users:\\(\\("gitea",')
-        fail_msg: "Port configuration incorrect"
+    - name: Verify Gitea listener boundaries
+      ansible.builtin.import_tasks: roles/gitea/tasks/verify-listeners.yaml
 
     - name: Check HTTPS endpoint
       ansible.builtin.uri:
@@ -119,14 +111,14 @@
       register: gitea_admin_list
       changed_when: false
 
+    - name: Inspect Gitea administrator state
+      ansible.builtin.import_tasks: roles/gitea/tasks/admin-state.yaml
+
     - name: Assert admin user exists
       ansible.builtin.assert:
         that:
           - gitea_admin_list.rc == 0
-          - >-
-            (gitea_admin_list.stdout_lines[1:] |
-             select('match', '^\\s*\\d+\\s+' ~ (gitea_admin_username | regex_escape) ~ '\\s+') |
-             list | length) > 0
+          - gitea_admin_exists
         fail_msg: "Admin user {{ gitea_admin_username }} not found"
 
     - name: Run Gitea doctor check

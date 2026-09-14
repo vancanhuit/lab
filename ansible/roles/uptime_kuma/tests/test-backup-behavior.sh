@@ -20,11 +20,11 @@ rendered_script="$test_root/backup-rendered.sh"
 sed -e "s|{{ uptime_kuma_data_directory }}|$data_dir|g" \
     -e "s|{{ uptime_kuma_backup_directory }}|$backup_dir|g" \
     -e "s|{{ uptime_kuma_backup_retention_count }}|3|g" \
-    "$template_path" > "$rendered_script"
+    "$template_path" >"$rendered_script"
 chmod +x "$rendered_script"
 
 # sqlite3 shim: copies source DB for .backup and returns 'ok' for quick_check
-cat > "$shim_dir/sqlite3" <<'SQLITE3_SHIM'
+cat >"$shim_dir/sqlite3" <<'SQLITE3_SHIM'
 #!/bin/sh
 set -eu
 
@@ -42,7 +42,7 @@ SQLITE3_SHIM
 chmod +x "$shim_dir/sqlite3"
 
 # gzip shim: pass through for normal operation
-cat > "$shim_dir/gzip" <<'GZIP_SHIM'
+cat >"$shim_dir/gzip" <<'GZIP_SHIM'
 #!/bin/sh
 exec /usr/bin/gzip "$@"
 GZIP_SHIM
@@ -50,7 +50,7 @@ chmod +x "$shim_dir/gzip"
 
 # Test 1: Missing database exits 0
 printf "Test 1: Missing database exits 0... "
-if PATH="$shim_dir:$PATH" "$rendered_script" > "$test_root/test1.out" 2>&1; then
+if PATH="$shim_dir:$PATH" "$rendered_script" >"$test_root/test1.out" 2>&1; then
     if grep -q "database does not exist yet" "$test_root/test1.out"; then
         echo "PASS"
     else
@@ -68,25 +68,23 @@ fi
 printf "Test 2: Full backup and newest-N retention... "
 
 # Create a mock database in the directory with spaces
-echo "mock kuma database content" > "$data_dir/kuma.db"
+echo "mock kuma database content" >"$data_dir/kuma.db"
 
 # Create 5 old mock archives with different timestamps
 for i in 1 2 3 4 5; do
     archive="$backup_dir/kuma-2026010100$(printf %02d "$i")00Z.db.gz"
-    echo "old backup $i" | gzip -c > "$archive"
+    echo "old backup $i" | gzip -c >"$archive"
     touch -t "20260101000$i" "$archive"
 done
 
 # Run the backup with shims in PATH
-if ! PATH="$shim_dir:$PATH" "$rendered_script" > "$test_root/test2.out" 2>&1; then
+if ! PATH="$shim_dir:$PATH" "$rendered_script" >"$test_root/test2.out" 2>&1; then
     echo "FAIL - backup exited non-zero"
     cat "$test_root/test2.out"
     exit 1
 fi
 
-# Verify newest 3 old archives plus 1 new archive remain (4 total, not 3)
-# The script keeps 3 newest, so after adding the new backup: 5 + 1 = 6 total,
-# delete 6 - 3 = 3, leaving 3 archives
+# Keep the new backup and the two newest old archives.
 remaining="$(find "$backup_dir" -name 'kuma-*.db.gz' | wc -l)"
 if [ "$remaining" -ne 3 ]; then
     echo "FAIL - $remaining archives remain, expected 3"
@@ -95,9 +93,9 @@ if [ "$remaining" -ne 3 ]; then
 fi
 
 # Verify oldest archives were removed
-if [ -f "$backup_dir/kuma-20260101000100Z.db.gz" ] || \
-   [ -f "$backup_dir/kuma-20260101000200Z.db.gz" ] || \
-   [ -f "$backup_dir/kuma-20260101000300Z.db.gz" ]; then
+if [ -f "$backup_dir/kuma-20260101000100Z.db.gz" ] ||
+    [ -f "$backup_dir/kuma-20260101000200Z.db.gz" ] ||
+    [ -f "$backup_dir/kuma-20260101000300Z.db.gz" ]; then
     echo "FAIL - old archives not removed"
     find "$backup_dir" -name 'kuma-*.db.gz' -ls
     exit 1
@@ -120,7 +118,7 @@ if [ -z "$newest_backup" ]; then
     exit 1
 fi
 
-if ! gzip -dc "$newest_backup" > "$test_root/restored.db"; then
+if ! gzip -dc "$newest_backup" >"$test_root/restored.db"; then
     echo "FAIL - cannot decompress newest backup"
     exit 1
 fi
@@ -137,7 +135,7 @@ echo "PASS"
 printf "Test 3: Sort failure propagates and cleanup runs... "
 
 # Create a failing sort shim
-cat > "$shim_dir/sort" <<'SORT_SHIM'
+cat >"$shim_dir/sort" <<'SORT_SHIM'
 #!/bin/sh
 echo "sort: injected failure" >&2
 exit 1
@@ -146,13 +144,13 @@ chmod +x "$shim_dir/sort"
 
 # Remove old database and create a fresh one for this test
 rm -f "$data_dir/kuma.db"
-echo "test failure propagation" > "$data_dir/kuma.db"
+echo "test failure propagation" >"$data_dir/kuma.db"
 
 # Clean backup directory
 rm -f "$backup_dir"/kuma-*.db.gz
 
 # Run should fail due to sort failure
-if PATH="$shim_dir:$PATH" "$rendered_script" > "$test_root/test3.out" 2>&1; then
+if PATH="$shim_dir:$PATH" "$rendered_script" >"$test_root/test3.out" 2>&1; then
     echo "FAIL - expected nonzero exit from sort failure"
     cat "$test_root/test3.out"
     exit 1

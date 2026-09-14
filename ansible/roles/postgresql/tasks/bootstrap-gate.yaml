@@ -1,0 +1,7 @@
+---
+- name: Determine whether PostgreSQL deployment tasks can run
+  ansible.builtin.set_fact:
+    postgresql_bootstrap_ready: >-
+      {{ not ansible_check_mode or
+         ((postgresql_python3_apt_check.rc | default(1) == 0) and
+          (postgresql_runtime_binary.stat.exists | default(false))) }}

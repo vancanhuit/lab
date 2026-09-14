@@ -21,6 +21,9 @@
   register: gitea_admin_list
   changed_when: false
 
+- name: Inspect Gitea administrator state
+  ansible.builtin.import_tasks: admin-state.yaml
+
 - name: Create initial Gitea administrator
   ansible.builtin.command:
     argv:
@@ -44,9 +47,6 @@
     USER: "{{ gitea_user }}"
     HOME: "{{ gitea_home }}"
     GITEA_WORK_DIR: "{{ gitea_work_directory }}"
-  when: >-
-    (gitea_admin_list.stdout_lines[1:] |
-     select('match', '^\\s*\\d+\\s+' ~ (gitea_admin_username | regex_escape) ~ '\\s+') |
-     list | length) == 0
+  when: not gitea_admin_exists
   changed_when: true
   no_log: true

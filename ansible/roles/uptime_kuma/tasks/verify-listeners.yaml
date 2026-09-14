@@ -1,0 +1,23 @@
+---
+- name: Extract port 3001 listeners
+  ansible.builtin.set_fact:
+    uptime_kuma_port_3001_listeners: >-
+      {{ uptime_kuma_listener_check.stdout_lines |
+         select('regex', '.*:3001\s.*') |
+         list }}
+
+- name: Assert exactly one Uptime Kuma listener on 127.0.0.1:3001
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_port_3001_listeners | length == 1
+      - uptime_kuma_port_3001_listeners[0] is regex('127\\.0\\.0\\.1:3001\\s.*\\buptime-kuma\\b')
+    fail_msg: >-
+      Expected exactly one Uptime Kuma listener on 127.0.0.1:3001, but found
+      {{ uptime_kuma_port_3001_listeners | length }} listeners:
+      {{ uptime_kuma_port_3001_listeners | to_nice_yaml }}
+
+- name: Assert Nginx listening on 443
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_listener_check.stdout is regex('(?m):443\\s.*\\bnginx\\b')
+    fail_msg: Expected Nginx listening on port 443

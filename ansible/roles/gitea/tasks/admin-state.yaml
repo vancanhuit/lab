@@ -1,0 +1,7 @@
+---
+- name: Match the configured Gitea administrator
+  ansible.builtin.set_fact:
+    gitea_admin_exists: >-
+      {{ (gitea_admin_list.stdout_lines[1:] |
+          select('match', '^\s*\d+\s+' ~ (gitea_admin_username | regex_escape) ~ '\s+') |
+          list | length) > 0 }}

@@ -1,0 +1,9 @@
+---
+- name: Assert Gitea on :443, nothing on :3000, no Gitea on :22
+  ansible.builtin.assert:
+    that:
+      # ss prints the address before the process name. Allow sshd on :22.
+      - gitea_ports_check.stdout is regex('(?m)^.*:443\\b.*users:\\(\\("gitea",')
+      - gitea_ports_check.stdout is not regex(':3000\\b')
+      - gitea_ports_check.stdout is not regex('(?m)^.*:22\\b.*users:\\(\\("gitea",')
+    fail_msg: Port configuration incorrect

@@ -1,0 +1,28 @@
+---
+- name: Reset listener fixture result
+  ansible.builtin.set_fact:
+    uptime_kuma_listener_accepted: true
+
+- name: Run production listener assertions
+  block:
+    - name: Verify listener fixture
+      ansible.builtin.include_tasks: ../tasks/verify-listeners.yaml
+      vars:
+        uptime_kuma_listener_check:
+          stdout: "{{ item.stdout }}"
+          stdout_lines: "{{ item.stdout.splitlines() }}"
+  rescue:
+    - name: Require a listener assertion failure
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_result.assertion is defined
+          - ansible_failed_result.msg is match('Expected exactly one Uptime Kuma listener|Expected Nginx listening')
+
+    - name: Record rejected listener fixture
+      ansible.builtin.set_fact:
+        uptime_kuma_listener_accepted: false
+
+- name: Assert listener fixture outcome
+  ansible.builtin.assert:
+    that:
+      - uptime_kuma_listener_accepted == item.expected

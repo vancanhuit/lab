@@ -16,14 +16,8 @@
   register: postgresql_runtime_binary
   when: ansible_check_mode
 
-- name: Determine whether check mode can inspect PostgreSQL drift on this host
-  ansible.builtin.set_fact:
-    postgresql_check_mode_bootstrap_ready: >-
-      {{
-        (postgresql_python3_apt_check.rc | default(1) == 0)
-        and (postgresql_runtime_binary.stat.exists | default(false))
-      }}
-  when: ansible_check_mode
+- name: Evaluate PostgreSQL bootstrap gate
+  ansible.builtin.import_tasks: bootstrap-gate.yaml
 
 - name: Explain why PostgreSQL bootstrap tasks are skipped during fresh-host check mode
   ansible.builtin.debug:
@@ -35,10 +29,10 @@
   changed_when: false
   when:
     - ansible_check_mode
-    - not (postgresql_check_mode_bootstrap_ready | default(false))
+    - not postgresql_bootstrap_ready
 
 - name: Bootstrap and manage PostgreSQL deployment state
-  when: not ansible_check_mode or (postgresql_check_mode_bootstrap_ready | default(false))
+  when: postgresql_bootstrap_ready
   block:
     - name: Install base packages required for PostgreSQL setup
       ansible.builtin.apt:

@@ -15,7 +15,8 @@
 
 ## Verification
 
-- For an Ansible role change, run its focused local test from `ansible/`: `mise exec -- ansible-playbook roles/<role>/tests/render-config.yml`.
+- Run all controller-local Ansible tests with `mise run ansible:test`; this includes the Kuma backup behavior test and uses an isolated localhost inventory.
+- For an Ansible role change, run its focused local test from `ansible/`: `mise exec -- ansible-playbook -i localhost, roles/<role>/tests/render-config.yml`. For Kuma backup changes, also run `sh roles/uptime_kuma/tests/test-backup-behavior.sh`.
 - For inventory variable ownership changes, run `mise exec -- ansible-playbook verify-inventory-vars.yaml`. This requires access to the configured age identity because inventory loading decrypts SOPS files.
 - Syntax-check each affected playbook with `mise exec -- ansible-playbook --syntax-check <playbook>.yaml`, then lint affected Ansible paths with `mise exec -- ansible-lint <paths>`.
 - For Python helper changes, run the matching test module from the repository root: `mise exec -- python -m unittest scripts.tests.test_create_incus_instance` or `mise exec -- python -m unittest scripts.tests.test_sanitize_trufflehog_output`.
