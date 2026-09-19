@@ -100,6 +100,14 @@ Verification confirms the Harbor version, service and certificate health, Postgr
 
 Gitea depends on PostgreSQL and SeaweedFS from the previous stages. The Gitea playbook creates its PostgreSQL role and database before deploying Gitea with built-in HTTPS.
 
+Provision the dedicated `pool1/gitea-data` filesystem volume at `/var/lib/gitea`
+using the [Incus instructions](incus.md#create-incus-instances) before deployment.
+For existing data, follow the [migration procedure](gitea.md#local-data-volume).
+The role checks the mount before changing the Gitea host, including in check mode;
+systemd also refuses to start Gitea without it. Restore the Incus attachment if
+the guard fails. Repositories and generated state belong on this volume, outside
+the container root disk.
+
 The role renders `gitea_s3_endpoint`, `gitea_s3_region`, `gitea_s3_bucket`, `gitea_s3_access_key`, and `gitea_s3_secret_key` into Gitea's `minio` storage backend. The active endpoint is `s3.lab.canhdinh.com`, using path-style lookup for `homelab-gitea`. Store the endpoint as a hostname without an `http://` or `https://` prefix. Changing these values switches configuration only; it does not migrate objects.
 
 ```sh

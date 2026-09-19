@@ -10,6 +10,9 @@
     gitea_work_directory: /var/lib/gitea
     gitea_expected_version: "1.27.3"
   tasks:
+    - name: Verify Gitea data mount
+      ansible.builtin.import_tasks: roles/gitea/tasks/verify-mount.yaml
+
     - name: Check Gitea version
       ansible.builtin.command:
         cmd: "{{ gitea_binary_path }} --version"

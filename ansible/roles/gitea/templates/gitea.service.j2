@@ -2,6 +2,8 @@
 Description=Gitea (Git with a cup of tea)
 After=network-online.target
 Wants=network-online.target
+RequiresMountsFor={{ gitea_work_directory }}
+AssertPathIsMountPoint={{ gitea_work_directory }}
 
 [Service]
 Type=simple

@@ -1,0 +1,9 @@
+---
+- name: Require a mounted Gitea data directory
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mountpoint
+      - --quiet
+      - "{{ gitea_work_directory }}"
+  changed_when: false
+  check_mode: false

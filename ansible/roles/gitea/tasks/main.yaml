@@ -2,6 +2,9 @@
 - name: Import validation task
   ansible.builtin.import_tasks: validate.yaml
 
+- name: Verify Gitea data mount
+  ansible.builtin.import_tasks: verify-mount.yaml
+
 - name: Install required packages
   ansible.builtin.apt:
     name:

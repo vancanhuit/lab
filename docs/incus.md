@@ -167,6 +167,21 @@ uv run create-incus-instance.py s3 \
 incus start s3
 ```
 
+Create a new Gitea container with a dedicated 20 GiB filesystem volume:
+
+```sh
+uv run create-incus-instance.py gitea \
+  --dhcp \
+  --storage-pool pool1 \
+  --storage-size 20GiB \
+  --storage-path /var/lib/gitea
+incus start gitea
+```
+
+The volume is named `gitea-data` and attached as device `data`. For an existing
+deployment, [migrate the data](gitea.md#local-data-volume) before mounting over
+`/var/lib/gitea`.
+
 Create the Gitea Actions runner VM with DHCP and a dedicated 100 GiB block volume for Docker:
 
 ```sh

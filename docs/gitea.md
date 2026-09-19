@@ -23,6 +23,84 @@ sudo -u git /usr/local/bin/gitea doctor check --default --config /etc/gitea/app.
 sudo systemctl status lego-renew.timer
 ```
 
+## Local data volume
+
+`/var/lib/gitea` is mounted from the Incus filesystem volume `pool1/gitea-data`
+with a 20 GiB quota. It holds repositories and generated state outside the
+container root disk. PostgreSQL and S3 data remain on their respective services.
+Both the deployment role and systemd require this mount before starting Gitea.
+Instance snapshots do not include custom volumes; back up this volume separately.
+
+### Migrate an existing root-disk deployment
+
+Run Incus commands from the administrator workstation against `homelab-server`.
+This procedure requires a running `gitea` container and a maintenance window.
+For a new container, use the [provisioning command](incus.md#create-incus-instances).
+Do not repeat this migration after the volume is attached at `/var/lib/gitea`.
+
+1. Create the volume and attach it at a staging path:
+
+   ```sh
+   incus storage volume create homelab-server:pool1 gitea-data size=20GiB
+   incus config device add homelab-server:gitea data disk \
+     pool=pool1 source=gitea-data path=/mnt/gitea-data
+   ```
+
+2. Stop Gitea, prevent automatic restarts during the copy, and verify the data.
+   Stop if any command fails; leave Gitea stopped until the copy is verified.
+
+   ```sh
+   incus exec homelab-server:gitea -- sh -eu -c '
+     mountpoint --quiet /mnt/gitea-data
+     test ! -e /var/lib/gitea.root-disk-backup
+     systemctl mask --runtime --now gitea.service
+     test "$(systemctl is-active gitea.service)" = inactive
+     cp -a /var/lib/gitea/. /mnt/gitea-data/
+     diff -qr --no-dereference /var/lib/gitea /mnt/gitea-data
+     sync
+     mv /var/lib/gitea /var/lib/gitea.root-disk-backup
+     mkdir /var/lib/gitea
+   '
+   ```
+
+3. Switch the mount and verify it before allowing Gitea to start:
+
+   ```sh
+   incus config device set homelab-server:gitea data path=/var/lib/gitea
+   incus exec homelab-server:gitea -- sh -eu -c '
+     mountpoint --quiet /var/lib/gitea
+     diff -qr --no-dereference /var/lib/gitea.root-disk-backup /var/lib/gitea
+     findmnt -M /var/lib/gitea
+     systemctl unmask --runtime gitea.service
+   '
+   ```
+
+4. From `ansible/`, deploy the mount guards and verify service health:
+
+   ```sh
+   mise exec -- ansible-playbook gitea.yaml --limit gitea
+   mise exec -- ansible-playbook verify-gitea.yaml
+   mise exec -- ansible-playbook gitea.yaml --limit gitea
+   ```
+
+   The final deployment should report `changed=0`. Confirm the source is
+   `pool1/custom/default_gitea-data` with `findmnt -M /var/lib/gitea` inside the
+   container, and confirm the quota with
+   `incus storage volume get homelab-server:pool1 gitea-data size`.
+
+The migration on 2026-09-19 retained `/var/lib/gitea.root-disk-backup` for rollback.
+Remove that copy only after accepting the migration. It becomes stale as soon as
+Gitea resumes writing.
+
+### Recovery
+
+Before cutover, the root-disk source is intact: fix the staging copy or unmask and
+start Gitea against the original directory. After cutover, prefer repairing the
+`data` device attachment and keeping the current volume. If switching storage
+again, stop and runtime-mask Gitea, copy and verify its latest data first, and
+provide a mount at `/var/lib/gitea` before restarting. Do not restore the stale
+root-disk copy over newer data or bypass the mount guards.
+
 ## Object storage
 
 Gitea uses the local SeaweedFS S3-compatible API as its object-storage backend. It stores LFS objects, user and repository avatars, attachments, repository archives, packages, Actions logs, and Actions artifacts in the `homelab-gitea` bucket. Git repository object data remains under `/var/lib/gitea` on the Gitea host.

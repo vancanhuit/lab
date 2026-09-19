@@ -85,6 +85,35 @@
         suffix: .gitea-test
       register: gitea_test_dir
 
+    - name: Accept an existing mount using the production guard
+      ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/verify-mount.yaml' }}"
+      vars:
+        gitea_work_directory: /
+
+    - name: Select an ordinary directory for the negative fixture
+      ansible.builtin.set_fact:
+        gitea_test_work_directory: "{{ gitea_work_directory }}"
+        gitea_work_directory: "{{ gitea_test_dir.path }}"
+
+    - name: Reject an ordinary directory using the production guard in check mode
+      check_mode: true
+      block:
+        - name: Check the unmounted directory
+          ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/verify-mount.yaml' }}"
+
+        - name: Fail if the mount guard accepted an ordinary directory
+          ansible.builtin.fail:
+            msg: Mount guard accepted an unmounted data directory
+      rescue:
+        - name: Require a mountpoint rejection
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.rc | default(-1) == 32
+
+    - name: Restore the deployment data directory
+      ansible.builtin.set_fact:
+        gitea_work_directory: "{{ gitea_test_work_directory }}"
+
     - name: Render app.ini template
       ansible.builtin.template:
         src: "{{ (playbook_dir | dirname) ~ '/templates/app.ini.j2' }}"
@@ -164,6 +193,8 @@
       ansible.builtin.assert:
         that:
           - gitea_service_rendered is search('User=git')
+          - gitea_service_rendered is search('RequiresMountsFor=/var/lib/gitea')
+          - gitea_service_rendered is search('AssertPathIsMountPoint=/var/lib/gitea')
           - gitea_service_rendered is search('ExecStart=/usr/local/bin/gitea web --config /etc/gitea/app.ini')
           - gitea_service_rendered is search('ExecReload=/bin/kill -HUP \\$MAINPID')
           - gitea_service_rendered is search('CapabilityBoundingSet=CAP_NET_BIND_SERVICE')
@@ -219,6 +250,11 @@
     - name: Parse main.yaml as YAML
       ansible.builtin.set_fact:
         gitea_main_tasks: "{{ gitea_main_tasks_slurp.content | b64decode | from_yaml }}"
+
+    - name: Assert the mount guard precedes deployment changes
+      ansible.builtin.assert:
+        that:
+          - gitea_main_tasks[1]['ansible.builtin.import_tasks'] == 'verify-mount.yaml'
 
     - name: Find Install required packages task
       ansible.builtin.set_fact:

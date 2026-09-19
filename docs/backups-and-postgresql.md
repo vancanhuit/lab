@@ -18,11 +18,11 @@ sudo -u postgres pgbackrest --stanza=main check
 | Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; the former Backblaze bucket is a temporary rollback copy, not a continuously updated backup |
 | Harbor registry blobs | SeaweedFS stores blobs in `homelab-harbor` on the dedicated 500 GiB ZFS volume; no off-host backup |
 | Harbor local state | Valkey state, Trivy databases, generated configuration, logs, certificates, and Docker images under `/var/lib/harbor`, `/opt/harbor`, `/etc/harbor`, and `/var/lib/lego` have no off-host backup |
-| Gitea repositories and generated state | `/var/lib/gitea` has no off-host backup |
+| Gitea repositories and generated state | `/var/lib/gitea` uses the separate 20 GiB `pool1/gitea-data` custom volume; instance snapshots do not include it; no off-host backup |
 | Uptime Kuma SQLite state | Validated gzip backups under `/var/backups/uptime-kuma/`; newest 14 retained by count; no off-host replication |
 
 > [!WARNING]
-> Loss of the Gitea host causes permanent repository loss. The current PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. SeaweedFS object storage has no off-host backup. Add off-host protection for Harbor registry blobs and Gitea objects before retiring the former Backblaze rollback copy.
+> Loss of the Incus storage pool causes permanent Gitea repository loss. The current PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. SeaweedFS object storage has no off-host backup. Add off-host protection for Harbor registry blobs and Gitea objects before retiring the former Backblaze rollback copy.
 
 ## PostgreSQL point-in-time restore
 
