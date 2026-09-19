@@ -1,6 +1,6 @@
 ---
-seaweedfs_version: "4.46"
-seaweedfs_archive_checksum: sha256:f4c654a72353c36bd8ae03c8879b81588dc29ffee0fa87594d8716a3d9347ad5
+seaweedfs_version: "4.47"
+seaweedfs_archive_checksum: sha256:31fb804858885f9e7f18b6d3b1da09e824baac3e6a55b5a62c3c4c77e6ed6d7d
 seaweedfs_release_url: "https://github.com/seaweedfs/seaweedfs/releases/download/{{ seaweedfs_version }}/linux_amd64.tar.gz"
 seaweedfs_user: seaweedfs
 seaweedfs_group: seaweedfs

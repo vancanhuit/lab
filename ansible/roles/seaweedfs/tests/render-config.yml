@@ -188,6 +188,18 @@
         cmd: "sh -n {{ seaweedfs_test_dir.path }}/lego-deploy-hook.sh.j2"
       changed_when: false
 
+    - name: Assert bucket discovery waits for SeaweedFS readiness
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_bucket_list_task.until == 'seaweedfs_bucket_list.rc == 0'
+          - seaweedfs_bucket_list_task.retries == 12
+          - seaweedfs_bucket_list_task.delay == 5
+          - not seaweedfs_bucket_list_task.changed_when
+      vars:
+        seaweedfs_bucket_list_task: >-
+          {{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/tasks/main.yaml') |
+             from_yaml | selectattr('name', 'equalto', 'List SeaweedFS S3 buckets') | first }}
+
     - name: Load production bucket creation task
       ansible.builtin.set_fact:
         seaweedfs_bucket_task: >-

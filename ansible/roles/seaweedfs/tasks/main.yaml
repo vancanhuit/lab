@@ -199,6 +199,9 @@
     stdin: s3.bucket.list
   changed_when: false
   register: seaweedfs_bucket_list
+  until: seaweedfs_bucket_list.rc == 0
+  retries: 12
+  delay: 5
 
 - name: Create application S3 buckets
   ansible.builtin.command:
