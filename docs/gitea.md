@@ -88,9 +88,11 @@ Do not repeat this migration after the volume is attached at `/var/lib/gitea`.
    container, and confirm the quota with
    `incus storage volume get homelab-server:pool1 gitea-data size`.
 
-The migration on 2026-09-19 retained `/var/lib/gitea.root-disk-backup` for rollback.
-Remove that copy only after accepting the migration. It becomes stale as soon as
-Gitea resumes writing.
+The migration on 2026-09-19 temporarily retained
+`/var/lib/gitea.root-disk-backup` for rollback. That copy was removed the same day
+after verifying the data-volume mount and application health. For future
+migrations, remove the copy only after accepting the migration; it becomes stale
+as soon as Gitea resumes writing.
 
 ### Recovery
 

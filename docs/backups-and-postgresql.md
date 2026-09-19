@@ -33,9 +33,11 @@ staged volume at `/mnt/postgres-data`. PostgreSQL reported a clean shutdown.
 The copy passed a byte-for-byte comparison, metadata checks, and offline
 `pg_checksums --check` with zero bad checksums before the mount was switched.
 
-`/var/lib/postgresql.root-disk-backup` retains the original, stopped cluster.
-It is stale once PostgreSQL resumes writes; do not substitute it for the current
-cluster. Remove it only after accepting the migration. Prefer repairing the
+The original, stopped cluster at `/var/lib/postgresql.root-disk-backup` was removed
+on 2026-09-19 after verifying the data-volume mount, PostgreSQL, pgBackRest, and
+application health. The pgBackRest repository was preserved. For future migrations,
+the migration-time copy becomes stale once PostgreSQL resumes writes; remove it
+only after accepting the migration. Prefer repairing the
 `data` attachment if startup fails. A storage rollback after writes resume needs
 a fresh stopped copy of the current cluster or a coordinated pgBackRest restore,
 not the migration-time copy. Keep a mount at `/var/lib/postgresql` during recovery.
