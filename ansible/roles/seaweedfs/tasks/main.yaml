@@ -133,6 +133,16 @@
     - Reload systemd daemon
     - Restart SeaweedFS
 
+- name: Install shared SeaweedFS UI password file
+  ansible.builtin.copy:
+    content: "{{ seaweedfs_ui_username }}:{{ seaweedfs_ui_password_hash }}\n"
+    dest: /etc/nginx/seaweedfs.htpasswd
+    owner: root
+    group: www-data
+    mode: '0640'
+  when: seaweedfs_ui_endpoints | length > 0
+  no_log: true
+
 - name: Render SeaweedFS Nginx site
   ansible.builtin.template:
     src: nginx.conf.j2

@@ -5,6 +5,7 @@
   gather_facts: false
   vars:
     seaweedfs_domain: s3.lab.canhdinh.com
+    lego_domain_names: "{{ seaweedfs_inventory.lego_domain_names }}"
     seaweedfs_s3_access_key: test-access-key-1234
     seaweedfs_s3_secret_key: test-secret-key-that-is-at-least-32-characters
     seaweedfs_gitea_access_key: test-gitea-access-key
@@ -13,6 +14,9 @@
     seaweedfs_harbor_access_key: test-harbor-access-key
     seaweedfs_harbor_secret_key: test-harbor-secret-key
     seaweedfs_harbor_bucket: homelab-harbor
+    seaweedfs_ui_username: admin
+    seaweedfs_ui_password: test-ui-password-at-least-32-characters
+    seaweedfs_ui_password_hash: "{{ '$2b$12$' ~ ('A' * 53) }}"
     ansible_facts:
       distribution: Debian
       distribution_major_version: '13'
@@ -21,6 +25,15 @@
     - name: Load SeaweedFS role defaults
       ansible.builtin.include_vars:
         file: "{{ (playbook_dir | dirname) ~ '/defaults/main.yaml' }}"
+
+    - name: Load production UI endpoint configuration
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../../../host_vars/s3/vars.yaml"
+        name: seaweedfs_inventory
+
+    - name: Use production UI endpoints and certificate names
+      ansible.builtin.set_fact:
+        seaweedfs_ui_endpoints: "{{ seaweedfs_inventory.seaweedfs_ui_endpoints }}"
 
     - name: Run role validation
       ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
@@ -119,6 +132,56 @@
           - seaweedfs_nginx is search('proxy_request_buffering off')
           - seaweedfs_hook is search('openssl x509')
           - seaweedfs_hook is search('systemctl reload nginx\.service')
+
+    - name: Assert UI authentication and correct upstream routing
+      ansible.builtin.assert:
+        that:
+          - "('server_name ' ~ item.domain ~ ';') in ui_server"
+          - "('proxy_pass http://127.0.0.1:' ~ item.port ~ ';') in ui_server"
+          - "'auth_basic \"SeaweedFS\";' in ui_server"
+          - "'auth_basic_user_file /etc/nginx/seaweedfs.htpasswd;' in ui_server"
+          - "'proxy_set_header Authorization \"\";' in ui_server"
+          - "item.port != 9333 or 'proxy_set_header Accept-Encoding \"\";' in ui_server"
+          - "item.port != 9333 or \"sub_filter 'http://127.0.0.1:8080/' 'https://seaweedfs-volume.lab.canhdinh.com/';\" in ui_server"
+          - "item.port == 9333 or 'sub_filter' not in ui_server"
+          - "'listen 443 ssl;' in ui_server"
+          - "'add_header Strict-Transport-Security \"max-age=31536000\" always;' in ui_server"
+          - "'client_max_body_size 0;' in ui_server"
+          - "'proxy_request_buffering off;' in ui_server"
+          - "item.port != 8080 or 'rewrite ^/$ /ui/index.html break;' in ui_server"
+          - "'auth_basic' not in seaweedfs_nginx.split('server {')[1]"
+          - "seaweedfs_nginx.split('server {') | length == 9"
+      vars:
+        ui_server: >-
+          {{ seaweedfs_nginx.split('server {') | select('search', 'server_name ' ~ (item.domain | regex_escape) ~ ';') |
+             select('search', 'listen 443 ssl;') | first }}
+      loop: "{{ seaweedfs_ui_endpoints }}"
+
+    - name: Assert HTTP only redirects UI hosts to their canonical HTTPS URLs
+      ansible.builtin.assert:
+        that:
+          - "('return 308 https://' ~ item.domain ~ '$request_uri;') in http_server"
+          - "'listen [::]:80;' in http_server"
+          - "'proxy_pass' not in http_server"
+          - "'auth_basic' not in http_server"
+          - "'return 444;' in seaweedfs_nginx"
+      vars:
+        http_server: >-
+          {{ seaweedfs_nginx.split('server {') | select('search', 'server_name ' ~ (item.domain | regex_escape) ~ ';') |
+             select('search', 'listen 80;') | first }}
+      loop: "{{ seaweedfs_ui_endpoints }}"
+
+    - name: Assert password file permissions and secret log protection
+      ansible.builtin.assert:
+        that:
+          - password_task.no_log
+          - password_task['ansible.builtin.copy'].owner == 'root'
+          - password_task['ansible.builtin.copy'].group == 'www-data'
+          - password_task['ansible.builtin.copy'].mode == '0640'
+      vars:
+        password_task: >-
+          {{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/tasks/main.yaml') |
+             from_yaml | selectattr('name', 'equalto', 'Install shared SeaweedFS UI password file') | first }}
 
     - name: Validate certificate hook shell syntax
       ansible.builtin.command:

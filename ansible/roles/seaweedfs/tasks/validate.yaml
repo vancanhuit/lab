@@ -17,3 +17,25 @@
       - seaweedfs_s3_port | int == 443
     fail_msg: SeaweedFS requires Debian 13 amd64, valid credentials, and HTTPS on port 443
   no_log: true
+
+- name: Validate SeaweedFS UI endpoints
+  ansible.builtin.assert:
+    that:
+      - item.domain is match('^[a-z0-9][a-z0-9.-]*[a-z0-9]$')
+      - item.domain != seaweedfs_domain
+      - item.domain in lego_domain_names
+      - item.port in [9333, 8888, 8080]
+      - seaweedfs_ui_endpoints | map(attribute='domain') | unique | length == seaweedfs_ui_endpoints | length
+  loop: "{{ seaweedfs_ui_endpoints }}"
+  loop_control:
+    label: "{{ item.domain }}"
+
+- name: Validate shared SeaweedFS UI credentials
+  ansible.builtin.assert:
+    that:
+      - seaweedfs_ui_username == 'admin'
+      - seaweedfs_ui_password | length >= 32
+      - seaweedfs_ui_password_hash is match('^\$2[aby]\$12\$[./A-Za-z0-9]{53}$')
+    fail_msg: SeaweedFS UIs require the shared admin credentials and a bcrypt hash in SOPS
+  when: seaweedfs_ui_endpoints | length > 0
+  no_log: true

@@ -26,6 +26,9 @@
       - harbor_s3_secret_key
       - seaweedfs_harbor_access_key
       - seaweedfs_harbor_secret_key
+      - seaweedfs_ui_username
+      - seaweedfs_ui_password
+      - seaweedfs_ui_password_hash
     inventory_secret_contract:
       dns:
         - cloudflare_api_token
@@ -55,6 +58,9 @@
         - seaweedfs_gitea_secret_key
         - seaweedfs_harbor_access_key
         - seaweedfs_harbor_secret_key
+        - seaweedfs_ui_username
+        - seaweedfs_ui_password
+        - seaweedfs_ui_password_hash
       harbor:
         - cloudflare_api_token
         - harbor_database_password

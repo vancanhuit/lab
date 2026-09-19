@@ -65,9 +65,16 @@ ansible-playbook verify-s3.yaml
 ansible-playbook s3.yaml
 ```
 
-The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Only Nginx's HTTPS listener on port 443 is externally reachable. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
+The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Nginx serves the application endpoints on HTTPS port 443; port 80 only redirects UI hostnames to HTTPS and rejects other hosts. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
 
 The role creates the `homelab-gitea` and `homelab-harbor` buckets with their respective application owners before Gitea or Harbor is deployed. Existing buckets are left unchanged, including the Gitea bucket migrated from Backblaze.
+
+The [Master, Filer, and Volume web UIs](seaweedfs.md) use separate HTTPS hostnames
+with CNAME records pointing to `s3.lab.canhdinh.com`. Nginx requires the shared
+`admin` Basic Auth account on all three UI hosts. The credentials are stored in
+the S3 host's SOPS file; deployments reuse the stored bcrypt hash. The certificate
+covers all four hostnames. `verify-s3.yaml` checks certificate validation,
+unauthenticated and incorrect-password rejection, and authenticated UI access.
 
 The role checks that `/var/lib/seaweedfs` is a mount point before making deployment
 changes, including in check mode. The systemd service also requires its mounts and

@@ -1,5 +1,5 @@
 ---
-- name: Verify SeaweedFS S3 service
+- name: Verify SeaweedFS S3 service and protected web UIs
   hosts: s3
   become: true
   gather_facts: false
@@ -31,17 +31,88 @@
       changed_when: false
       register: seaweedfs_listeners
 
-    - name: Assert only the S3 endpoint is externally reachable
+    - name: Assert web traffic enters through Nginx and backends stay private
       ansible.builtin.assert:
         that:
           - seaweedfs_listeners.stdout is regex('(?m)0\.0\.0\.0:443\s')
+          - seaweedfs_listeners.stdout is regex('(?m)0\.0\.0\.0:80\s')
           - seaweedfs_listeners.stdout is not regex('(?m)0\.0\.0\.0:(8080|8333|8888|9333|18333)\s')
+          - seaweedfs_listeners.stdout is not regex('(?m)(\[::\]|\*|::):(8080|8333|8888|9333|18080|18333|18888|19333)\s')
 
     - name: Verify unauthenticated S3 requests are rejected
       ansible.builtin.uri:
-        url: https://127.0.0.1/
-        validate_certs: false
+        url: "https://{{ seaweedfs_domain }}/"
         status_code: 403
+
+    - name: Verify HTTP UI requests redirect without requesting credentials
+      ansible.builtin.uri:
+        url: "http://{{ item.domain }}/ui/index.html?https-check=1"
+        follow_redirects: none
+        use_netrc: false
+        status_code: 308
+      loop: "{{ seaweedfs_ui_endpoints }}"
+      register: seaweedfs_http_redirects
+
+    - name: Assert HTTPS redirects preserve path and query without HTTP authentication
+      ansible.builtin.assert:
+        that:
+          - item.location == 'https://' ~ item.item.domain ~ '/ui/index.html?https-check=1'
+          - item.www_authenticate is not defined
+      loop: "{{ seaweedfs_http_redirects.results }}"
+      loop_control:
+        label: "{{ item.item.domain }}"
+
+    - name: Verify unauthenticated UI requests are rejected
+      ansible.builtin.uri:
+        url: "https://{{ item.domain }}/"
+        status_code: 401
+        use_netrc: false
+      loop: "{{ seaweedfs_ui_endpoints }}"
+      register: seaweedfs_https_challenges
+
+    - name: Assert HTTPS authentication responses enforce HSTS
+      ansible.builtin.assert:
+        that:
+          - item.strict_transport_security == 'max-age=31536000'
+          - item.www_authenticate is search('Basic')
+      loop: "{{ seaweedfs_https_challenges.results }}"
+      loop_control:
+        label: "{{ item.item.domain }}"
+
+    - name: Verify incorrect UI passwords are rejected
+      ansible.builtin.uri:
+        url: "https://{{ item.domain }}/"
+        url_username: "{{ seaweedfs_ui_username }}"
+        url_password: invalid-password-for-verification
+        force_basic_auth: true
+        use_netrc: false
+        status_code: 401
+      loop: "{{ seaweedfs_ui_endpoints }}"
+      no_log: true
+
+    - name: Verify authenticated UI requests succeed
+      ansible.builtin.uri:
+        url: "https://{{ item.domain }}/"
+        url_username: "{{ seaweedfs_ui_username }}"
+        url_password: "{{ seaweedfs_ui_password }}"
+        force_basic_auth: true
+        use_netrc: false
+        follow_redirects: none
+        status_code: 200
+      loop: "{{ seaweedfs_ui_endpoints }}"
+      no_log: true
+
+    - name: Inspect UI password file permissions
+      ansible.builtin.stat:
+        path: /etc/nginx/seaweedfs.htpasswd
+      register: seaweedfs_ui_password_file
+
+    - name: Assert UI password file is restricted to root and Nginx
+      ansible.builtin.assert:
+        that:
+          - seaweedfs_ui_password_file.stat.pw_name == 'root'
+          - seaweedfs_ui_password_file.stat.gr_name == 'www-data'
+          - seaweedfs_ui_password_file.stat.mode == '0640'
 
     - name: Check certificate validity and subject alternative name
       ansible.builtin.command:
@@ -53,6 +124,21 @@
       failed_when: >-
         seaweedfs_certificate.rc != 0 or
         'DNS:s3.lab.canhdinh.com' not in seaweedfs_certificate.stdout
+
+    - name: Verify certificate coverage for every UI hostname
+      ansible.builtin.command:
+        argv:
+          - openssl
+          - x509
+          - -in
+          - /etc/seaweedfs/tls/server.crt
+          - -noout
+          - -checkhost
+          - "{{ item.domain }}"
+      changed_when: false
+      register: seaweedfs_ui_certificate
+      failed_when: seaweedfs_ui_certificate.rc != 0 or 'does match certificate' not in seaweedfs_ui_certificate.stdout
+      loop: "{{ seaweedfs_ui_endpoints }}"
 
     - name: Check attached data filesystem
       ansible.builtin.command:

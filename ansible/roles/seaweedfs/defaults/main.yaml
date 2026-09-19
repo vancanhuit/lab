@@ -13,3 +13,4 @@ seaweedfs_s3_bind_address: 127.0.0.1
 seaweedfs_s3_internal_port: 8333
 seaweedfs_s3_port: 443
 seaweedfs_min_free_space: 10GiB
+seaweedfs_ui_endpoints: []

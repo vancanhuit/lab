@@ -21,3 +21,61 @@ server {
         proxy_send_timeout 120s;
     }
 }
+{% if seaweedfs_ui_endpoints | length > 0 %}
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 444;
+}
+{% endif %}
+{% for endpoint in seaweedfs_ui_endpoints %}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ endpoint.domain }};
+    return 308 https://{{ endpoint.domain }}$request_uri;
+}
+
+server {
+    listen {{ seaweedfs_s3_port }} ssl;
+    listen [::]:{{ seaweedfs_s3_port }} ssl;
+    server_name {{ endpoint.domain }};
+
+    ssl_certificate {{ seaweedfs_tls_cert_path }};
+    ssl_certificate_key {{ seaweedfs_tls_key_path }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    auth_basic "SeaweedFS";
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    auth_basic_user_file /etc/nginx/seaweedfs.htpasswd;
+
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_buffering off;
+
+    location / {
+{% if endpoint.port == 8080 %}
+        rewrite ^/$ /ui/index.html break;
+{% endif %}
+        proxy_pass http://{{ seaweedfs_s3_bind_address }}:{{ endpoint.port }};
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header Authorization "";
+{% if endpoint.port == 9333 %}
+        proxy_set_header Accept-Encoding "";
+        sub_filter_once off;
+{% for linked_endpoint in seaweedfs_ui_endpoints %}
+        sub_filter 'http://{{ seaweedfs_s3_bind_address }}:{{ linked_endpoint.port }}/' 'https://{{ linked_endpoint.domain }}/';
+        sub_filter 'http://{{ seaweedfs_s3_bind_address }}:{{ linked_endpoint.port }}"' 'https://{{ linked_endpoint.domain }}"';
+{% endfor %}
+{% endif %}
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
+    }
+}
+{% endfor %}
