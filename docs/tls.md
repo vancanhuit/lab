@@ -25,7 +25,7 @@ Each service playbook configures the shared role with:
 | `lego_pfx` | Optional password and format for PKCS#12/PFX output |
 | `lego_hooks` | Optional `pre`, `deploy`, or `post` commands/scripts |
 
-The role installs the pinned `lego` 5.3.1 binary and manages these root-owned paths on each service host:
+The role installs the pinned `lego` 5.5.1 binary and manages these root-owned paths on each service host:
 
 | Path | Purpose | Mode |
 | --- | --- | --- |

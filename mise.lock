@@ -180,6 +180,12 @@ specifiers = [
 ]
 uv = { path = ".mise/locks/pipx-ansible/14.4.0", digest = "sha256:c992f77b06a1814f55e3b9d98737b4ca45fcf01b51cac0dc9424c8f31143631c" }
 
+[[tools."pipx:ansible-core"]]
+version = "2.21.4"
+backend = "pipx:ansible-core"
+specifiers = ["2.21.4"]
+uv = { path = ".mise/locks/pipx-ansible-core/2.21.4", digest = "sha256:053900d7f6ea05516369e63ce0458078939d72155d9d63462f37047efd57f034" }
+
 [[tools."pipx:ansible-lint"]]
 version = "26.8.0"
 backend = "pipx:ansible-lint"

@@ -11,8 +11,9 @@ sops = "3.13.3"
 python = "3.14.7"
 uv = { version = "0.12.17", depends = ["python"] }
 gh = "2.101.0"
-"pipx:ansible-lint" = "26.8.0"
-"pipx:ansible" = "14.4.0"
+"pipx:ansible-lint" = { version = "26.8.0", depends = ["python", "uv"] }
+"pipx:ansible" = { version = "14.4.0", depends = ["python", "uv"] }
+"pipx:ansible-core" = { version = "2.21.4", depends = ["python", "uv"] }
 
 [tasks."ansible:deps"]
 description = "Install Ansible Galaxy collections from requirements.yml"

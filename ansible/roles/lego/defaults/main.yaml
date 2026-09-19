@@ -4,4 +4,4 @@ lego_server: letsencrypt
 lego_renew_days: null
 lego_pfx: {}
 lego_hooks: {}
-lego_version: "5.3.1"
+lego_version: "5.5.1"
