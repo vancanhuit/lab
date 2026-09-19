@@ -1,5 +1,50 @@
 # PostgreSQL operations
 
+## Data volume
+
+PostgreSQL uses the 20 GiB Incus filesystem volume `pool1/postgres-data`, attached
+as device `data` at `/var/lib/postgresql`. Cluster data, WAL, and cluster logs live
+under `/var/lib/postgresql/18/main`. The pgBackRest repository remains at
+`/var/lib/pgbackrest` on the container root disk. Configuration and TLS state remain
+under `/etc/postgresql`.
+
+The deployment role checks the mount before making changes, including in check
+mode. The `postgresql@18-main.service` override requires the mount before startup;
+the parent `postgresql.service` is only a meta unit. Restore the Incus attachment
+if the guard fails rather than creating an empty directory on the root disk.
+
+Inspect storage from the administrator workstation:
+
+```sh
+incus storage volume get homelab-server:pool1 postgres-data size
+incus config device show homelab-server:postgres
+incus exec homelab-server:postgres -- findmnt -M /var/lib/postgresql
+```
+
+Expected quota: `20GiB`; expected source: `pool1/custom/default_postgres-data`.
+Instance snapshots do not include this custom volume. Coordinate any data-volume
+restore with the matching PostgreSQL configuration and pgBackRest recovery state.
+
+### Migration and recovery
+
+The migration on 2026-09-19 stopped and runtime-masked the cluster and pgBackRest
+backup timers/services before copying `/var/lib/postgresql` with `cp -a` to the
+staged volume at `/mnt/postgres-data`. PostgreSQL reported a clean shutdown.
+The copy passed a byte-for-byte comparison, metadata checks, and offline
+`pg_checksums --check` with zero bad checksums before the mount was switched.
+
+`/var/lib/postgresql.root-disk-backup` retains the original, stopped cluster.
+It is stale once PostgreSQL resumes writes; do not substitute it for the current
+cluster. Remove it only after accepting the migration. Prefer repairing the
+`data` attachment if startup fails. A storage rollback after writes resume needs
+a fresh stopped copy of the current cluster or a coordinated pgBackRest restore,
+not the migration-time copy. Keep a mount at `/var/lib/postgresql` during recovery.
+
+For another migration, first inspect tablespaces and `pg_wal` for external paths,
+check pgBackRest, then pause backup jobs and stop PostgreSQL before copying.
+Verify the stopped copy and mount before unmasking and starting the cluster and
+backup timers. Run `ansible-playbook verify-postgres.yaml` from `ansible/` afterward.
+
 ## Backup and health checks
 
 Run these commands on the PostgreSQL host:
@@ -14,7 +59,7 @@ sudo -u postgres pgbackrest --stanza=main check
 
 | Data | Coverage |
 | --- | --- |
-| PostgreSQL relational data | pgBackRest local backups only; no off-host replication |
+| PostgreSQL relational data | Cluster data and WAL use the separate 20 GiB `pool1/postgres-data` volume; pgBackRest backups remain on the container root disk at `/var/lib/pgbackrest`; no off-host replication |
 | Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; the former Backblaze bucket is a temporary rollback copy, not a continuously updated backup |
 | Harbor registry blobs | SeaweedFS stores blobs in `homelab-harbor` on the dedicated 500 GiB ZFS volume; no off-host backup |
 | Harbor local state | Valkey state, Trivy databases, generated configuration, logs, certificates, and Docker images under `/var/lib/harbor`, `/opt/harbor`, `/etc/harbor`, and `/var/lib/lego` have no off-host backup |

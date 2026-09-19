@@ -1,0 +1,9 @@
+---
+- name: Require a mounted PostgreSQL storage directory
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mountpoint
+      - --quiet
+      - /var/lib/postgresql
+  changed_when: false
+  check_mode: false

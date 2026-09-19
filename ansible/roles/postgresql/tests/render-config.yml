@@ -47,6 +47,20 @@
     - name: Run role validation task for positive fixture
       ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
 
+    - name: Assert PostgreSQL mount guard wiring and service requirements
+      ansible.builtin.assert:
+        that:
+          - postgresql_tasks[1]['ansible.builtin.import_tasks'] == 'verify-mount.yaml'
+          - not postgresql_mount_tasks[0].check_mode
+          - not postgresql_mount_tasks[0].changed_when
+          - postgresql_mount_tasks[0]['ansible.builtin.command'].argv == ['/usr/bin/mountpoint', '--quiet', '/var/lib/postgresql']
+          - "'RequiresMountsFor=/var/lib/postgresql' in postgresql_mount_override"
+          - "'AssertPathIsMountPoint=/var/lib/postgresql' in postgresql_mount_override"
+      vars:
+        postgresql_tasks: "{{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/tasks/main.yaml') | from_yaml }}"
+        postgresql_mount_tasks: "{{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/tasks/verify-mount.yaml') | from_yaml }}"
+        postgresql_mount_override: "{{ lookup('ansible.builtin.file', (playbook_dir | dirname) ~ '/files/data-mount.conf') }}"
+
     - name: Test production bootstrap gate for fresh and deployed hosts
       ansible.builtin.command:
         argv: >-

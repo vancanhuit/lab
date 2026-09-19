@@ -2,6 +2,9 @@
 - name: Import PostgreSQL role validation tasks
   ansible.builtin.import_tasks: validate.yaml
 
+- name: Verify PostgreSQL data mount
+  ansible.builtin.import_tasks: verify-mount.yaml
+
 - name: Check whether python3-apt module is importable during check mode
   ansible.builtin.command: python3 -c "import apt_pkg"
   register: postgresql_python3_apt_check
@@ -68,6 +71,26 @@
           - "{{ ansible_facts.architecture | regex_replace('^x86_64$', 'amd64') | regex_replace('^aarch64$', 'arm64') }}"
         signed_by: https://www.postgresql.org/media/keys/ACCC4CF8.asc
         state: present
+
+    - name: Create PostgreSQL cluster service override directory
+      ansible.builtin.file:
+        path: "/etc/systemd/system/postgresql@{{ postgresql_version }}-{{ postgresql_cluster_name }}.service.d"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Require the data mount for the PostgreSQL cluster service
+      ansible.builtin.copy:
+        src: data-mount.conf
+        dest: "/etc/systemd/system/postgresql@{{ postgresql_version }}-{{ postgresql_cluster_name }}.service.d/data-mount.conf"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd daemon
+
+    - name: Apply the mount guard before installing or starting PostgreSQL
+      ansible.builtin.meta: flush_handlers
 
     - name: Install PostgreSQL 18 server, client, and pgBackRest
       ansible.builtin.apt:

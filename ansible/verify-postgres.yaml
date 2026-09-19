@@ -5,6 +5,9 @@
   become: true
 
   tasks:
+    - name: Verify PostgreSQL data mount
+      ansible.builtin.import_tasks: roles/postgresql/tasks/verify-mount.yaml
+
     - name: Check PostgreSQL client version
       ansible.builtin.command: psql --version
       register: psql_version

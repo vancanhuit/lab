@@ -37,6 +37,13 @@ getent hosts harbor.lab.canhdinh.com
 
 Deploy PostgreSQL 18 and its `lego`-managed TLS certificate:
 
+First provision `pool1/postgres-data` with a 20 GiB quota at `/var/lib/postgresql`
+using the [Incus instructions](incus.md#create-incus-instances). The role requires
+the mount before deployment changes, including in check mode. A systemd override
+on the cluster service also requires the mount before startup. For existing
+clusters, follow the [data-volume guidance](backups-and-postgresql.md#data-volume)
+before mounting over the data directory.
+
 ```sh
 ansible-playbook postgres.yaml
 ```

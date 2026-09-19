@@ -167,6 +167,21 @@ uv run create-incus-instance.py s3 \
 incus start s3
 ```
 
+Create a new PostgreSQL container with a dedicated 20 GiB filesystem volume:
+
+```sh
+uv run create-incus-instance.py postgres \
+  --dhcp \
+  --storage-pool pool1 \
+  --storage-size 20GiB \
+  --storage-path /var/lib/postgresql
+incus start postgres
+```
+
+The volume is named `postgres-data` and attached as device `data`. For an existing
+cluster, stop PostgreSQL and copy and verify its data before switching the mount;
+see [PostgreSQL storage](backups-and-postgresql.md#data-volume).
+
 Create a new Gitea container with a dedicated 20 GiB filesystem volume:
 
 ```sh
