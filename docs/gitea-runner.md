@@ -36,7 +36,7 @@ ansible-playbook gitea-runner.yaml
 
 The playbook obtains the global registration token directly from Gitea as the `git` account, passes it only during first registration, and removes the temporary token file. The persistent `/var/lib/gitea-runner/.runner` file contains the runner identity and API credentials and is restricted to mode `0600`.
 
-The deployment installs Gitea Runner 3.3.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
+The deployment installs Gitea Runner 4.0.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
 
 ## Use the runner
 

@@ -8,7 +8,7 @@
       - ansible_facts.virtualization_role == 'guest'
       - ansible_facts.processor_vcpus | int >= 2
       - ansible_facts.memtotal_mb | int >= 3800
-      - gitea_runner_version == '3.3.0'
+      - gitea_runner_version == '4.0.0'
       - gitea_runner_checksum is match('^sha256:[0-9a-f]{64}$')
       - gitea_runner_instance_url == 'https://gitea.lab.canhdinh.com/'
       - gitea_runner_labels == ['debian-amd64:host']

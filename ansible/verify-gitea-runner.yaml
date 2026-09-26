@@ -4,7 +4,7 @@
   become: true
   vars:
     gitea_runner_binary_path: /usr/local/bin/gitea-runner
-    gitea_runner_expected_version: "3.3.0"
+    gitea_runner_expected_version: "4.0.0"
     gitea_runner_expected_node_version: "v24.21.0"
     gitea_runner_user: gitea-runner
     gitea_runner_registration_path: /var/lib/gitea-runner/.runner
