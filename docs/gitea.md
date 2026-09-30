@@ -19,7 +19,9 @@ Run these commands on the Gitea host:
 ```sh
 sudo systemctl status gitea.service
 sudo journalctl -u gitea.service --since today
-sudo -u git /usr/local/bin/gitea doctor check --default --config /etc/gitea/app.ini
+sudo -u git /usr/local/bin/gitea doctor check \
+  --run check-db-consistency --run hooks --run storages \
+  --config /etc/gitea/app.ini
 sudo systemctl status lego-renew.timer
 ```
 
@@ -126,10 +128,111 @@ To roll back during that period, stop Gitea and sync the final SeaweedFS delta b
 
 ## Upgrade procedure
 
-Stop Gitea and take a consistent backup before changing `gitea_version`:
+Review the target release's breaking changes, drain Actions jobs, and stop the
+runner before stopping Gitea. Stop the certificate renewal timer and any active
+renewal service so its deploy hook cannot restart Gitea during the backup.
+
+On the runner host:
 
 ```sh
+sudo systemctl stop gitea-runner.service
+```
+
+On the Gitea host:
+
+```sh
+sudo systemctl stop lego-renew.timer lego-renew.service
 sudo systemctl stop gitea.service
 ```
 
-Do not upgrade until you accept the repository and generated-state backup limitation described under [Backup coverage](backups-and-postgresql.md#backup-coverage). A Gitea upgrade also requires updating the supported-version assertion in `roles/gitea/tasks/validate.yaml`, the expected version in `verify-gitea.yaml`, and the version expectations in `roles/gitea/tests/render-config.yml`. Then run the role test, deployment, and verification playbook.
+While Gitea remains stopped, back up the `gitea` PostgreSQL database with native
+`pg_dump`, the `pool1/gitea-data` custom volume, the complete `homelab-gitea`
+object bucket, configuration, TLS/ACME state, and the old binary. An instance
+snapshot alone does not cover the custom volume or external services. Verify an
+encrypted off-host copy and rehearse database migration and restore against a
+separate database before deploying. See [Backup coverage](backups-and-postgresql.md#backup-coverage).
+
+Update `gitea_version`, the supported-version assertion in
+`roles/gitea/tasks/validate.yaml`, the expected version in `verify-gitea.yaml`, and
+the version expectations in both `roles/gitea/tests/render-config.yml` and
+`roles/gitea/tests/release-case.yml`. From `ansible/`, run the focused role test,
+syntax checks, and lint before deployment:
+
+```sh
+mise exec -- ansible-playbook -i localhost, roles/gitea/tests/render-config.yml
+mise exec -- ansible-playbook --syntax-check gitea.yaml
+mise exec -- ansible-playbook --syntax-check verify-gitea.yaml
+mise exec -- ansible-lint roles/gitea gitea.yaml verify-gitea.yaml
+mise exec -- ansible-playbook gitea.yaml --limit gitea
+mise exec -- ansible-playbook verify-gitea.yaml
+```
+
+The deployment restarts Gitea and starts database migrations automatically.
+After application checks pass, start the runner, run its smoke workflow, and
+run `verify-gitea-runner.yaml`. Rerun `gitea.yaml --limit gitea` and require
+`changed=0`. The deployment resumes `lego-renew.timer`.
+
+For rollback, stop Gitea and the runner and restore the matching pre-upgrade
+database, repository volume, object bucket, binary, and configuration. Restore
+only the `gitea` database: a whole-cluster PostgreSQL rollback would also rewind
+Harbor. An old binary cannot use a database migrated to a newer release. A
+rollback to the backup discards writes accepted after the backup timestamp.
+
+### Gitea 28.0.0 upgrade, 2026-09-30
+
+Upgraded from 1.27.3 to [28.0.0](https://blog.gitea.com/release-of-28.0.0/), which
+drops the historical `1.` version prefix. The signed amd64 release was verified
+against the existing trusted release key. Debian 13's installed Git 2.47.3 meets
+the new Git 2.25 minimum.
+
+The configuration explicitly preserves Actions run records with
+`RUN_RETENTION_DAYS = 0`; logs and artifacts retain their separate retention
+policies. The obsolete `[server] DOMAIN` setting was removed; `ROOT_URL` and
+email-confirmed registration remain explicit. There were no mirrors, webhooks,
+external login providers, or custom egress lists to migrate. Gitea still serves
+HTTPS directly, and a signed-in WebSocket connection to `/-/ws` succeeded.
+
+`doctor --default` selected zero checks, so verification now explicitly runs
+database consistency, repository hooks, and storage checks and requires all
+three to complete.
+
+The pre-upgrade rollback set is named `pre28-20260930T133943Z`:
+
+| Component | Location |
+| --- | --- |
+| Gitea root snapshot, no expiry | `homelab-server:gitea/pre28-20260930T133943Z` |
+| Gitea custom-volume snapshot, no expiry | `homelab-server:pool1/gitea-data/pre28-20260930T133943Z` |
+| Encrypted off-host archive on the administrator workstation | `~/.local/state/homelab-backups/gitea/pre28-20260930T133943Z.tar.age` |
+| Matching encrypted archive on the Gitea host | `/var/backups/gitea/pre28-20260930T133943Z.tar.age` |
+
+Archive SHA-256:
+`56bf697723779e9b7c2cf7f420deec003fc1b019165c8a7e09a8417f144efd39`.
+It is encrypted to the repository's SOPS age recipient and authenticated
+decryption was verified. The archive contains `gitea-db.dump`,
+`gitea-data.tar.gz`, `gitea-config.tar.gz`, baseline counts, file checksums, and
+all eight bucket objects (18,395 bytes). `objects.json` maps each object key to
+its numbered payload under `objects/` and records its SHA-256, metadata, and tags.
+Decrypt only into a protected directory outside this repository.
+
+An isolated database and copied local working directory rehearsed schema
+migration from 343 to 356 in 2.6 seconds, with outbound application integrations
+disabled and local storage selected. Restoring the native dump returned schema
+343 and the original counts (two users, one repository, six runs, six tasks);
+Gitea 1.27.3 accepted the restored database. The rehearsal database and directory
+were removed afterward.
+
+Production verification passed for HTTPS clone/fetch/push, pull-request merge,
+LFS upload and fresh download, generic package upload/download, release
+attachment upload/download, all eight pre-upgrade object hashes, and rendering
+both pre-upgrade and new Actions logs in the browser.
+[Actions smoke run #7](https://gitea.lab.canhdinh.com/vancanhuit/actions-runner-smoke-test/actions/runs/7)
+succeeded with Runner 4.0.0, builtin checkout, Docker access, and the Harbor
+Docker Hub proxy. Temporary repositories, package versions, and access tokens
+were removed. Gitea and runner verification passed, and the second deployment
+reported `changed=0`.
+
+Plaintext backup staging was removed after the encrypted copies were verified.
+
+Retain the rollback set through several days of normal operation and a
+successful backup cycle. It is a one-time upgrade backup, not scheduled
+off-host protection.

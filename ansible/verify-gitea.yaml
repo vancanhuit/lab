@@ -8,7 +8,7 @@
     gitea_user: git
     gitea_home: /home/git
     gitea_work_directory: /var/lib/gitea
-    gitea_expected_version: "1.27.3"
+    gitea_expected_version: "28.0.0"
   tasks:
     - name: Verify Gitea data mount
       ansible.builtin.import_tasks: roles/gitea/tasks/verify-mount.yaml
@@ -84,6 +84,8 @@
           - gitea_config_text is search('REGISTER_EMAIL_CONFIRM\\s*=\\s*true')
           - gitea_config_text is search('\\[actions\\]')
           - gitea_config_text is search('ENABLED\\s*=\\s*true')
+          - gitea_config_text is search('RUN_RETENTION_DAYS\\s*=\\s*0')
+          - gitea_config_text is not regex('(?m)^DOMAIN\\s*=')
           - gitea_config_text is search('PROTOCOL\\s*=\\s*https')
           - gitea_config_text is search('DISABLE_SSH\\s*=\\s*true')
           - gitea_config_text is not search('PASSWORD_HASH_ALGO\\s*=\\s*argon2')
@@ -130,7 +132,12 @@
           - "{{ gitea_binary_path }}"
           - doctor
           - check
-          - --default
+          - --run
+          - check-db-consistency
+          - --run
+          - hooks
+          - --run
+          - storages
           - --config
           - "{{ gitea_config_path }}"
       become: true
@@ -155,4 +162,5 @@
       ansible.builtin.assert:
         that:
           - gitea_doctor_check.rc == 0
-        fail_msg: "Gitea doctor check failed with exit code {{ gitea_doctor_check.rc }}"
+          - "'All done (checks: 3).' in gitea_doctor_check.stdout"
+        fail_msg: "Gitea doctor did not successfully complete all three required checks"

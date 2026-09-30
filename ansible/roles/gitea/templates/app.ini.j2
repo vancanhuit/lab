@@ -5,7 +5,6 @@ WORK_PATH = {{ gitea_work_directory | to_json }}
 
 [server]
 PROTOCOL = https
-DOMAIN = {{ gitea_domain | to_json }}
 ROOT_URL = {{ gitea_root_url | to_json }}
 PUBLIC_URL_DETECTION = never
 HTTP_ADDR = 0.0.0.0
@@ -81,6 +80,7 @@ ENABLE_NOTIFY_MAIL = true
 
 [actions]
 ENABLED = true
+RUN_RETENTION_DAYS = 0
 
 [log]
 MODE = console

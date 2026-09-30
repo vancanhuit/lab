@@ -1,11 +1,11 @@
 ---
-- name: Assert Debian 13 is required for Gitea 1.27
+- name: Assert Debian 13 is required for Gitea 28
   ansible.builtin.assert:
     that:
       - ansible_facts.distribution == 'Debian'
       - ansible_facts.distribution_major_version == '13'
     fail_msg: >-
-      Gitea 1.27 role requires Debian 13.
+      Gitea 28 role requires Debian 13.
       Current distribution: {{ ansible_facts.distribution | default('unknown') }}
       {{ ansible_facts.distribution_major_version | default('') }}
     quiet: true
@@ -15,16 +15,16 @@
     that:
       - ansible_facts.architecture in ['x86_64', 'aarch64']
     fail_msg: >-
-      Gitea 1.27 role requires x86_64 or aarch64 architecture.
+      Gitea 28 role requires x86_64 or aarch64 architecture.
       Current architecture: {{ ansible_facts.architecture | default('unknown') }}
     quiet: true
 
-- name: Assert Gitea version 1.27.3
+- name: Assert Gitea version 28.0.0
   ansible.builtin.assert:
     that:
-      - gitea_version == '1.27.3'
+      - gitea_version == '28.0.0'
     fail_msg: >-
-      This role is validated only for Gitea 1.27.3.
+      This role is validated only for Gitea 28.0.0.
       Specified version: {{ gitea_version }}
     quiet: true
 

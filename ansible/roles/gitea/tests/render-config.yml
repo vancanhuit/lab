@@ -72,7 +72,7 @@
     - name: Validate release URLs
       ansible.builtin.assert:
         that:
-          - gitea_release_base_url == 'https://dl.gitea.com/gitea/1.27.3'
+          - gitea_release_base_url == 'https://dl.gitea.com/gitea/28.0.0'
           - gitea_release_key_url is search(gitea_release_key_fingerprint)
           - gitea_release_key_fingerprint == '7C9E68152594688862D62AF62D9AE806EC1592E2'
 
@@ -158,6 +158,7 @@
         that:
           - gitea_app_ini_rendered is search('PROTOCOL = https')
           - gitea_app_ini_rendered is search('ROOT_URL = "https://gitea\.example\.invalid/"')
+          - gitea_app_ini_rendered is not regex('(?m)^DOMAIN\s*=')
           - gitea_app_ini_rendered is search('PUBLIC_URL_DETECTION = never')
           - gitea_app_ini_rendered is search('HTTP_PORT = 443')
           - gitea_app_ini_rendered is search('DISABLE_SSH = true')
@@ -179,6 +180,7 @@
           - gitea_app_ini_rendered is search('REQUIRE_SIGNIN_VIEW = true')
           - gitea_app_ini_rendered is search('\\[actions\\]')
           - gitea_app_ini_rendered is search('ENABLED = true')
+          - gitea_app_ini_rendered is search('RUN_RETENTION_DAYS = 0')
           - gitea_app_ini_rendered is search('MODE = console')
           - gitea_app_ini_rendered is search('\[oauth2\]')
           - gitea_app_ini_rendered is search('JWT_SECRET = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"')
