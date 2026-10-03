@@ -31,7 +31,7 @@ The playbook installs Incus, the Zabbly kernel, and the OpenZFS packages, applie
 
 ## Incus network bridge
 
-The Debian profile in [`incus-debian-profile.yaml`](../incus-debian-profile.yaml) connects each instance's `eth0` device to `incusbr0`. The [Incus bridge network](https://linuxcontainers.org/incus/docs/main/reference/network_bridge/) itself is configured on the Incus host and is not created by the current Ansible playbook.
+The Debian profile in [`incus-debian-profile.yaml`](../incus-debian-profile.yaml) connects each instance's `eth0` device to `incusbr0`. Configure the [Incus bridge network](https://linuxcontainers.org/incus/docs/main/reference/network_bridge/) on the Incus host; the Ansible playbook does not create it.
 
 Expected `incusbr0` network configuration:
 
@@ -56,9 +56,13 @@ This configuration means:
 - IPv6 addressing and DHCP are disabled.
 - The Incus host advertises `10.205.234.0/24` through its Tailscale subnet router so tailnet clients can reach instances directly.
 
-The lab [disables SNAT for Tailscale subnet routes](https://tailscale.com/docs/features/subnet-routers#disable-snat) with `--snat-subnet-routes=false`. This preserves each connecting device's Tailscale IP address, so services, logs, and access controls identify the client rather than the Incus subnet router.
+The lab [disables SNAT for Tailscale subnet routes](https://tailscale.com/docs/features/subnet-routers#disable-snat) with `--snat-subnet-routes=false`. Services, logs, and access controls therefore see each client's Tailscale IP address instead of the Incus subnet router's address.
 
-Tailscale normally requires devices behind a non-SNAT subnet router to return `100.64.0.0/10` traffic through that router. No additional routing-table entry is required inside these instances: their existing default route already uses `10.205.234.1`, which is the Incus host and Tailscale subnet router, so reply traffic follows the correct path.
+Devices behind a non-SNAT Tailscale subnet router normally need to return
+`100.64.0.0/10` traffic through that router. These instances already use
+`10.205.234.1`, the Incus host and Tailscale subnet router, as their default
+gateway. Reply traffic follows that route, so the instances need no additional
+routing-table entry.
 
 Configure a Technitium DHCP scope for the Incus network with:
 
@@ -179,7 +183,7 @@ incus start postgres
 ```
 
 The volume is named `postgres-data` and attached as device `data`. For an existing
-cluster, stop PostgreSQL and copy and verify its data before switching the mount;
+cluster, stop PostgreSQL, then copy and verify its data before switching the mount;
 see [PostgreSQL storage](backups-and-postgresql.md#data-volume).
 
 Create a new Gitea container with a dedicated 20 GiB filesystem volume:

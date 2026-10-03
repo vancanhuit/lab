@@ -2,7 +2,12 @@
 
 ## First login and registry use
 
-Open `https://harbor.lab.canhdinh.com/` and sign in with the default administrator username `admin` and the initial password stored in `harbor_admin_password`. Change that password after first login, then update `harbor_admin_password` in `ansible/host_vars/harbor/secrets.sops.yaml` to the current password. Harbor uses the configured value only on its first startup, but `verify-harbor.yaml` uses it to authenticate API checks.
+Open `https://harbor.lab.canhdinh.com/` and sign in with the default administrator
+username `admin` and the initial password stored in `harbor_admin_password`.
+Change that password after first login, then update `harbor_admin_password` in
+`ansible/host_vars/harbor/secrets.sops.yaml` to match. Harbor uses the configured
+value only on its first startup; `verify-harbor.yaml` uses it to authenticate API
+checks.
 
 Harbor controls repositories through projects and creates a public `library` project during installation. Create a private project for restricted images by following Harbor's [project creation procedure](https://goharbor.io/docs/2.15.0/working-with-projects/create-projects/), then authenticate and push an image:
 
@@ -29,7 +34,10 @@ is configured. The Harbor core image provides its CA bundle at
 
 ## Vulnerability scanning
 
-The bundled Trivy adapter is Harbor's enabled default scanner. It downloads vulnerability and Java databases from Aqua Security's OCI repositories and verifies registry certificates. The managed configuration scans for known vulnerabilities and includes vulnerabilities without an available fix.
+The bundled Trivy adapter is enabled as Harbor's default scanner. It downloads
+vulnerability and Java databases from Aqua Security's OCI repositories and
+verifies registry certificates. The managed configuration scans for known
+vulnerabilities, including those without an available fix.
 
 To scan an artifact, open its project and repository, select the artifact, and click **Scan**. Configure scheduled scans or scan-on-push in Harbor to automate scanning. Check scanner registration and container health with:
 
@@ -52,7 +60,12 @@ sudo docker compose start
 sudo systemctl status lego-renew.timer
 ```
 
-Use `docker compose stop` and `docker compose start` only for temporary shutdowns. Make persistent configuration changes in the Ansible role or inventory and rerun `ansible-playbook harbor.yaml`; do not edit `/opt/harbor/harbor.yml` directly because Ansible overwrites it. The role follows Harbor's [reconfiguration lifecycle](https://goharbor.io/docs/2.15.0/install-config/reconfigure-manage-lifecycle/) by regenerating the Compose project when managed configuration changes.
+Use `docker compose stop` and `docker compose start` only for temporary shutdowns.
+For persistent configuration changes, edit the Ansible role or inventory and
+rerun `ansible-playbook harbor.yaml`. Ansible overwrites `/opt/harbor/harbor.yml`,
+so do not edit it directly. When managed configuration changes, the role
+regenerates the Compose project following Harbor's
+[reconfiguration lifecycle](https://goharbor.io/docs/2.15.0/install-config/reconfigure-manage-lifecycle/).
 
 Run `ansible-playbook verify-harbor.yaml` after configuration changes. Do not print `/opt/harbor/harbor.yml` or generated files under `/opt/harbor/common/config` because they contain database and object-storage credentials. Do not run `docker compose down -v`, delete `/var/lib/harbor`, or remove the SeaweedFS bucket as routine troubleshooting steps.
 

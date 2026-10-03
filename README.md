@@ -26,12 +26,13 @@ After installing the [local tooling](docs/getting-started.md), run:
 mise run ansible:test
 ```
 
-This runs the Ansible Core compatibility checks, every role's
+The task runs Ansible Core compatibility checks, every role's
 `tests/render-config.yml`, and the Kuma backup behavior test against local fixtures.
-It uses an isolated localhost inventory, requires no age
-identity or live hosts, and covers template rendering, input validation, and shared
-production checks. Command-validation fixtures also ensure matching output cannot
-hide a nonzero exit status. Expected failures appear as rescued or ignored tasks.
+An isolated localhost inventory lets you run it without an age identity or live
+hosts. The tests cover template rendering, input validation, and shared production
+checks. Command-validation fixtures check that a nonzero exit status fails
+validation even when the output matches. Expected failures appear as rescued or
+ignored tasks.
 
 Run `verify-*.yaml` after deployment to check live service state; `verify-kuma.yaml`
 also creates a backup and applies retention. The separate
@@ -40,7 +41,7 @@ configured age identity. See the [deployment guide](docs/deployment.md).
 
 ## Documentation
 
-Start with [Getting started](docs/getting-started.md), then follow the deployment guide. Run repository commands from the repository root unless a page says otherwise.
+Start with [Getting started](docs/getting-started.md), then follow the deployment guide. Run commands from the repository root unless a page says otherwise.
 
 | Guide | Contents |
 | --- | --- |

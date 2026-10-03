@@ -8,7 +8,7 @@ Run commands in this guide from the repository root unless a step changes direct
 - Install [Tailscale](https://tailscale.com/docs), join the tailnet, and configure split DNS for `lab.canhdinh.com`.
 - Advertise the Incus bridge network from the Incus host through a [Tailscale subnet router](https://tailscale.com/kb/1019/subnets).
 - Configure the Ansible inventory hosts in `ansible/inventory.yaml`.
-- Add the required secrets to their ownership-scoped encrypted files under `ansible/group_vars/` and `ansible/host_vars/`. See the [Repository Configuration](secrets.md#repository-configuration) section for the complete list of encrypted files and their variables. Uptime Kuma's native Brevo provider is configured separately through its UI with password-manager values.
+- Add the required secrets to the encrypted files for their groups or hosts under `ansible/group_vars/` and `ansible/host_vars/`. [Repository configuration](secrets.md#repository-configuration) lists every encrypted file and its variables. Configure Uptime Kuma's native Brevo provider separately in its UI using values from your password manager.
 
 ## Enable Tailscale SSH
 
@@ -21,7 +21,7 @@ sudo tailscale set --ssh
 > [!WARNING]
 > Enabling Tailscale SSH can cause an existing SSH connection to the host's Tailscale IP to hang. Run the command from a local console or ensure another recovery path is available.
 
-Enabling Tailscale SSH on the host is only half of the setup. The tailnet policy must also permit network access to the Incus host and Tailscale SSH access from authorized administrator identities to the existing local `lab` user. Tailscale SSH authenticates the tailnet identity but does not create local operating-system accounts.
+The tailnet policy must permit network access to the Incus host and Tailscale SSH access from authorized administrator identities to the existing local `lab` user. Tailscale SSH authenticates the tailnet identity; it does not create local operating-system accounts.
 
 With MagicDNS enabled and the policy applied, connect from another tailnet device:
 
@@ -48,9 +48,10 @@ mise run hooks:install
 ```
 
 The roles and playbooks require Ansible Core 2.21 or newer; use the version pinned
-in `mise.toml`. Text configuration reads use `slurp` with `armor: false`, and
-register projections replace separate decoding tasks. Facts are accessed through
-`ansible_facts`; deprecated top-level fact injection is disabled in `ansible.cfg`.
+in `mise.toml`. Text configuration reads use `slurp` with `armor: false` and
+register projections, without separate decoding tasks. Roles and playbooks access
+facts through `ansible_facts`; deprecated top-level fact injection is disabled in
+`ansible.cfg`.
 See the [2.21 release notes](https://github.com/ansible/ansible/blob/stable-2.21/changelogs/CHANGELOG-v2.21.rst)
 and [2.20 fact-injection migration guidance](https://docs.ansible.com/projects/ansible/latest/porting_guides/porting_guide_core_2.20.html#inject-facts-as-vars).
 
@@ -60,9 +61,13 @@ dependency either through the role's package prerequisites or the module's
 PostgreSQL skips fresh-host configuration in check mode until those dependencies
 and its runtime are present.
 
-`mise run hooks:install` configures Cocogitto to reject non-conventional commit messages and runs Gitleaks and [TruffleHog](https://github.com/trufflesecurity/trufflehog) before every push. Run both secret scanners directly with `mise run security:secrets`.
+`mise run hooks:install` installs hooks that use Cocogitto to reject non-conventional commit messages and run Gitleaks and [TruffleHog](https://github.com/trufflesecurity/trufflehog) before every push. Run both secret scanners directly with `mise run security:secrets`.
 
-Gitleaks performs a redacted full-history pattern scan. TruffleHog blocks credentials verified as active and candidates it cannot verify because of a provider or network error. TruffleHog may contact credential-provider APIs during verification; its repository wrapper reports only detector, status, file, line, and commit metadata so matched values are not printed.
+Gitleaks scans the full Git history for secret patterns and redacts matches.
+TruffleHog blocks credentials it verifies as active, along with candidates it
+cannot verify because of a provider or network error. It may contact
+credential-provider APIs during verification. The repository wrapper reports only
+detector, status, file, line, and commit metadata; it does not print matched values.
 
 List the available repository tasks:
 

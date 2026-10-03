@@ -1,6 +1,6 @@
 # SeaweedFS web UIs
 
-The private lab exposes three web UIs through Nginx on HTTPS port 443:
+Nginx serves three web UIs on HTTPS port 443 within the private lab:
 
 | URL | Loopback backend | Purpose |
 | --- | --- | --- |
@@ -12,12 +12,14 @@ Each hostname is a CNAME pointing to `s3.lab.canhdinh.com`. The existing lego
 certificate includes all three names and the S3 API hostname. SeaweedFS listeners
 remain on loopback. Nginx requires Basic Auth for every path of each UI host and
 removes the Authorization header before forwarding requests to SeaweedFS.
+
 HTTP port 80 only redirects these UI hostnames to their canonical HTTPS URLs
 with status `308`, preserving the path and query string without asking for
 credentials. Other HTTP hostnames are rejected. HTTPS responses, including
 authentication challenges, send HSTS (`max-age=31536000`) so browsers use HTTPS
 for subsequent visits. HSTS is scoped to each UI hostname, without subdomains
 or preload. Local Nginx-to-SeaweedFS connections use loopback HTTP.
+
 The Volume hostname's root serves SeaweedFS's `/ui/index.html` page. Nginx rewrites
 loopback HTTP links in Master HTML responses to the corresponding HTTPS UI hostnames,
 so Master-to-Volume navigation works without changing cluster discovery addresses.
@@ -35,7 +37,7 @@ repository's age recipient in `ansible/host_vars/s3/secrets.sops.yaml`:
 - `seaweedfs_ui_password_hash`: bcrypt hash with cost 12
 
 Credentials were generated once; deployment never generates or rotates them.
-Only the username and hash are copied to `/etc/nginx/seaweedfs.htpasswd`, owned by
+Ansible copies only the username and hash to `/etc/nginx/seaweedfs.htpasswd`, owned by
 `root:www-data` with mode `0640`. Secret-bearing Ansible tasks suppress logging.
 
 To retrieve the password, open the encrypted file in a private local editor:
@@ -87,8 +89,8 @@ An unauthenticated request should return `401` with a Basic Auth challenge:
 curl -I https://seaweedfs-filer.lab.canhdinh.com/
 ```
 
-For a login check that prompts for the password rather than putting it in shell
-history, use `curl --user admin https://seaweedfs-filer.lab.canhdinh.com/`.
+Use `curl --user admin https://seaweedfs-filer.lab.canhdinh.com/` to check login.
+It prompts for the password, keeping it out of shell history.
 If login succeeds but Nginx returns `502`, check `seaweedfs.service` and its
 loopback listeners. If certificate validation fails, check `lego-renew.service`
 and the deployed certificate names before retrying.

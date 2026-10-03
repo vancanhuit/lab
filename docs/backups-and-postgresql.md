@@ -10,8 +10,8 @@ under `/etc/postgresql`.
 
 The deployment role checks the mount before making changes, including in check
 mode. The `postgresql@18-main.service` override requires the mount before startup;
-the parent `postgresql.service` is only a meta unit. Restore the Incus attachment
-if the guard fails rather than creating an empty directory on the root disk.
+the parent `postgresql.service` is only a meta unit. If the guard fails, restore
+the Incus attachment. An empty directory on the root disk does not satisfy it.
 
 Inspect storage from the administrator workstation:
 
@@ -27,20 +27,22 @@ restore with the matching PostgreSQL configuration and pgBackRest recovery state
 
 ### Migration and recovery
 
-The migration on 2026-09-19 stopped and runtime-masked the cluster and pgBackRest
-backup timers/services before copying `/var/lib/postgresql` with `cp -a` to the
-staged volume at `/mnt/postgres-data`. PostgreSQL reported a clean shutdown.
+During the migration on 2026-09-19, the cluster and pgBackRest backup timers and
+services were stopped and runtime-masked before copying `/var/lib/postgresql`
+with `cp -a` to the staged volume at `/mnt/postgres-data`. PostgreSQL reported a clean shutdown.
 The copy passed a byte-for-byte comparison, metadata checks, and offline
 `pg_checksums --check` with zero bad checksums before the mount was switched.
 
 The original, stopped cluster at `/var/lib/postgresql.root-disk-backup` was removed
 on 2026-09-19 after verifying the data-volume mount, PostgreSQL, pgBackRest, and
-application health. The pgBackRest repository was preserved. For future migrations,
-the migration-time copy becomes stale once PostgreSQL resumes writes; remove it
-only after accepting the migration. Prefer repairing the
-`data` attachment if startup fails. A storage rollback after writes resume needs
-a fresh stopped copy of the current cluster or a coordinated pgBackRest restore,
-not the migration-time copy. Keep a mount at `/var/lib/postgresql` during recovery.
+application health. The pgBackRest repository was preserved.
+
+For future migrations, remove the migration-time copy only after accepting the
+migration. It becomes stale once PostgreSQL resumes writes. If startup fails,
+try repairing the `data` attachment first. After writes resume, a storage rollback
+needs a fresh copy of the current cluster taken while it is stopped, or a
+coordinated pgBackRest restore. Do not use the stale migration-time copy. Keep a
+mount at `/var/lib/postgresql` during recovery.
 
 For another migration, first inspect tablespaces and `pg_wal` for external paths,
 check pgBackRest, then pause backup jobs and stop PostgreSQL before copying.

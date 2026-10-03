@@ -8,7 +8,8 @@ User registration is enabled, and new accounts must confirm their email address 
 
 ## Repository interface
 
-Repositories expose source browsing, issues, pull requests, Actions, packages, projects, releases, and other enabled units from the repository navigation bar.
+Use the repository navigation bar to browse source, issues, pull requests,
+Actions, packages, projects, releases, and other enabled units.
 
 ![Gitea repository overview](images/gitea/repository-overview.webp)
 
@@ -107,9 +108,16 @@ root-disk copy over newer data or bypass the mount guards.
 
 ## Object storage
 
-Gitea uses the local SeaweedFS S3-compatible API as its object-storage backend. It stores LFS objects, user and repository avatars, attachments, repository archives, packages, Actions logs, and Actions artifacts in the `homelab-gitea` bucket. Git repository object data remains under `/var/lib/gitea` on the Gitea host.
+Gitea stores LFS objects, user and repository avatars, attachments, repository
+archives, packages, Actions logs, and Actions artifacts in the `homelab-gitea`
+bucket through the local SeaweedFS S3-compatible API. Git repository object data
+remains under `/var/lib/gitea` on the Gitea host.
 
-SeaweedFS grants Gitea a bucket-scoped identity with read, list, tagging, and write access only to `homelab-gitea`. The SeaweedFS administrative identity is separate and is not deployed to the Gitea host. Both hosts need their own encrypted copy of the shared Gitea identity: Gitea uses it as an S3 client, while SeaweedFS uses it to define the server-side authorization policy.
+SeaweedFS grants Gitea a bucket-scoped identity with read, list, tagging, and write
+access only to `homelab-gitea`. The separate SeaweedFS administrative identity is
+not deployed to the Gitea host. Both hosts need an encrypted copy of the shared
+Gitea identity. Gitea uses it as an S3 client; SeaweedFS uses it to define the
+server-side authorization policy.
 
 Run `ansible-playbook verify-gitea.yaml` after storage configuration changes. Do not inspect `/etc/gitea/app.ini` in shared or recorded terminals because it contains object-storage credentials.
 
@@ -180,7 +188,7 @@ rollback to the backup discards writes accepted after the backup timestamp.
 
 ### Gitea 28.0.0 upgrade, 2026-09-30
 
-Upgraded from 1.27.3 to [28.0.0](https://blog.gitea.com/release-of-28.0.0/), which
+Gitea was upgraded from 1.27.3 to [28.0.0](https://blog.gitea.com/release-of-28.0.0/), which
 drops the historical `1.` version prefix. The signed amd64 release was verified
 against the existing trusted release key. Debian 13's installed Git 2.47.3 meets
 the new Git 2.25 minimum.
@@ -214,10 +222,10 @@ all eight bucket objects (18,395 bytes). `objects.json` maps each object key to
 its numbered payload under `objects/` and records its SHA-256, metadata, and tags.
 Decrypt only into a protected directory outside this repository.
 
-An isolated database and copied local working directory rehearsed schema
-migration from 343 to 356 in 2.6 seconds, with outbound application integrations
-disabled and local storage selected. Restoring the native dump returned schema
-343 and the original counts (two users, one repository, six runs, six tasks);
+The schema migration rehearsal used an isolated database and a copy of the local
+working directory, with outbound application integrations disabled and local
+storage selected. Migration from 343 to 356 took 2.6 seconds. Restoring the native
+dump returned schema 343 and the original counts (two users, one repository, six runs, six tasks);
 Gitea 1.27.3 accepted the restored database. The rehearsal database and directory
 were removed afterward.
 
@@ -234,5 +242,5 @@ reported `changed=0`.
 Plaintext backup staging was removed after the encrypted copies were verified.
 
 Retain the rollback set through several days of normal operation and a
-successful backup cycle. It is a one-time upgrade backup, not scheduled
+successful backup cycle. This one-time upgrade backup provides no scheduled
 off-host protection.

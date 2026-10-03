@@ -8,7 +8,11 @@ The services are reachable only through the homelab network and Tailscale, but t
 
 The role uses the [ACME DNS-01 challenge](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge) through the [lego Cloudflare provider](https://go-acme.github.io/lego/dns/cloudflare/). Let's Encrypt validates control of each hostname by querying a temporary public TXT record at `_acme-challenge.<hostname>`.
 
-Validation checks public DNS ownership, not service reachability. The service does not need a public IP address, a public A/AAAA record, an inbound port, or a reverse proxy. Tailscale split DNS can continue resolving `*.lab.canhdinh.com` to private addresses while Cloudflare publishes only the ACME challenge records required for issuance.
+DNS-01 validates hostname control through public DNS without connecting to the
+service. The service needs no public IP address, public A/AAAA record, inbound
+port, or reverse proxy. Tailscale split DNS can continue resolving
+`*.lab.canhdinh.com` to private addresses while Cloudflare publishes only the
+ACME challenge records required for issuance.
 
 The role currently accepts explicit hostnames only and rejects wildcard entries. Every publicly trusted certificate is submitted to [Certificate Transparency logs](https://letsencrypt.org/docs/ct-logs/), so names such as `dns.lab.canhdinh.com`, `postgres.lab.canhdinh.com`, and `gitea.lab.canhdinh.com` are publicly discoverable and must not be considered secret.
 
@@ -53,14 +57,14 @@ During each playbook run, the role:
 
 6. The `lego` client creates the `_acme-challenge` TXT record through the Cloudflare API and checks propagation through `1.1.1.1` and `1.0.0.1`. The role allows up to 180 seconds for propagation and polls every five seconds.
 7. Let's Encrypt validates the TXT record and issues the certificate. The `lego` client stores the certificate and private key under `/var/lib/lego/certificates/`, using `lego_certificate_name` for the filenames.
-8. When certificate material changes, the `lego` client runs the configured deploy hook so the target service receives the new identity.
+8. When certificate material changes, the `lego` client runs the configured deploy hook to install the new certificate on the target service.
 9. The role enables the daily renewal timer.
 
 Preserve `/var/lib/lego`; it contains the ACME account and certificate state needed for stable reconciliation. Repeatedly deleting this state and requesting replacement certificates can consume [Let's Encrypt rate limits](https://letsencrypt.org/docs/rate-limits/).
 
 ## Service deployment hooks
 
-The shared role owns issuance and renewal, while each service playbook owns the final certificate format, destination, permissions, validation, and reload behavior:
+The shared role handles issuance and renewal. Each service playbook sets the final certificate format, destination, permissions, validation, and reload behavior:
 
 | Service | lego output | Active destination and behavior |
 | --- | --- | --- |
@@ -93,7 +97,7 @@ sudo systemctl list-timers lego-renew.timer
 sudo journalctl -u lego-renew.service --since today
 ```
 
-Trigger the same reconciliation path manually and then inspect its logs:
+Run reconciliation manually, then inspect its logs:
 
 ```sh
 sudo systemctl start lego-renew.service
@@ -122,4 +126,4 @@ If issuance or renewal fails:
 5. Validate the deploy-hook destination directory, ownership, service account, and reload command.
 6. Set `lego_server: letsencrypt-staging` while debugging repeated authorization failures; staging certificates are intentionally not publicly trusted. Restore `lego_server: letsencrypt` before production issuance.
 
-Do not print `/etc/lego/cloudflare.env`, copy private keys into logs, or loosen key permissions to troubleshoot access. The role marks secret-rendering tasks with `no_log`, but operators must apply the same discipline to manual commands.
+Do not print `/etc/lego/cloudflare.env`, copy private keys into logs, or loosen key permissions to troubleshoot access. The role marks secret-rendering tasks with `no_log`. Keep secrets out of manual command output too.

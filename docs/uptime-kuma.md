@@ -2,9 +2,10 @@
 
 ## First login and setup
 
-Open `https://kuma.lab.canhdinh.com/` and configure the initial administrator account:
-
-Use `kuma-admin` as the username. Generate a strong, unique password in your password manager and enter it during account creation. Ansible does not create the administrator or store this password.
+Open `https://kuma.lab.canhdinh.com/` and create the initial administrator account
+with username `kuma-admin`. Generate a strong, unique password in your password
+manager and enter it during account creation. Ansible does not create the
+administrator or store this password.
 
 After first login, enable two-factor authentication:
 
@@ -24,7 +25,9 @@ Kuma's logs, rate limiting, and access controls will then use the client address
 
 ## Brevo notification configuration
 
-Configure the native Brevo notification provider for alert emails. Store these values in your password manager; they are entered directly in Kuma and are not managed by Ansible or SOPS.
+Configure the native Brevo notification provider for alert emails. Store its
+settings in your password manager and enter them directly in Kuma. Ansible and
+SOPS do not manage these values.
 
 1. Navigate to **Settings** > **Notifications**.
 2. Click **Setup Notification**.
@@ -112,7 +115,8 @@ List available backup archives:
 sudo ls -lh /var/backups/uptime-kuma/
 ```
 
-Backup archives are stored as root-only gzipped SQLite database files under `/var/backups/uptime-kuma/` with names such as `kuma-20260810T020015Z.db.gz`. The timer retains the 14 newest backups.
+Backups are root-only gzipped SQLite database files under `/var/backups/uptime-kuma/`
+with names such as `kuma-20260810T020015Z.db.gz`. The timer retains the 14 newest backups.
 
 > [!WARNING]
 > Backup archives exist only on the Kuma host. Losing the host also loses the archives permanently.
@@ -206,7 +210,11 @@ The Kuma role performs these steps automatically:
 6. Update the `/opt/uptime-kuma/current` symlink to point to the new release directory.
 7. Restart the service and verify the upgraded endpoint.
 
-The role retains the active release and the newest previous release after a successful deployment. A failure before activation leaves the current release running. A restart or health-check failure after activation can leave the new release selected and the service failed; the role does not roll back the symlink automatically.
+After a successful deployment, the role retains the active release and the
+newest previous release. If deployment fails before activation, the current
+release keeps running. A restart or health-check failure after activation can
+leave the new release selected and the service failed. The role does not roll
+back the symlink automatically.
 
 Recover the previous release manually by identifying the previous commit directory, then:
 

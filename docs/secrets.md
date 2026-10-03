@@ -1,6 +1,6 @@
 # Secret management with SOPS and age
 
-This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets encrypted in Git. SOPS encrypts the values in structured files while preserving enough YAML structure for useful reviews. age provides the asymmetric key pair that controls who can decrypt the file.
+This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets encrypted in Git. SOPS encrypts YAML values and leaves the structure readable for review. The age asymmetric key pair controls who can decrypt the file.
 
 ## Repository configuration
 
@@ -50,7 +50,7 @@ age-keygen -o "$identity_dir/keys.txt"
 
 [Proton Pass](https://proton.me/pass/security) uses zero-knowledge, end-to-end encryption, and its free plan includes unlimited notes and devices. It can hold the recovery copy when Bitwarden is not used.
 
-Treat the password-manager copy as an operational continuity requirement:
+Keep a tested recovery copy in your password manager:
 
 - Protect the selected password-manager account with a strong, unique master password and multi-factor authentication, such as [Bitwarden two-step login](https://bitwarden.com/help/setup-two-step-login/).
 - Restrict the vault item or organization collection to operators authorized to decrypt homelab secrets.
@@ -58,7 +58,8 @@ Treat the password-manager copy as an operational continuity requirement:
 - After storing or updating the item, temporarily restore the identity on a trusted system, verify decryption to `/dev/null`, and securely remove the temporary copy.
 - Review access and recovery procedures when operators or devices change.
 
-The local identity file remains the working copy for SOPS. Bitwarden or Proton Pass holds the recovery copy so the loss of one workstation does not interrupt Ansible operations.
+SOPS uses the local identity file. The recovery copy in Bitwarden or Proton Pass
+lets you resume Ansible operations if you lose the workstation.
 
 Print only the public recipient derived from the private identity:
 
@@ -77,7 +78,7 @@ Environment variables containing private key material, such as `SOPS_AGE_KEY`, a
 
 ## Edit and inspect secrets
 
-Edit an encrypted file through SOPS rather than decrypting it to a persistent plaintext file. Specify the file relative to `ansible/` with the `SOPS_FILE` environment variable:
+Use SOPS to edit secrets without saving a persistent plaintext file. Specify the file relative to `ansible/` with the `SOPS_FILE` environment variable:
 
 ```sh
 SOPS_FILE=host_vars/gitea/secrets.sops.yaml mise run secrets:edit
@@ -94,13 +95,13 @@ SOPS_FILE=host_vars/gitea/secrets.sops.yaml mise run secrets:view
 > [!WARNING]
 > `secrets:view` prints every plaintext secret to the terminal. Do not run it in recorded terminals, CI logs, shared sessions, or commands whose output is redirected to an unencrypted file.
 
-Test key access without displaying plaintext for a specific file:
+Test whether your identity can decrypt a specific file without displaying plaintext:
 
 ```sh
 sops --decrypt ansible/host_vars/gitea/secrets.sops.yaml >/dev/null
 ```
 
-Or authenticate every encrypted inventory file at once:
+To authenticate every encrypted inventory file:
 
 ```sh
 mise run secrets:check

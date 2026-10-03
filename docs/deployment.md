@@ -1,6 +1,6 @@
 # Deployment sequence
 
-Run these stages in order. DNS must resolve the service hostnames before the other services request certificates. PostgreSQL and SeaweedFS must be available before Gitea or Harbor starts using those external data services.
+Run these stages in order. DNS must resolve service hostnames before the other services request certificates. PostgreSQL and SeaweedFS must be available before Gitea or Harbor uses them.
 
 Run all commands below from the `ansible/` directory:
 
@@ -35,9 +35,8 @@ getent hosts harbor.lab.canhdinh.com
 
 ## 2. Deploy PostgreSQL
 
-Deploy PostgreSQL 18 and its `lego`-managed TLS certificate:
-
-First provision `pool1/postgres-data` with a 20 GiB quota at `/var/lib/postgresql`
+Before deploying PostgreSQL 18 and its `lego`-managed TLS certificate, provision
+`pool1/postgres-data` with a 20 GiB quota at `/var/lib/postgresql`
 using the [Incus instructions](incus.md#create-incus-instances). The role requires
 the mount before deployment changes, including in check mode. A systemd override
 on the cluster service also requires the mount before startup. For existing
@@ -64,7 +63,7 @@ The second deployment should report `changed=0` for the PostgreSQL host.
 
 ## 3. Deploy SeaweedFS S3
 
-Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy SeaweedFS. The verification playbook checks the HTTPS boundary and confirms that unauthenticated requests are rejected. It also validates the certificate, services, timers, and data mount:
+Create a private Technitium A record for `s3.lab.canhdinh.com` pointing to the container address, then deploy SeaweedFS. The verification playbook checks HTTPS access, rejection of unauthenticated requests, the certificate, services, timers, and data mount:
 
 ```sh
 ansible-playbook s3.yaml
@@ -72,7 +71,13 @@ ansible-playbook verify-s3.yaml
 ansible-playbook s3.yaml
 ```
 
-The second deployment should report `changed=0` for `s3`. SeaweedFS data and metadata are stored on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`; the container root disk does not hold object data. Nginx serves the application endpoints on HTTPS port 443; port 80 only redirects UI hostnames to HTTPS and rejects other hosts. SeaweedFS master, volume, filer, and S3 listeners bind to loopback.
+The second deployment should report `changed=0` for `s3`. SeaweedFS stores data and
+metadata on the separate `pool1` custom volume mounted at `/var/lib/seaweedfs`;
+the container root disk does not hold object data.
+
+Nginx serves the application endpoints on HTTPS port 443. Port 80 redirects only
+UI hostnames to HTTPS and rejects other hosts. SeaweedFS master, volume, filer,
+and S3 listeners bind to loopback.
 
 The role creates the `homelab-gitea` and `homelab-harbor` buckets with their respective application owners before Gitea or Harbor is deployed. Existing buckets are left unchanged, including the Gitea bucket migrated from Backblaze.
 
@@ -91,7 +96,17 @@ directory on the root filesystem does not satisfy the guard.
 
 ## 4. Deploy Harbor
 
-Harbor 2.15.2 runs on Docker Engine and Docker Compose installed using [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/). The playbook creates the `harbor` PostgreSQL role and database, creates the `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity, and deploys Harbor with trusted HTTPS and its bundled Trivy vulnerability scanner. Trivy updates its vulnerability databases from the upstream Aqua Security OCI repositories. Registry blobs use SeaweedFS; Harbor metadata uses PostgreSQL with `verify-full` TLS, validating the certificate chain and `postgres.lab.canhdinh.com` hostname. Valkey, Trivy databases, generated configuration, logs, and Docker images remain local to the Harbor VM.
+Harbor 2.15.2 runs on Docker Engine and Docker Compose installed from
+[Docker's official Debian repository](https://docs.docker.com/engine/install/debian/).
+The playbook creates the `harbor` PostgreSQL role and database, along with the
+`homelab-harbor` SeaweedFS bucket with a bucket-scoped identity. It deploys Harbor
+with trusted HTTPS and the bundled Trivy vulnerability scanner, which updates its
+vulnerability databases from the upstream Aqua Security OCI repositories.
+
+SeaweedFS stores registry blobs. PostgreSQL stores Harbor metadata using
+`verify-full` TLS to validate the certificate chain and
+`postgres.lab.canhdinh.com` hostname. Valkey, Trivy databases, generated
+configuration, logs, and Docker images remain on the Harbor VM.
 
 ```sh
 ansible-playbook harbor.yaml
@@ -115,7 +130,11 @@ systemd also refuses to start Gitea without it. Restore the Incus attachment if
 the guard fails. Repositories and generated state belong on this volume, outside
 the container root disk.
 
-The role renders `gitea_s3_endpoint`, `gitea_s3_region`, `gitea_s3_bucket`, `gitea_s3_access_key`, and `gitea_s3_secret_key` into Gitea's `minio` storage backend. The active endpoint is `s3.lab.canhdinh.com`, using path-style lookup for `homelab-gitea`. Store the endpoint as a hostname without an `http://` or `https://` prefix. Changing these values switches configuration only; it does not migrate objects.
+The role renders `gitea_s3_endpoint`, `gitea_s3_region`, `gitea_s3_bucket`,
+`gitea_s3_access_key`, and `gitea_s3_secret_key` into Gitea's `minio` storage backend.
+The active endpoint is `s3.lab.canhdinh.com`, with path-style lookup for
+`homelab-gitea`. Store the endpoint as a hostname without an `http://` or `https://`
+prefix. Changing these values updates the configuration but does not migrate objects.
 
 ```sh
 ansible-playbook gitea.yaml
@@ -157,7 +176,7 @@ Uptime Kuma stores its state in a local SQLite database and has no PostgreSQL ru
 ansible-playbook kuma.yaml
 ```
 
-The first deployment installs the infrastructure but leaves Kuma waiting for one-time database setup through its web interface. Complete the [Uptime Kuma First Login and Setup](uptime-kuma.md#first-login-and-setup) before running verification.
+The first deployment installs the infrastructure. Kuma then needs one-time database setup through its web interface. Complete [Uptime Kuma's first login and setup](uptime-kuma.md#first-login-and-setup) before running verification.
 
 Verify the Kuma service, listener, TLS endpoint, backup configuration, and timers:
 

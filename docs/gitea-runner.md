@@ -22,7 +22,12 @@ incus start gitea-runner
 
 Create a stable Technitium DHCP reservation for the VM and a private A record for `gitea-runner.lab.canhdinh.com`. Confirm that SSH and HTTPS access to `gitea.lab.canhdinh.com` work from the VM before deployment.
 
-The role recognizes the dedicated disk by `/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_incus_data`, creates ext4 only when the disk is unformatted, and mounts it by filesystem UUID at `/var/lib/docker`. It refuses a disk containing another filesystem or mounted at another path. Containerd stores its image snapshots under `/var/lib/docker/containerd`, keeping Docker state off the VM root disk.
+The role identifies the dedicated disk by
+`/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_incus_data`. It creates ext4 only if the
+disk is unformatted and mounts the filesystem by UUID at `/var/lib/docker`.
+The role refuses a disk containing another filesystem or mounted at another
+path. Containerd stores image snapshots under `/var/lib/docker/containerd`, so
+Docker state stays off the VM root disk.
 
 ## Deploy and verify
 
@@ -34,7 +39,11 @@ ansible-playbook verify-gitea-runner.yaml
 ansible-playbook gitea-runner.yaml
 ```
 
-The playbook obtains the global registration token directly from Gitea as the `git` account, passes it only during first registration, and removes the temporary token file. The persistent `/var/lib/gitea-runner/.runner` file contains the runner identity and API credentials and is restricted to mode `0600`.
+The playbook uses the `git` account to obtain the global registration token
+directly from Gitea. It passes the token only during first registration, then
+removes the temporary token file. The persistent `/var/lib/gitea-runner/.runner`
+file contains the runner identity and API credentials, with permissions
+restricted to mode `0600`.
 
 The deployment installs Gitea Runner 4.1.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
 
@@ -98,6 +107,8 @@ sudo journalctl -u gitea-runner.service
 curl --fail http://127.0.0.1:9101/readyz
 ```
 
-The runner has capacity one. Host jobs can leave files, processes, images, and other state behind; the runner performs its normal workspace cleanup, but the VM is not reset after each job.
+The runner runs one job at a time. It performs its normal workspace cleanup, but
+does not reset the VM after each job. Host jobs can leave files, processes,
+images, and other state behind.
 
 To upgrade, update `gitea_runner_version` and `gitea_runner_checksum` together after reviewing the [runner upgrade guide](https://docs.gitea.com/runner/upgrade/) and release notes. The registration file remains valid across upgrades.
