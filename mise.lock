@@ -192,6 +192,12 @@ backend = "pipx:ansible-lint"
 specifiers = ["26.9.0"]
 uv = { path = ".mise/locks/pipx-ansible-lint/26.9.0", digest = "sha256:3c67ed6826f11619d1a124dc180e54b7c84d7119f459041484f5f9ea4a103b2b" }
 
+[[tools."pipx:ansible-navigator"]]
+version = "26.9.0"
+backend = "pipx:ansible-navigator"
+specifiers = ["26.9.0"]
+uv = { path = ".mise/locks/pipx-ansible-navigator/26.9.0", digest = "sha256:84daa887fcb054f4387a0eaaf1bb0fbe5b917d6c0131e72e48582966d9e25848" }
+
 [[tools.python]]
 version = "3.14.8"
 backend = "core:python"
