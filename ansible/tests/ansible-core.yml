@@ -32,8 +32,8 @@
         vars: { gitea_expected_version: '28.0.0' }
       - file: verify-gitea-runner.yaml
         name: Check Gitea Runner version
-        stdout: 'Gitea Runner version 4.0.0'
-        vars: { gitea_runner_expected_version: '4.0.0' }
+        stdout: 'Gitea Runner version 4.1.0'
+        vars: { gitea_runner_expected_version: '4.1.0' }
       - file: verify-gitea-runner.yaml
         name: Check Node.js version
         stdout: v24.21.0
