@@ -44,9 +44,8 @@
       - require('./package.json').version
   args:
     chdir: "{{ uptime_kuma_release_path }}"
-  register: uptime_kuma_package_version_check
   changed_when: false
-  failed_when: uptime_kuma_package_version_check.stdout != uptime_kuma_version
+  failed_when: _task.result.rc != 0 or _task.result.stdout != uptime_kuma_version
 
 - name: Check Uptime Kuma database state
   ansible.builtin.stat:

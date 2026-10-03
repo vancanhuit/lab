@@ -1,0 +1,46 @@
+---
+- name: Load production command validation condition
+  ansible.builtin.set_fact:
+    command_validation_task: >-
+      {{ (command_validation_source[0].tasks if command_validation_case.file.startswith('verify-')
+          else command_validation_source) |
+         selectattr('name', 'equalto', command_validation_case.name) | first }}
+  vars:
+    command_validation_source: >-
+      {{ lookup('ansible.builtin.file', playbook_dir ~ '/../' ~ command_validation_case.file) | from_yaml }}
+
+- name: Prepare harmless commands using the production failure condition
+  ansible.builtin.copy:
+    dest: "{{ command_validation_dir.path }}/command-{{ command_validation_index }}.yml"
+    mode: '0600'
+    content: >-
+      {{ [{
+        'name': command_validation_case.name,
+        'ansible.builtin.command': {
+          'argv': [ansible_playbook_python, '-c',
+                   'import sys; sys.stdout.write(sys.argv[1]); sys.exit(int(sys.argv[2]))',
+                   '{{ item.stdout }}', '{{ item.rc }}']
+        },
+        'vars': command_validation_case.vars,
+        'failed_when': command_validation_task.failed_when,
+        'changed_when': false,
+        'ignore_errors': true,
+        'register': 'command_validation_results',
+        'loop': [
+          {'stdout': command_validation_case.stdout, 'rc': 0},
+          {'stdout': command_validation_case.stdout, 'rc': 7},
+          {'stdout': 'unexpected-output', 'rc': 0}
+        ]
+      }] | to_nice_yaml }}
+
+- name: Execute local command validation fixtures
+  ansible.builtin.include_tasks: "{{ command_validation_dir.path }}/command-{{ command_validation_index }}.yml"
+
+- name: Require success only for matching output and a zero exit status
+  ansible.builtin.assert:
+    that:
+      - command_validation_results.results[0].stdout == command_validation_case.stdout
+      - not command_validation_results.results[0].failed
+      - command_validation_results.results[1].failed
+      - command_validation_results.results[1].rc == 7
+      - command_validation_results.results[2].failed

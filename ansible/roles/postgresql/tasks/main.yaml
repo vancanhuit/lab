@@ -5,8 +5,8 @@
 - name: Verify PostgreSQL data mount
   ansible.builtin.import_tasks: verify-mount.yaml
 
-- name: Check whether python3-apt module is importable during check mode
-  ansible.builtin.command: python3 -c "import apt_pkg"
+- name: Check whether APT and repository Python dependencies are importable during check mode
+  ansible.builtin.command: python3 -c "import apt_pkg; import debian"
   register: postgresql_python3_apt_check
   changed_when: false
   failed_when: false
@@ -26,7 +26,7 @@
   ansible.builtin.debug:
     msg: >-
       Skipping PostgreSQL bootstrap/configuration tasks in check mode because this host is
-      not bootstrapped yet (python3-apt importable={{ postgresql_python3_apt_check.rc == 0 }},
+      not bootstrapped yet (APT/repository dependencies importable={{ postgresql_python3_apt_check.rc == 0 }},
       postgres runtime present={{ postgresql_runtime_binary.stat.exists | default(false) }}).
       Run postgres.yaml without --check once to bootstrap packages, repository, and cluster.
   changed_when: false
@@ -58,6 +58,7 @@
 
     - name: Configure PGDG APT repository
       ansible.builtin.deb822_repository:
+        install_python_debian: true
         name: pgdg
         types:
           - deb

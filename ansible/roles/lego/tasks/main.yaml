@@ -184,7 +184,7 @@
     mode: '0644'
 
 - name: Enable and start the lego-renew.timer
-  ansible.builtin.systemd:
+  ansible.builtin.systemd_service:
     name: lego-renew.timer
     enabled: true
     state: started

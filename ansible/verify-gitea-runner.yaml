@@ -2,6 +2,7 @@
 - name: Verify Gitea Actions runner
   hosts: gitea_runner
   become: true
+  gather_facts: false
   vars:
     gitea_runner_binary_path: /usr/local/bin/gitea-runner
     gitea_runner_expected_version: "4.0.0"
@@ -13,16 +14,14 @@
     - name: Check Gitea Runner version
       ansible.builtin.command:
         cmd: "{{ gitea_runner_binary_path }} --version"
-      register: gitea_runner_version_check
       changed_when: false
-      failed_when: gitea_runner_expected_version not in gitea_runner_version_check.stdout
+      failed_when: _task.result.rc != 0 or gitea_runner_expected_version not in _task.result.stdout
 
     - name: Check Node.js version
       ansible.builtin.command:
         cmd: node --version
-      register: gitea_runner_node_version_check
       changed_when: false
-      failed_when: gitea_runner_node_version_check.stdout != gitea_runner_expected_node_version
+      failed_when: _task.result.rc != 0 or _task.result.stdout != gitea_runner_expected_node_version
 
     - name: Gather service facts
       ansible.builtin.service_facts:
@@ -85,11 +84,13 @@
     - name: Read Gitea Runner configuration
       ansible.builtin.slurp:
         path: /etc/gitea-runner/config.yaml
-      register: gitea_runner_config
+        armor: false
+      register:
+        gitea_runner_config: _task.result.content | from_yaml
 
     - name: Assert host runner label and Docker requirements
       ansible.builtin.assert:
         that:
-          - (gitea_runner_config.content | b64decode | from_yaml).runner.labels == ['debian-amd64:host']
-          - (gitea_runner_config.content | b64decode | from_yaml).container.require_docker
-          - not (gitea_runner_config.content | b64decode | from_yaml).container.privileged
+          - gitea_runner_config.runner.labels == ['debian-amd64:host']
+          - gitea_runner_config.container.require_docker
+          - not gitea_runner_config.container.privileged

@@ -2,13 +2,13 @@
 - name: Verify Uptime Kuma deployment
   hosts: kuma
   become: true
+  gather_facts: false
   tasks:
     - name: Check Node.js version
       ansible.builtin.command:
         cmd: node --version
-      register: uptime_kuma_node_check
       changed_when: false
-      failed_when: uptime_kuma_node_check.stdout != 'v24.21.0'
+      failed_when: _task.result.rc != 0 or _task.result.stdout != 'v24.21.0'
 
     - name: Check Uptime Kuma version
       ansible.builtin.command:
@@ -16,9 +16,8 @@
           - node
           - -p
           - require('/opt/uptime-kuma/current/package.json').version
-      register: uptime_kuma_version_check
       changed_when: false
-      failed_when: uptime_kuma_version_check.stdout != '2.5.4'
+      failed_when: _task.result.rc != 0 or _task.result.stdout != '2.5.4'
 
     - name: Gather service facts
       ansible.builtin.service_facts:

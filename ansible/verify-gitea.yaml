@@ -2,6 +2,7 @@
 - name: Verify Gitea deployment
   hosts: gitea
   become: true
+  gather_facts: false
   vars:
     gitea_binary_path: /usr/local/bin/gitea
     gitea_config_path: /etc/gitea/app.ini
@@ -16,9 +17,8 @@
     - name: Check Gitea version
       ansible.builtin.command:
         cmd: "{{ gitea_binary_path }} --version"
-      register: gitea_version_check
       changed_when: false
-      failed_when: gitea_expected_version not in gitea_version_check.stdout
+      failed_when: _task.result.rc != 0 or gitea_expected_version not in _task.result.stdout
 
     - name: Gather service facts
       ansible.builtin.service_facts:
@@ -58,6 +58,7 @@
           openssl s_client -connect {{ gitea_domain }}:443 \
             -servername {{ gitea_domain }} </dev/null 2>/dev/null |
             openssl x509 -checkend 604800 -noout -ext subjectAltName
+        executable: /bin/bash
       register: gitea_cert_check
       changed_when: false
       failed_when: >-
@@ -67,12 +68,9 @@
     - name: Read Gitea configuration
       ansible.builtin.slurp:
         path: "{{ gitea_config_path }}"
-      register: gitea_config_content
-      no_log: true
-
-    - name: Decode Gitea configuration
-      ansible.builtin.set_fact:
-        gitea_config_text: "{{ gitea_config_content.content | b64decode }}"
+        armor: false
+      register:
+        gitea_config_text: _task.result.content
       no_log: true
 
     - name: Assert Gitea configuration requirements

@@ -47,6 +47,19 @@ mise run ansible:deps
 mise run hooks:install
 ```
 
+The roles and playbooks require Ansible Core 2.21 or newer; use the version pinned
+in `mise.toml`. Text configuration reads use `slurp` with `armor: false`, and
+register projections replace separate decoding tasks. Facts are accessed through
+`ansible_facts`; deprecated top-level fact injection is disabled in `ansible.cfg`.
+See the [2.21 release notes](https://github.com/ansible/ansible/blob/stable-2.21/changelogs/CHANGELOG-v2.21.rst)
+and [2.20 fact-injection migration guidance](https://docs.ansible.com/projects/ansible/latest/porting_guides/porting_guide_core_2.20.html#inject-facts-as-vars).
+
+Repository setup uses `deb822_repository` and installs its `python3-debian`
+dependency either through the role's package prerequisites or the module's
+`install_python_debian` option. Dependency installation requires a normal run;
+PostgreSQL skips fresh-host configuration in check mode until those dependencies
+and its runtime are present.
+
 `mise run hooks:install` configures Cocogitto to reject non-conventional commit messages and runs Gitleaks and [TruffleHog](https://github.com/trufflesecurity/trufflehog) before every push. Run both secret scanners directly with `mise run security:secrets`.
 
 Gitleaks performs a redacted full-history pattern scan. TruffleHog blocks credentials verified as active and candidates it cannot verify because of a provider or network error. TruffleHog may contact credential-provider APIs during verification; its repository wrapper reports only detector, status, file, line, and commit metadata so matched values are not printed.

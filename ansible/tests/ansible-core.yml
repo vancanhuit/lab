@@ -1,0 +1,74 @@
+---
+- name: Validate Ansible Core compatibility and command failure handling
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  gather_subset: [min]
+  vars:
+    command_validation_cases:
+      - file: roles/gitea/tasks/main.yaml
+        name: Verify release key fingerprint
+        stdout: 'fpr:::::::::TEST-FINGERPRINT:'
+        vars: { gitea_release_key_fingerprint: TEST-FINGERPRINT }
+      - file: roles/gitea_runner/tasks/main.yaml
+        name: Read NodeSource repository key fingerprint
+        stdout: 'fpr:::::::::TEST-FINGERPRINT:'
+        vars: { gitea_runner_nodesource_key_fingerprint: TEST-FINGERPRINT }
+      - file: roles/uptime_kuma/tasks/install.yaml
+        name: Read NodeSource repository key fingerprint
+        stdout: 'fpr:::::::::TEST-FINGERPRINT:'
+        vars: { uptime_kuma_nodesource_key_fingerprint: TEST-FINGERPRINT }
+      - file: roles/uptime_kuma/tasks/install.yaml
+        name: Check installed Node.js version
+        stdout: v24.21.0
+        vars: { uptime_kuma_node_version: '24.21.0' }
+      - file: roles/uptime_kuma/tasks/release.yaml
+        name: Verify checked-out Uptime Kuma version
+        stdout: '2.5.4'
+        vars: { uptime_kuma_version: '2.5.4' }
+      - file: verify-gitea.yaml
+        name: Check Gitea version
+        stdout: 'Gitea version 28.0.0'
+        vars: { gitea_expected_version: '28.0.0' }
+      - file: verify-gitea-runner.yaml
+        name: Check Gitea Runner version
+        stdout: 'Gitea Runner version 4.0.0'
+        vars: { gitea_runner_expected_version: '4.0.0' }
+      - file: verify-gitea-runner.yaml
+        name: Check Node.js version
+        stdout: v24.21.0
+        vars: { gitea_runner_expected_node_version: v24.21.0 }
+      - file: verify-kuma.yaml
+        name: Check Node.js version
+        stdout: v24.21.0
+        vars: {}
+      - file: verify-kuma.yaml
+        name: Check Uptime Kuma version
+        stdout: '2.5.4'
+        vars: {}
+  tasks:
+    - name: Require namespaced facts without deprecated injection
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution is defined
+          - ansible_distribution is not defined
+
+    - name: Create local command validation directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: command_validation_dir
+
+    - name: Exercise production failure conditions with local commands
+      block:
+        - name: Test matching output, failed commands, and mismatched output
+          ansible.builtin.include_tasks: command-validation-case.yml
+          loop: "{{ command_validation_cases }}"
+          loop_control:
+            loop_var: command_validation_case
+            index_var: command_validation_index
+            label: "{{ command_validation_case.file }} / {{ command_validation_case.name }}"
+      always:
+        - name: Remove local command validation directory
+          ansible.builtin.file:
+            path: "{{ command_validation_dir.path }}"
+            state: absent

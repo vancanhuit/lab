@@ -85,9 +85,9 @@
   ansible.builtin.command:
     cmd: gpg --batch --show-keys --with-colons /var/tmp/gitea-release-key.asc
   changed_when: false
-  register: gitea_release_key_fingerprint_check
   failed_when: >-
-    'fpr:::::::::' ~ gitea_release_key_fingerprint ~ ':' not in gitea_release_key_fingerprint_check.stdout
+    _task.result.rc != 0 or
+    'fpr:::::::::' ~ gitea_release_key_fingerprint ~ ':' not in _task.result.stdout
 
 - name: Check if binary keyring exists
   ansible.builtin.stat:

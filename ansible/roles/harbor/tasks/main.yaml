@@ -31,6 +31,7 @@
 
 - name: Configure Docker repository
   ansible.builtin.deb822_repository:
+    install_python_debian: true
     name: docker
     types: [deb]
     uris: [https://download.docker.com/linux/debian]

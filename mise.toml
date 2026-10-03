@@ -28,6 +28,7 @@ run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 
+ansible-playbook -i localhost, tests/ansible-core.yml
 for playbook in roles/*/tests/render-config.yml; do
   ansible-playbook -i localhost, "$playbook"
 done

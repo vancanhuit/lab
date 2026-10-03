@@ -37,11 +37,11 @@
 - name: Read NodeSource repository key fingerprint
   ansible.builtin.command:
     cmd: gpg --batch --show-keys --with-colons /usr/share/keyrings/nodesource-repo.gpg.key
-  register: uptime_kuma_nodesource_key_check
   changed_when: false
   failed_when: >-
+    _task.result.rc != 0 or
     'fpr:::::::::' ~ uptime_kuma_nodesource_key_fingerprint ~ ':'
-    not in uptime_kuma_nodesource_key_check.stdout
+    not in _task.result.stdout
 
 - name: Remove legacy NodeSource repository definition
   ansible.builtin.file:
@@ -83,9 +83,8 @@
 - name: Check installed Node.js version
   ansible.builtin.command:
     cmd: node --version
-  register: uptime_kuma_node_version_check
   changed_when: false
-  failed_when: uptime_kuma_node_version_check.stdout != 'v' ~ uptime_kuma_node_version
+  failed_when: _task.result.rc != 0 or _task.result.stdout != 'v' ~ uptime_kuma_node_version
 
 - name: Create Uptime Kuma system group
   ansible.builtin.group:

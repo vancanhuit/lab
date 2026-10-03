@@ -193,41 +193,44 @@
         - name: Read rendered postgresql.conf
           ansible.builtin.slurp:
             src: "{{ postgresql_conf_tmp.path }}"
-          register: postgresql_conf_content
+            armor: false
+          register:
+            postgresql_rendered: _task.result.content
 
-        - name: Read rendered pg_hba.conf
+        - name: Read rendered pg_hba.conf # noqa: var-naming[no-role-prefix]
           ansible.builtin.slurp:
             src: "{{ postgresql_hba_tmp.path }}"
-          register: postgresql_hba_content
+            armor: false
+          register:
+            pg_hba_rendered: _task.result.content
 
         - name: Read rendered pgbackrest.conf
           ansible.builtin.slurp:
             src: "{{ postgresql_pgbackrest_conf_tmp.path }}"
-          register: postgresql_pgbackrest_conf_content
+            armor: false
+          register:
+            postgresql_pgbackrest_rendered: _task.result.content
 
         - name: Read rendered pgBackRest backup service
           ansible.builtin.slurp:
             src: "{{ postgresql_pgbackrest_service_tmp.path }}"
-          register: postgresql_pgbackrest_service_content
+            armor: false
+          register:
+            postgresql_pgbackrest_service_rendered: _task.result.content
 
         - name: Read rendered pgBackRest full backup timer
           ansible.builtin.slurp:
             src: "{{ postgresql_pgbackrest_full_timer_tmp.path }}"
-          register: postgresql_pgbackrest_full_timer_content
+            armor: false
+          register:
+            postgresql_pgbackrest_full_timer_rendered: _task.result.content
 
         - name: Read rendered pgBackRest differential backup timer
           ansible.builtin.slurp:
             src: "{{ postgresql_pgbackrest_diff_timer_tmp.path }}"
-          register: postgresql_pgbackrest_diff_timer_content
-
-        - name: Set rendered content facts # noqa: var-naming[no-role-prefix]
-          ansible.builtin.set_fact:
-            postgresql_rendered: "{{ postgresql_conf_content.content | b64decode }}"
-            pg_hba_rendered: "{{ postgresql_hba_content.content | b64decode }}"
-            postgresql_pgbackrest_rendered: "{{ postgresql_pgbackrest_conf_content.content | b64decode }}"
-            postgresql_pgbackrest_service_rendered: "{{ postgresql_pgbackrest_service_content.content | b64decode }}"
-            postgresql_pgbackrest_full_timer_rendered: "{{ postgresql_pgbackrest_full_timer_content.content | b64decode }}"
-            postgresql_pgbackrest_diff_timer_rendered: "{{ postgresql_pgbackrest_diff_timer_content.content | b64decode }}"
+            armor: false
+          register:
+            postgresql_pgbackrest_diff_timer_rendered: _task.result.content
 
         - name: Assert required configuration and HBA ordering
           ansible.builtin.assert:

@@ -88,6 +88,7 @@
     - name: Read installation task files
       ansible.builtin.slurp:
         src: "{{ item }}"
+        armor: false
       loop:
         - "{{ (playbook_dir | dirname) ~ '/tasks/install.yaml' }}"
         - "{{ (playbook_dir | dirname) ~ '/tasks/release.yaml' }}"
@@ -98,7 +99,6 @@
         uptime_kuma_install_tasks_rendered: >-
           {{ uptime_kuma_install_task_files.results |
              map(attribute='content') |
-             map('b64decode') |
              join('\n') }}
 
     - name: Assert installation trust and release controls
@@ -121,7 +121,7 @@
     - name: Parse release management tasks
       ansible.builtin.set_fact:
         uptime_kuma_release_tasks: >-
-          {{ (uptime_kuma_install_task_files.results[1].content | b64decode | from_yaml) }}
+          {{ uptime_kuma_install_task_files.results[1].content | from_yaml }}
 
     - name: Select release activation task
       ansible.builtin.set_fact:
@@ -180,41 +180,44 @@
     - name: Read rendered systemd service
       ansible.builtin.slurp:
         src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma.service"
-      register: uptime_kuma_service_slurp
+        armor: false
+      register:
+        uptime_kuma_service_rendered: _task.result.content
 
     - name: Read rendered Nginx configuration
       ansible.builtin.slurp:
         src: "{{ uptime_kuma_template_tmpdir.path }}/nginx.conf"
-      register: uptime_kuma_nginx_slurp
+        armor: false
+      register:
+        uptime_kuma_nginx_rendered: _task.result.content
 
     - name: Read rendered Lego deploy hook
       ansible.builtin.slurp:
         src: "{{ uptime_kuma_template_tmpdir.path }}/lego-deploy-hook.sh"
-      register: uptime_kuma_hook_slurp
+        armor: false
+      register:
+        uptime_kuma_hook_rendered: _task.result.content
 
     - name: Read rendered backup script
       ansible.builtin.slurp:
         src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.sh"
-      register: uptime_kuma_backup_script_slurp
+        armor: false
+      register:
+        uptime_kuma_backup_script_rendered: _task.result.content
 
     - name: Read rendered backup service
       ansible.builtin.slurp:
         src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.service"
-      register: uptime_kuma_backup_service_slurp
+        armor: false
+      register:
+        uptime_kuma_backup_service_rendered: _task.result.content
 
     - name: Read rendered backup timer
       ansible.builtin.slurp:
         src: "{{ uptime_kuma_template_tmpdir.path }}/uptime-kuma-backup.timer"
-      register: uptime_kuma_backup_timer_slurp
-
-    - name: Set rendered template facts
-      ansible.builtin.set_fact:
-        uptime_kuma_service_rendered: "{{ uptime_kuma_service_slurp.content | b64decode }}"
-        uptime_kuma_nginx_rendered: "{{ uptime_kuma_nginx_slurp.content | b64decode }}"
-        uptime_kuma_hook_rendered: "{{ uptime_kuma_hook_slurp.content | b64decode }}"
-        uptime_kuma_backup_script_rendered: "{{ uptime_kuma_backup_script_slurp.content | b64decode }}"
-        uptime_kuma_backup_service_rendered: "{{ uptime_kuma_backup_service_slurp.content | b64decode }}"
-        uptime_kuma_backup_timer_rendered: "{{ uptime_kuma_backup_timer_slurp.content | b64decode }}"
+        armor: false
+      register:
+        uptime_kuma_backup_timer_rendered: _task.result.content
 
     - name: Validate hook shell syntax
       ansible.builtin.command:
@@ -270,22 +273,21 @@
     - name: Read backup management tasks
       ansible.builtin.slurp:
         src: "{{ (playbook_dir | dirname) ~ '/tasks/backup.yaml' }}"
+        armor: false
       register: uptime_kuma_backup_tasks_slurp
 
     - name: Assert backup tasks preserve deferred handler ordering
       ansible.builtin.assert:
         that:
-          - (uptime_kuma_backup_tasks_slurp.content | b64decode) is not search('flush_handlers')
-          - "(uptime_kuma_backup_tasks_slurp.content | b64decode) is search('daemon_reload: true')"
+          - uptime_kuma_backup_tasks_slurp.content is not search('flush_handlers')
+          - "uptime_kuma_backup_tasks_slurp.content is search('daemon_reload: true')"
 
     - name: Read runtime tasks file
       ansible.builtin.slurp:
         src: "{{ (playbook_dir | dirname) ~ '/tasks/runtime.yaml' }}"
-      register: uptime_kuma_runtime_tasks_slurp
-
-    - name: Set runtime tasks fact
-      ansible.builtin.set_fact:
-        uptime_kuma_runtime_tasks: "{{ uptime_kuma_runtime_tasks_slurp.content | b64decode }}"
+        armor: false
+      register:
+        uptime_kuma_runtime_tasks: _task.result.content
 
     - name: Extract runtime task order
       ansible.builtin.set_fact:

@@ -29,6 +29,7 @@
 
     - name: Add Zabbly Linux kernel respository
       ansible.builtin.deb822_repository:
+        install_python_debian: true
         enabled: true
         types: ['deb']
         uris: ['https://pkgs.zabbly.com/kernel/stable']
@@ -40,6 +41,7 @@
 
     - name: Add Incus respository
       ansible.builtin.deb822_repository:
+        install_python_debian: true
         name: zabbly-incus-stable
         enabled: true
         types: ['deb']

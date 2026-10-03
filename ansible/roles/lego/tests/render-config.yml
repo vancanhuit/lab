@@ -37,11 +37,9 @@
     - name: Read rendered configuration
       ansible.builtin.slurp:
         src: "{{ lego_test_config.path }}"
-      register: lego_rendered_config
-
-    - name: Parse rendered configuration
-      ansible.builtin.set_fact:
-        lego_rendered_values: "{{ lego_rendered_config.content | b64decode | from_yaml }}"
+        armor: false
+      register:
+        lego_rendered_values: _task.result.content | from_yaml
 
     - name: Assert native optional sections render
       ansible.builtin.assert:
@@ -86,11 +84,9 @@
     - name: Read rendered configuration
       ansible.builtin.slurp:
         src: "{{ lego_test_config.path }}"
-      register: lego_rendered_config
-
-    - name: Parse rendered configuration
-      ansible.builtin.set_fact:
-        lego_rendered_values: "{{ lego_rendered_config.content | b64decode | from_yaml }}"
+        armor: false
+      register:
+        lego_rendered_values: _task.result.content | from_yaml
 
     - name: Assert optional sections are omitted
       ansible.builtin.assert:

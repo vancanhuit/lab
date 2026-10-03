@@ -152,6 +152,7 @@
 
 - name: Configure Docker repository
   ansible.builtin.deb822_repository:
+    install_python_debian: true
     name: docker
     types: [deb]
     uris: [https://download.docker.com/linux/debian]
@@ -172,14 +173,15 @@
 - name: Read NodeSource repository key fingerprint
   ansible.builtin.command:
     cmd: gpg --batch --show-keys --with-colons /etc/apt/keyrings/nodesource-repo.gpg.key
-  register: gitea_runner_nodesource_key_check
   changed_when: false
   failed_when: >-
+    _task.result.rc != 0 or
     'fpr:::::::::' ~ gitea_runner_nodesource_key_fingerprint ~ ':'
-    not in gitea_runner_nodesource_key_check.stdout
+    not in _task.result.stdout
 
 - name: Configure NodeSource Node.js repository
   ansible.builtin.deb822_repository:
+    install_python_debian: true
     name: nodesource
     types: [deb]
     uris: ["https://deb.nodesource.com/node_{{ gitea_runner_node_major }}.x"]

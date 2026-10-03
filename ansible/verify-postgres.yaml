@@ -54,8 +54,9 @@
       changed_when: false
 
     - name: Verify PostgreSQL TLS certificate hostname from controller # noqa: run-once[task]
+      # Service addresses use the IPv4 Incus bridge.
       ansible.builtin.shell: >-
-        openssl s_client -starttls postgres
+        openssl s_client -4 -starttls postgres
         -connect postgres.lab.canhdinh.com:5432
         -servername postgres.lab.canhdinh.com
         -verify_hostname postgres.lab.canhdinh.com

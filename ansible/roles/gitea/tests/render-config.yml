@@ -135,23 +135,23 @@
     - name: Read rendered app.ini
       ansible.builtin.slurp:
         src: "{{ gitea_test_dir.path }}/app.ini"
-      register: gitea_app_ini_slurp
+        armor: false
+      register:
+        gitea_app_ini_rendered: _task.result.content
 
     - name: Read rendered gitea.service
       ansible.builtin.slurp:
         src: "{{ gitea_test_dir.path }}/gitea.service"
-      register: gitea_service_slurp
+        armor: false
+      register:
+        gitea_service_rendered: _task.result.content
 
     - name: Read rendered lego-deploy-hook.sh
       ansible.builtin.slurp:
         src: "{{ gitea_test_dir.path }}/lego-deploy-hook.sh"
-      register: gitea_hook_slurp
-
-    - name: Decode rendered content
-      ansible.builtin.set_fact:
-        gitea_app_ini_rendered: "{{ gitea_app_ini_slurp.content | b64decode }}"
-        gitea_service_rendered: "{{ gitea_service_slurp.content | b64decode }}"
-        gitea_hook_rendered: "{{ gitea_hook_slurp.content | b64decode }}"
+        armor: false
+      register:
+        gitea_hook_rendered: _task.result.content
 
     - name: Assert app.ini required properties
       ansible.builtin.assert:
@@ -247,11 +247,9 @@
     - name: Read main.yaml task file
       ansible.builtin.slurp:
         src: "{{ (playbook_dir | dirname) ~ '/tasks/main.yaml' }}"
-      register: gitea_main_tasks_slurp
-
-    - name: Parse main.yaml as YAML
-      ansible.builtin.set_fact:
-        gitea_main_tasks: "{{ gitea_main_tasks_slurp.content | b64decode | from_yaml }}"
+        armor: false
+      register:
+        gitea_main_tasks: _task.result.content | from_yaml
 
     - name: Assert the mount guard precedes deployment changes
       ansible.builtin.assert:
