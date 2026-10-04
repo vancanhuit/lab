@@ -17,7 +17,7 @@
           - -p
           - require('/opt/uptime-kuma/current/package.json').version
       changed_when: false
-      failed_when: _task.result.rc != 0 or _task.result.stdout != '2.5.4'
+      failed_when: _task.result.rc != 0 or _task.result.stdout != '2.5.5'
 
     - name: Gather service facts
       ansible.builtin.service_facts:

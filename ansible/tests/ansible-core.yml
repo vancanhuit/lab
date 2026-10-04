@@ -24,8 +24,8 @@
         vars: { uptime_kuma_node_version: '24.21.0' }
       - file: roles/uptime_kuma/tasks/release.yaml
         name: Verify checked-out Uptime Kuma version
-        stdout: '2.5.4'
-        vars: { uptime_kuma_version: '2.5.4' }
+        stdout: '2.5.5'
+        vars: { uptime_kuma_version: '2.5.5' }
       - file: verify-gitea.yaml
         name: Check Gitea version
         stdout: 'Gitea version 28.0.0'
@@ -44,7 +44,7 @@
         vars: {}
       - file: verify-kuma.yaml
         name: Check Uptime Kuma version
-        stdout: '2.5.4'
+        stdout: '2.5.5'
         vars: {}
   tasks:
     - name: Require namespaced facts without deprecated injection
