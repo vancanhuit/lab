@@ -78,7 +78,7 @@
     - name: Assert Harbor version
       ansible.builtin.assert:
         that:
-          - harbor_system_info.json.harbor_version is match('^v2\.15\.2(?:-|$)')
+          - harbor_system_info.json.harbor_version is match('^v2\.15\.3(?:-|$)')
 
     - name: List registered Harbor scanners
       ansible.builtin.uri:

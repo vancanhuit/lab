@@ -23,8 +23,8 @@ Assign users the narrowest suitable project role. See Harbor's [user and project
 
 Harbor connects to `postgres.lab.canhdinh.com` with `ssl_mode: verify-full`.
 The PostgreSQL server must present its lego-managed Let's Encrypt certificate
-before Harbor starts. Harbor 2.15.2 uses [pgx](https://github.com/goharbor/harbor/blob/v2.15.2/src/common/dao/pgsql.go)
-for database connections and migrations; its [TLS implementation](https://github.com/jackc/pgx/blob/v5.10.0/pgconn/config.go)
+before Harbor starts. Harbor 2.15.3 uses [pgx](https://github.com/goharbor/harbor/blob/v2.15.3/src/common/dao/pgsql.go)
+for database connections and migrations; its [TLS implementation](https://github.com/jackc/pgx/blob/v5.11.0/pgconn/config.go)
 verifies the certificate chain and hostname using system trust when no custom CA
 is configured. The Harbor core image provides its CA bundle at
 `/etc/pki/tls/certs/ca-bundle.crt`.
@@ -77,9 +77,48 @@ Do not change `harbor_version` as a routine package bump. Follow the upgrade gui
 2. Take and validate a consistent PostgreSQL backup.
 3. Back up or snapshot the `homelab-harbor` SeaweedFS bucket.
 4. Preserve `/opt/harbor/harbor.yml`, `/var/lib/harbor`, `/etc/harbor`, and `/var/lib/lego` for rollback.
-5. Update the pinned installer version and checksum together. Also update the supported-version assertion in `roles/harbor/tasks/validate.yaml`, the expected version in `verify-harbor.yaml`, and the version expectation in `roles/harbor/tests/render-config.yml`.
+5. Update the pinned installer version and checksum together. Also update the supported-version assertion in `roles/harbor/tasks/validate.yaml` and the expected version in `verify-harbor.yaml`. The template's `_version` and its test expectation identify the configuration schema (`2.15.0`), not the patch release; change them only when the upstream schema changes.
 6. Migrate the configuration as required by Harbor, run the role test, deploy, and run `ansible-playbook verify-harbor.yaml`.
 
 Harbor core performs database schema migration when the new release starts. Do not proceed without a rollback point for both PostgreSQL metadata and SeaweedFS registry blobs; neither copy is a complete Harbor backup by itself.
 
 The [Harbor 2.15.2 release](https://github.com/goharbor/harbor/releases/tag/v2.15.2) upgrades the bundled PostgreSQL database from version 15 to 18. That migration does not apply here because Harbor uses the separately managed PostgreSQL 18 service.
+
+### Harbor 2.15.3 upgrade, 2026-10-07
+
+Harbor was upgraded from 2.15.2 to [2.15.3](https://github.com/goharbor/harbor/releases/tag/v2.15.3).
+The installer SHA-256 matches the release asset digest. No webhook or replication
+policies were configured. The new private-network webhook restriction remains
+enabled in both core and jobservice.
+
+The configuration schema marker was corrected from `2.15.2` to `2.15.0`, allowing
+the official migration tool to recognize the existing schema. A native database
+dump was restored into an isolated database, its baseline counts verified, and
+the three upstream column-type migrations tested there before deployment.
+Production advanced from schema 180 to 181 with `dirty=false`.
+
+The rollback set is `pre2.15.3-20261007T110645Z`:
+
+- Harbor VM snapshot, no expiry: `homelab-server:harbor/pre2.15.3-20261007T110645Z`.
+- Encrypted off-host archive: `~/.local/state/homelab-backups/harbor/pre2.15.3-20261007T110645Z.tar.age`.
+- Archive SHA-256: `c39242fa2e502890cc63a812dc2bfb00a6fc9377bdb3d9375b59ce414b0a8d62`.
+
+With Harbor stopped and the Actions runner paused, the archive captured the
+native `harbor` database dump, `/opt/harbor`, `/var/lib/harbor`, `/etc/harbor`,
+`/etc/lego`, `/var/lib/lego`, and all 73 registry bucket objects (68,909,583 bytes),
+including object hashes, metadata, and tags. Authenticated decryption and archived
+file hashes were verified. Plaintext staging was removed after verification.
+
+Role tests, syntax checks, lint, API health, PostgreSQL TLS, and scanner checks
+passed. Authenticated push/pull/run, an actual Trivy artifact scan, and a Docker
+Hub proxy pull/run from the runner account succeeded. All pre-upgrade bucket
+objects retained their SHA-256 hashes. Temporary smoke resources were removed,
+the runner and renewal timer resumed, and redeployment reported `changed=0`.
+
+For rollback, pause the runner and renewal timer, stop Harbor, and restore the
+matching VM snapshot, `harbor` database, and bucket contents before starting
+2.15.2. Restore only Harbor's database, not the PostgreSQL cluster shared with
+Gitea. The snapshot was taken after `docker compose down`; start the restored
+Compose project explicitly and unmask the renewal units afterward. Restoring
+the backup discards writes accepted since its timestamp. Retain this set until
+normal operation and a later backup cycle are confirmed.
