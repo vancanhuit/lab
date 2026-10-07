@@ -64,14 +64,14 @@ sudo -u postgres pgbackrest --stanza=main check
 | Data | Coverage |
 | --- | --- |
 | PostgreSQL relational data | Cluster data and WAL use the separate 20 GiB `pool1/postgres-data` volume; pgBackRest backups remain on the container root disk at `/var/lib/pgbackrest`; no off-host replication |
-| Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; an encrypted off-host point-in-time copy is retained for the [2026-09-30 upgrade](gitea.md#gitea-2800-upgrade-2026-09-30); no scheduled off-host backup; the former Backblaze copy is not continuously updated |
+| Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; an encrypted off-host point-in-time copy is retained for the [2026-10-07 upgrade](gitea.md#gitea-2810-upgrade-2026-10-07); no scheduled off-host backup; the former Backblaze copy is not continuously updated |
 | Harbor registry blobs | SeaweedFS stores blobs in `homelab-harbor` on the dedicated 500 GiB ZFS volume; no off-host backup |
 | Harbor local state | Valkey state, Trivy databases, generated configuration, logs, certificates, and Docker images under `/var/lib/harbor`, `/opt/harbor`, `/etc/harbor`, and `/var/lib/lego` have no off-host backup |
-| Gitea repositories and generated state | `/var/lib/gitea` uses the separate 20 GiB `pool1/gitea-data` custom volume; instance snapshots do not include it; a custom-volume snapshot and encrypted off-host copy are retained for the [2026-09-30 upgrade](gitea.md#gitea-2800-upgrade-2026-09-30); no scheduled off-host backup |
+| Gitea repositories and generated state | `/var/lib/gitea` uses the separate 20 GiB `pool1/gitea-data` custom volume; instance snapshots do not include it; a custom-volume snapshot and encrypted off-host copy are retained for the [2026-10-07 upgrade](gitea.md#gitea-2810-upgrade-2026-10-07); no scheduled off-host backup |
 | Uptime Kuma SQLite state | Validated gzip backups under `/var/backups/uptime-kuma/`; newest 14 retained by count; no off-host replication |
 
 > [!WARNING]
-> The Gitea upgrade archive can recover its database, repositories, configuration, and objects only to 2026-09-30 13:39:43 UTC; newer writes have no scheduled off-host protection. Routine PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. Harbor registry blobs have no off-host backup. Add scheduled off-host protection before retiring rollback copies.
+> The latest Gitea upgrade archive can recover its database, repositories, configuration, and objects only to 2026-10-07 10:50:55 UTC; newer writes have no scheduled off-host protection. Routine PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. Harbor registry blobs have no off-host backup. Add scheduled off-host protection before retiring rollback copies.
 
 ## PostgreSQL point-in-time restore
 

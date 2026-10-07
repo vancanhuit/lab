@@ -9,5 +9,5 @@
   ansible.builtin.assert:
     that:
       - gitea_release_architecture == item.expected
-      - gitea_release_filename == 'gitea-28.0.0-linux-' ~ item.expected
-      - gitea_release_url == 'https://dl.gitea.com/gitea/28.0.0/gitea-28.0.0-linux-' ~ item.expected
+      - gitea_release_filename == 'gitea-28.1.0-linux-' ~ item.expected
+      - gitea_release_url == 'https://dl.gitea.com/gitea/28.1.0/gitea-28.1.0-linux-' ~ item.expected

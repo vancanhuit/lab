@@ -19,12 +19,12 @@
       Current architecture: {{ ansible_facts.architecture | default('unknown') }}
     quiet: true
 
-- name: Assert Gitea version 28.0.0
+- name: Assert Gitea version 28.1.0
   ansible.builtin.assert:
     that:
-      - gitea_version == '28.0.0'
+      - gitea_version == '28.1.0'
     fail_msg: >-
-      This role is validated only for Gitea 28.0.0.
+      This role is validated only for Gitea 28.1.0.
       Specified version: {{ gitea_version }}
     quiet: true
 

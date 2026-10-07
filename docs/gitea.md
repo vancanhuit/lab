@@ -244,3 +244,34 @@ Plaintext backup staging was removed after the encrypted copies were verified.
 Retain the rollback set through several days of normal operation and a
 successful backup cycle. This one-time upgrade backup provides no scheduled
 off-host protection.
+
+### Gitea 28.1.0 upgrade, 2026-10-07
+
+Gitea was upgraded from 28.0.0 to [28.1.0](https://blog.gitea.com/release-of-28.1.0/).
+The amd64 binary passed signature verification with the existing release key.
+The database migration rehearsal advanced schema 356 to 358 in 1.88 seconds;
+restoring the native dump returned the original schema and counts, and Gitea
+28.0.0 accepted the restored database.
+
+The rollback set is `pre28.1-20261007T105055Z`:
+
+- Root snapshot: `homelab-server:gitea/pre28.1-20261007T105055Z` (no expiry).
+- Data-volume snapshot: `homelab-server:pool1/gitea-data/pre28.1-20261007T105055Z` (no expiry).
+- Encrypted off-host archive: `~/.local/state/homelab-backups/gitea/pre28.1-20261007T105055Z.tar.age`.
+- Matching host archive: `/var/backups/gitea/pre28.1-20261007T105055Z.tar.age`.
+
+Archive SHA-256:
+`373320ea013367394d72cfc6626c039cb4f5f69060fc132b3f201edb56cdb098`.
+Authenticated decryption and archived file hashes were verified. The archive
+contains the database, repositories, configuration, TLS/ACME state, old binary,
+and all 10 bucket objects (23,400 bytes). Plaintext backup staging was removed.
+
+Role tests, syntax checks, lint, Gitea doctor checks, HTTPS Git clone/push/fetch,
+pull-request merge, LFS, packages, and release attachment round trips passed.
+All pre-upgrade objects retained their SHA-256 hashes. The runner verification
+passed with Runner 4.1.0, and [smoke run #8, attempt 2](https://gitea.lab.canhdinh.com/vancanhuit/actions-runner-smoke-test/actions/runs/8)
+succeeded. The existing workflow lacks a `workflow_dispatch` trigger, so it was
+rerun through the runs API. Temporary test resources and tokens were removed.
+The runner and certificate renewal timer are active; redeployment reported
+`changed=0`. Retain this rollback set until normal operation and a subsequent
+backup cycle are confirmed.
