@@ -45,7 +45,7 @@ removes the temporary token file. The persistent `/var/lib/gitea-runner/.runner`
 file contains the runner identity and API credentials, with permissions
 restricted to mode `0600`.
 
-The deployment installs Gitea Runner 4.1.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
+The deployment installs Gitea Runner 5.0.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
 
 ## Use the runner
 
