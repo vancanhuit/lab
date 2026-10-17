@@ -65,6 +65,51 @@
     - "cilium-cli-{{ kubernetes_cilium_cli_version }}.tar.gz"
     - "hubble-cli-{{ kubernetes_hubble_cli_version }}.tar.gz"
 
+- name: Download pinned official Gateway API standard manifest
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ kubernetes_gateway_api_version }}/standard-install.yaml"
+    dest: "/etc/kubernetes/gateway-api-standard-{{ kubernetes_gateway_api_version }}.yaml"
+    checksum: "{{ kubernetes_gateway_api_checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Check Gateway API resource changes with server-side dry run
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf diff
+      --server-side --field-manager=lab-ansible-gateway-api
+      -f /etc/kubernetes/gateway-api-standard-{{ kubernetes_gateway_api_version }}.yaml
+  register: kubernetes_gateway_api_diff
+  changed_when: false
+  failed_when: kubernetes_gateway_api_diff.rc not in [0, 1]
+
+- name: Apply official Gateway API resources
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf apply
+      --server-side --field-manager=lab-ansible-gateway-api
+      -f /etc/kubernetes/gateway-api-standard-{{ kubernetes_gateway_api_version }}.yaml
+  when: kubernetes_gateway_api_diff.rc == 1
+  changed_when: true
+
+- name: List installed Gateway API resources
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf get
+      -f /etc/kubernetes/gateway-api-standard-{{ kubernetes_gateway_api_version }}.yaml -o name
+  register: kubernetes_gateway_api_resources
+  changed_when: false
+
+- name: Wait for Gateway API CRDs to be established
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/local/bin/kubectl', '--kubeconfig', '/etc/kubernetes/admin.conf',
+          'wait', '--for=condition=Established', '--timeout=60s'] +
+         (kubernetes_gateway_api_resources.stdout_lines |
+          select('match', '^customresourcedefinition\.apiextensions\.k8s\.io/') | list) }}
+  changed_when: false
+
 - name: Render the Cilium Helm values
   ansible.builtin.template:
     src: cilium-values.yaml.j2

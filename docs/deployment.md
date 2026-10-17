@@ -196,7 +196,8 @@ The second deployment should report `changed=0` for `kuma`.
 
 The four Kubernetes VMs form a separate kubeadm cluster with one control plane,
 three workers, containerd, Cilium's eBPF kube-proxy replacement, standalone Envoy,
-and Hubble Relay. The Pod CIDR
+Hubble Relay, and Gateway API with host networking. Official standard Gateway API
+CRDs are installed before the Cilium rollout. The Pod CIDR
 is `10.244.0.0/16`. DNS must resolve all node hostnames, and the control-plane IP
 must remain stable even though clients use a DNS API endpoint.
 

@@ -17,4 +17,6 @@ kubernetes_cilium_cli_version: '0.20.1'
 kubernetes_cilium_cli_checksum: sha256:24e817dcfcc8a12e325ce7547617bcbcf171c5b0b335bb24d2bb1207ba047f61
 kubernetes_hubble_cli_version: '1.20.2'
 kubernetes_hubble_cli_checksum: sha256:03f248a50cad11e728bf9383382392c57148fd6a19853ad359fb7598dae29312
+kubernetes_gateway_api_version: '1.6.3'
+kubernetes_gateway_api_checksum: sha256:356c2b8e286a964dc20995435659ad1095386329974793af10bbfe3eff977fe5
 kubernetes_pause_image: registry.k8s.io/pause:3.10.2

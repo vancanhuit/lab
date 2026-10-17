@@ -54,5 +54,5 @@ Start with [Getting started](docs/getting-started.md), then follow the deploymen
 | [Harbor operations](docs/harbor.md) | Registry use, vulnerability scanning, lifecycle, and upgrades |
 | [Gitea operations](docs/gitea.md) | Initial access, object storage, migration rollback, and upgrades |
 | [Gitea Actions runner](docs/gitea-runner.md) | Dedicated VM provisioning, deployment, workflows, and upgrades |
-| [Kubernetes](docs/kubernetes.md) | Four-node kubeadm cluster, containerd, Cilium, standalone Envoy, and Hubble |
+| [Kubernetes](docs/kubernetes.md) | Four-node kubeadm cluster, containerd, Cilium, standalone Envoy, Hubble, and Gateway API |
 | [Backups and PostgreSQL](docs/backups-and-postgresql.md) | Backup coverage, health checks, and point-in-time restore |

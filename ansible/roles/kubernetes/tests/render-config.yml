@@ -84,6 +84,12 @@
               - kubernetes_init[2].failSwapOn
               - kubernetes_cilium.kubeProxyReplacement
               - kubernetes_cilium.envoy.enabled
+              - kubernetes_cilium.envoy.securityContext.capabilities.keepCapNetBindService
+              - kubernetes_cilium.envoy.securityContext.capabilities.envoy == ['NET_ADMIN', 'SYS_ADMIN', 'NET_BIND_SERVICE']
+              - kubernetes_cilium.gatewayAPI.enabled
+              - kubernetes_cilium.gatewayAPI.gatewayClass.create == 'true'
+              - kubernetes_cilium.gatewayAPI.hostNetwork.enabled
+              - kubernetes_cilium.operator.rollOutPods
               - kubernetes_cilium.hubble.enabled
               - kubernetes_cilium.hubble.relay.enabled
               - kubernetes_cilium.hubble.relay.service.type == 'ClusterIP'
@@ -98,6 +104,65 @@
               {{ lookup('ansible.builtin.file', kubernetes_test_directory.path ~ '/kubeadm-init.yaml.j2') | from_yaml_all | list }}
             kubernetes_cilium: >-
               {{ lookup('ansible.builtin.file', kubernetes_test_directory.path ~ '/cilium-values.yaml.j2') | from_yaml }}
+
+        - name: Assert Gateway API prerequisites precede Cilium and reconcile safely
+          ansible.builtin.assert:
+            that:
+              - >-
+                kubernetes_control_task_names.index('Wait for Gateway API CRDs to be established') <
+                kubernetes_control_task_names.index('Render the Cilium Helm values')
+              - kubernetes_gateway_download['ansible.builtin.get_url'].url is search('https://github.com/kubernetes-sigs/gateway-api/releases/download/')
+              - kubernetes_gateway_download['ansible.builtin.get_url'].checksum is search('kubernetes_gateway_api_checksum')
+              - kubernetes_gateway_diff.failed_when == 'kubernetes_gateway_api_diff.rc not in [0, 1]'
+              - kubernetes_gateway_apply.when == 'kubernetes_gateway_api_diff.rc == 1'
+              - "'--server-side --field-manager=lab-ansible-gateway-api' in kubernetes_gateway_apply['ansible.builtin.command'].cmd"
+              - "'--force-conflicts' not in kubernetes_gateway_apply['ansible.builtin.command'].cmd"
+              - kubernetes_gateway_wait['ansible.builtin.command'].argv is search('customresourcedefinition')
+          vars:
+            kubernetes_control_tasks: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../tasks/control-plane.yaml') | from_yaml }}"
+            kubernetes_control_task_names: "{{ kubernetes_control_tasks | map(attribute='name') | list }}"
+            kubernetes_gateway_download: >-
+              {{ kubernetes_control_tasks | selectattr('name', 'equalto', 'Download pinned official Gateway API standard manifest') | first }}
+            kubernetes_gateway_diff: >-
+              {{ kubernetes_control_tasks | selectattr('name', 'equalto', 'Check Gateway API resource changes with server-side dry run') | first }}
+            kubernetes_gateway_apply: "{{ kubernetes_control_tasks | selectattr('name', 'equalto', 'Apply official Gateway API resources') | first }}"
+            kubernetes_gateway_wait: >-
+              {{ kubernetes_control_tasks | selectattr('name', 'equalto', 'Wait for Gateway API CRDs to be established') | first }}
+
+        - name: Prepare an echo-only fixture using the production CRD readiness filter
+          ansible.builtin.copy:
+            dest: "{{ kubernetes_test_directory.path }}/wait-gateway-api.yaml"
+            mode: '0600'
+            content: >-
+              {{ [kubernetes_gateway_wait | combine({
+                   'ansible.builtin.command': {'argv':
+                     kubernetes_gateway_wait['ansible.builtin.command'].argv | replace('/usr/local/bin/kubectl', '/bin/echo')},
+                   'register': 'kubernetes_test_gateway_wait'
+                 })] | to_nice_yaml }}
+          vars:
+            kubernetes_gateway_wait: >-
+              {{ lookup('ansible.builtin.file', playbook_dir ~ '/../tasks/control-plane.yaml') | from_yaml |
+                 selectattr('name', 'equalto', 'Wait for Gateway API CRDs to be established') | first }}
+
+        - name: Run readiness filtering with mixed official resource types
+          ansible.builtin.include_tasks: "{{ kubernetes_test_directory.path }}/wait-gateway-api.yaml"
+          vars:
+            kubernetes_gateway_api_resources:
+              stdout_lines:
+                - customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io
+                - validatingadmissionpolicy.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io
+                - validatingadmissionpolicybinding.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io
+                - customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io
+
+        - name: Assert readiness waits only for CRDs and retains both definitions
+          ansible.builtin.assert:
+            that:
+              - kubernetes_test_gateway_wait.cmd | length == 8
+              - kubernetes_test_gateway_wait.cmd[-2:] == kubernetes_expected_crds
+          vars:
+            kubernetes_expected_crds:
+              - customresourcedefinition.apiextensions.k8s.io/gateways.gateway.networking.k8s.io
+              - customresourcedefinition.apiextensions.k8s.io/httproutes.gateway.networking.k8s.io
 
         - name: Parse containerd TOML and assert systemd runc and official CNI paths
           ansible.builtin.command:

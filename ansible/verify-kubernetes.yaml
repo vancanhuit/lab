@@ -120,6 +120,58 @@
         cmd: /usr/local/bin/kubectl -n kube-system rollout status deployment/hubble-relay --timeout=180s
       changed_when: false
 
+    - name: Read installed Gateway API resources from the official bundle
+      ansible.builtin.command:
+        cmd: >-
+          /usr/local/bin/kubectl get
+          -f /etc/kubernetes/gateway-api-standard-{{ kubernetes_gateway_api_version }}.yaml -o json
+      register: kubernetes_gateway_api_bundle_state
+      changed_when: false
+
+    - name: Verify standard Gateway API resources and CRD readiness
+      ansible.builtin.assert:
+        that:
+          - item.metadata.annotations['gateway.networking.k8s.io/bundle-version'] == 'v' ~ kubernetes_gateway_api_version
+          - item.metadata.annotations['gateway.networking.k8s.io/channel'] == 'standard'
+          - >-
+            item.kind != 'CustomResourceDefinition' or
+            item.status.conditions | selectattr('type', 'equalto', 'Established') | map(attribute='status') | first == 'True'
+        quiet: true
+      loop: "{{ (kubernetes_gateway_api_bundle_state.stdout | from_json)['items'] }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Wait for Cilium to accept its GatewayClass
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl wait gatewayclass/cilium --for=condition=Accepted --timeout=180s
+      changed_when: false
+
+    - name: Read the Cilium GatewayClass
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl get gatewayclass cilium -o json
+      register: kubernetes_gateway_class
+      changed_when: false
+
+    - name: Verify GatewayClass controller ownership
+      ansible.builtin.assert:
+        that:
+          - (kubernetes_gateway_class.stdout | from_json).spec.controllerName == 'io.cilium/gateway-controller'
+
+    - name: Read active Cilium configuration
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system get configmap cilium-config -o json
+      register: kubernetes_cilium_config
+      changed_when: false
+
+    - name: Verify Gateway API host networking and Envoy configuration
+      ansible.builtin.assert:
+        that:
+          - kubernetes_cilium_settings['enable-gateway-api'] == 'true'
+          - kubernetes_cilium_settings['gateway-api-hostnetwork-enabled'] == 'true'
+          - kubernetes_cilium_settings['enable-envoy-config'] == 'true'
+      vars:
+        kubernetes_cilium_settings: "{{ (kubernetes_cilium_config.stdout | from_json).data }}"
+
     - name: Read the internal Hubble Relay service
       ansible.builtin.command:
         cmd: /usr/local/bin/kubectl -n kube-system get service hubble-relay -o json
