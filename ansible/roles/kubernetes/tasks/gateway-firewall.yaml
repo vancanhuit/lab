@@ -1,0 +1,47 @@
+---
+- name: Resolve the trusted Gateway load balancer
+  ansible.builtin.getent:
+    database: ahostsv4
+    key: "{{ kubernetes_gateway_proxy_host }}"
+
+- name: Validate the trusted load-balancer address
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.getent_ahostsv4 | length == 1
+      - (ansible_facts.getent_ahostsv4 | first) is match('^[0-9.]+$')
+
+- name: Install nftables without replacing Cilium rules
+  ansible.builtin.apt:
+    name: nftables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Render isolated Gateway firewall rules
+  ansible.builtin.template:
+    src: gateway-firewall.nft.j2
+    dest: /etc/kubernetes-gateway.nft
+    owner: root
+    group: root
+    mode: '0600'
+    validate: /usr/sbin/nft --check --file %s
+  notify: Reload Gateway firewall
+
+- name: Install the persistent Gateway firewall unit
+  ansible.builtin.copy:
+    src: kubernetes-gateway-firewall.service
+    dest: /etc/systemd/system/kubernetes-gateway-firewall.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload Gateway firewall
+
+- name: Enable the Gateway firewall before container workloads
+  ansible.builtin.systemd_service:
+    name: kubernetes-gateway-firewall.service
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply Gateway firewall updates before configuring listeners
+  ansible.builtin.meta: flush_handlers

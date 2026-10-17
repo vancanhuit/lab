@@ -1,0 +1,174 @@
+---
+- name: Verify Proxy Protocol trust boundaries on every node
+  hosts: kubernetes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Resolve the trusted HAProxy address
+      ansible.builtin.getent:
+        database: ahostsv4
+        key: "{{ kubernetes_gateway_proxy_host }}"
+
+    - name: Verify the persistent firewall is active
+      ansible.builtin.systemd_service:
+        name: kubernetes-gateway-firewall.service
+      register: kubernetes_gateway_firewall_service
+
+    - name: Read the active dedicated Gateway firewall table
+      ansible.builtin.command:
+        cmd: /usr/sbin/nft --numeric-priority list table inet lab_gateway
+      register: kubernetes_gateway_firewall
+      changed_when: false
+
+    - name: Verify listeners accept HAProxy only and reject all other IPv4 and IPv6 sources
+      ansible.builtin.assert:
+        that:
+          - kubernetes_gateway_firewall_service.status.ActiveState == 'active'
+          - kubernetes_gateway_firewall_service.status.UnitFileState == 'enabled'
+          - "'hook input priority -10' in kubernetes_gateway_firewall.stdout"
+          - >-
+            kubernetes_gateway_firewall.stdout is search(
+              'ip saddr ' ~ (ansible_facts.getent_ahostsv4 | first) ~ ' counter packets [0-9]+ bytes [0-9]+ accept')
+          - kubernetes_gateway_firewall.stdout is search('tcp dport \{ 80, 443 \} counter packets [0-9]+ bytes [0-9]+ drop')
+
+    - name: Verify Gateway sockets exist only on edge nodes
+      ansible.builtin.command:
+        cmd: ss -H -lnt '( sport = :80 or sport = :443 )'
+      register: kubernetes_gateway_listeners
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: >-
+        kubernetes_gateway_listeners.rc == 0 and
+        ((kubernetes_gateway_listeners.stdout_lines | length > 0) == (inventory_hostname in groups['k8s_edge']))
+
+- name: Verify the private HAProxy gateway
+  hosts: k8s_gateway
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Validate HAProxy configuration
+      ansible.builtin.command:
+        cmd: /usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg
+      changed_when: false
+
+    - name: Read HAProxy service facts
+      ansible.builtin.service_facts:
+
+    - name: Require running and enabled HAProxy
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['haproxy.service'].state == 'running'
+          - ansible_facts.services['haproxy.service'].status == 'enabled'
+
+    - name: Require healthy HTTP and HTTPS listeners on edge backends only
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/python3', '-c', haproxy_backend_check] + groups['k8s_edge'] }}"
+      vars:
+        haproxy_backend_check: |
+          import csv, io, json, socket, sys
+          with socket.socket(socket.AF_UNIX) as connection:
+              connection.settimeout(5)
+              connection.connect('/run/haproxy/admin.sock')
+              connection.sendall(b'show stat\n')
+              with connection.makefile() as response:
+                  rows = list(csv.DictReader(io.StringIO(response.read().lstrip('# '))))
+          servers = [row for row in rows if row['pxname'] in ['cilium_80', 'cilium_443'] and row['svname'] != 'BACKEND']
+          expected = {(backend, node) for backend in ['cilium_80', 'cilium_443'] for node in sys.argv[1:]}
+          assert {(row['pxname'], row['svname']) for row in servers} == expected
+          assert all(row['status'] == 'UP' for row in servers), 'An Envoy listener is unavailable'
+          print(json.dumps({row['pxname'] + '/' + row['svname']: row['status'] for row in servers}))
+      register: haproxy_backend_health
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: haproxy_backend_health.rc == 0
+
+- name: Verify certificate and Gateway controllers
+  hosts: k8s_control_plane
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Wait for certificate and Gateway readiness
+      ansible.builtin.command:
+        cmd: "/usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf {{ item }}"
+      loop:
+        - wait clusterissuer/letsencrypt-cloudflare --for=condition=Ready --timeout=60s
+        - -n kube-system wait certificate/hubble-ui --for=condition=Ready --timeout=60s
+        - -n kube-system wait gateway/hubble-ui --for=condition=Programmed --timeout=60s
+      changed_when: false
+
+    - name: Read Hubble UI HTTPRoute status
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system get httproutes hubble-ui hubble-ui-redirect -o json
+      register: kubernetes_gateway_routes
+      changed_when: false
+
+    - name: Require both routes to be accepted with resolved references
+      ansible.builtin.assert:
+        that:
+          - item.status.parents | length == 1
+          - item.status.parents[0].controllerName == 'io.cilium/gateway-controller'
+          - >-
+            item.status.parents[0].conditions | selectattr('type', 'in', ['Accepted', 'ResolvedRefs']) |
+            selectattr('status', 'equalto', 'True') | list | length == 2
+        quiet: true
+      loop: "{{ (kubernetes_gateway_routes.stdout | from_json)['items'] }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+- name: Verify Hubble UI HTTPS from the controller
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Require trusted HTTPS and the Hubble UI HTML
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --ipv4
+          - --noproxy
+          - '*'
+          - --fail
+          - --silent
+          - --show-error
+          - --max-time
+          - '20'
+          - --write-out
+          - '\n%{http_code}'
+          - https://hubble-ui.lab.canhdinh.com/
+      register: hubble_ui_response
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: hubble_ui_response.rc == 0
+
+    - name: Verify the Hubble UI page
+      ansible.builtin.assert:
+        that:
+          - "'<title>Hubble UI</title>' in hubble_ui_response.stdout"
+          - hubble_ui_response.stdout.endswith('\n200')
+
+    - name: Require HTTP to redirect to HTTPS
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --ipv4
+          - --noproxy
+          - '*'
+          - --silent
+          - --show-error
+          - --max-time
+          - '20'
+          - --output
+          - /dev/null
+          - --write-out
+          - '%{http_code} %{redirect_url}'
+          - http://hubble-ui.lab.canhdinh.com/
+      register: hubble_ui_redirect
+      changed_when: false
+
+    - name: Verify the redirect target
+      ansible.builtin.assert:
+        that:
+          - hubble_ui_redirect.stdout is match('^301 https://hubble-ui\.lab\.canhdinh\.com(:443)?/$')

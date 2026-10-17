@@ -1,0 +1,36 @@
+global
+    log /dev/log local0
+    user haproxy
+    group haproxy
+    daemon
+    stats socket /run/haproxy/admin.sock mode 600 level admin
+
+defaults
+    log global
+    mode tcp
+    option tcplog
+    timeout connect 5s
+    timeout client 1h
+    timeout server 1h
+
+resolvers lab_dns
+    parse-resolv-conf
+    resolve_retries 3
+    timeout resolve 1s
+    timeout retry 1s
+    hold valid 10s
+
+{% for port in [80, 443] %}
+frontend gateway_{{ port }}
+    bind {{ ansible_facts.default_ipv4.address }}:{{ port }}
+    acl private_clients src {{ haproxy_client_networks | join(' ') }}
+    tcp-request connection reject if !private_clients
+    default_backend cilium_{{ port }}
+
+backend cilium_{{ port }}
+    balance roundrobin
+{% for node in groups['k8s_edge'] %}
+    server {{ node }} {{ hostvars[node].ansible_host }}:{{ port }} check send-proxy-v2 resolvers lab_dns resolve-prefer ipv4 init-addr libc,none
+{% endfor %}
+
+{% endfor %}

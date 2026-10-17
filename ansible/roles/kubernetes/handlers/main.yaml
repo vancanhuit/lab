@@ -1,4 +1,10 @@
 ---
+- name: Reload Gateway firewall
+  ansible.builtin.systemd_service:
+    name: kubernetes-gateway-firewall.service
+    state: reloaded
+    daemon_reload: true
+
 - name: Restart containerd
   ansible.builtin.systemd_service:
     name: containerd

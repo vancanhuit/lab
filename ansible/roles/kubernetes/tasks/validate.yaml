@@ -13,6 +13,8 @@
       - groups['k8s_control_plane'] | length == 1
       - groups['k8s_workers'] | length == 3
       - groups['kubernetes'] | length == 4
+      - groups['k8s_edge'] | length > 0
+      - groups['k8s_edge'] | difference(groups['k8s_workers']) | length == 0
       - kubernetes_api_host is match('^[a-z0-9][a-z0-9.-]*[a-z0-9]$')
     fail_msg: Kubernetes requires four Debian 13 amd64 systemd hosts, one control plane, and three workers
 

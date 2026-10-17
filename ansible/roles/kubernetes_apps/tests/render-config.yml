@@ -1,0 +1,108 @@
+---
+- name: Validate certificates and Hubble UI routing without live credentials
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    cert_manager_cloudflare_api_token: fixture-only-not-a-real-token
+    kubernetes_apps_cert_manager_upstream:
+      content: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: cert-manager
+        spec:
+          template:
+            spec:
+              containers:
+                - name: cert-manager-controller
+                  image: quay.io/jetstack/cert-manager-controller:v1.21.2
+                  args: [--v=2, --cluster-resource-namespace=$(POD_NAMESPACE)]
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                    readOnlyRootFilesystem: true
+        ---
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: cert-manager-webhook
+        spec:
+          template:
+            spec:
+              containers:
+                - name: webhook
+                  args: [--secure-port=10250]
+  tasks:
+    - name: Load application defaults
+      ansible.builtin.include_vars:
+        file: ../defaults/main.yaml
+
+    - name: Assert certificate solver, credential references and public DNS checks
+      ansible.builtin.assert:
+        that:
+          - issuer.spec.acme.server == 'https://acme-v02.api.letsencrypt.org/directory'
+          - issuer.spec.acme.solvers[0].selector.dnsZones == ['lab.canhdinh.com']
+          - issuer.spec.acme.solvers[0].dns01.cloudflare.apiTokenSecretRef.name == secret.metadata.name
+          - secret.metadata.namespace == 'cert-manager'
+          - secret.data['api-token'] | b64decode == cert_manager_cloudflare_api_token
+          - certificate.spec.secretName == 'hubble-ui-tls'
+          - certificate.spec.dnsNames == ['hubble-ui.lab.canhdinh.com']
+          - certificate.spec.issuerRef.kind == 'ClusterIssuer'
+          - certificate.spec.privateKey.rotationPolicy == 'Always'
+          - controller.args == original_controller.args + kubernetes_apps_dns_args
+          - "'--dns01-recursive-nameservers-only' in controller.args"
+          - "'--dns01-recursive-nameservers=https://1.1.1.1/dns-query,https://1.0.0.1/dns-query' in controller.args"
+          - controller.securityContext == original_controller.securityContext
+          - controller.image == original_controller.image
+          - cert_manager_rendered[1] == (kubernetes_apps_cert_manager_upstream.content | from_yaml_all | list)[1]
+      vars:
+        issuer: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/../templates/issuer.yaml.j2') | from_yaml }}"
+        secret: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/../templates/cloudflare-secret.yaml.j2') | from_yaml }}"
+        certificate: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/../templates/certificate.yaml.j2') | from_yaml }}"
+        cert_manager_rendered: >-
+          {{ lookup('ansible.builtin.template', playbook_dir ~ '/../templates/cert-manager.yaml.j2') | from_yaml_all | list }}
+        controller: "{{ cert_manager_rendered[0].spec.template.spec.containers[0] }}"
+        original_controller: "{{ (kubernetes_apps_cert_manager_upstream.content | from_yaml_all | list)[0].spec.template.spec.containers[0] }}"
+
+    - name: Assert same-namespace HTTPS termination and HTTP redirection
+      ansible.builtin.assert:
+        that:
+          - gateway.spec.gatewayClassName == 'cilium'
+          - gateway.spec.listeners | map(attribute='port') | list == [80, 443]
+          - gateway.spec.listeners[1].tls.mode == 'Terminate'
+          - gateway.spec.listeners[1].tls.certificateRefs[0].name == 'hubble-ui-tls'
+          - gateway.spec.listeners | map(attribute='allowedRoutes.namespaces.from') | list == ['Same', 'Same']
+          - redirect.spec.parentRefs[0].sectionName == 'http'
+          - redirect.spec.rules[0].filters[0].requestRedirect.scheme == 'https'
+          - redirect.spec.rules[0].filters[0].requestRedirect.statusCode == 301
+          - route.spec.parentRefs[0].sectionName == 'https'
+          - route.spec.hostnames == ['hubble-ui.lab.canhdinh.com']
+          - route.spec.rules[0].backendRefs == [{'name':'hubble-ui','port':80}]
+          - gateway.metadata.namespace == redirect.metadata.namespace == route.metadata.namespace == 'kube-system'
+      vars:
+        resources: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/../templates/hubble-ui.yaml.j2') | from_yaml_all | list }}"
+        gateway: "{{ resources[0] }}"
+        redirect: "{{ resources[1] }}"
+        route: "{{ resources[2] }}"
+
+    - name: Assert credential tasks never log or write a plaintext manifest
+      ansible.builtin.assert:
+        that:
+          - secret_tasks | length == 2
+          - secret_tasks | map(attribute='no_log') | unique | list == [true]
+          - secret_tasks[0]['ansible.builtin.command'].stdin is defined
+          - secret_tasks[1]['ansible.builtin.command'].stdin is defined
+      vars:
+        secret_tasks: >-
+          {{ lookup('ansible.builtin.file', playbook_dir ~ '/../tasks/main.yaml') | from_yaml |
+             selectattr('name', 'search', 'Secret') | list }}
+
+    - name: Assert the namespace exists before dry-run and certificates precede listeners
+      ansible.builtin.assert:
+        that:
+          - task_names.index('Bootstrap the cert-manager namespace') < task_names.index('Reconcile cert-manager')
+          - >-
+            task_names.index('Wait for the publicly trusted Hubble UI certificate') <
+            task_names.index('Render Hubble UI Gateway and HTTP routes')
+      vars:
+        task_names: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../tasks/main.yaml') | from_yaml | map(attribute='name') | list }}"

@@ -1,0 +1,13 @@
+[Unit]
+Description=Restrict Gateway Proxy Protocol listeners to HAProxy
+After=local-fs.target
+Before=containerd.service kubelet.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/nft --file /etc/kubernetes-gateway.nft
+ExecReload=/usr/sbin/nft --file /etc/kubernetes-gateway.nft
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

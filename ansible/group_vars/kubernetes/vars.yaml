@@ -2,3 +2,4 @@
 kubernetes_api_host: k8s-control-plane.lab.canhdinh.com
 kubernetes_pod_subnet: 10.244.0.0/16
 kubernetes_service_subnet: 10.96.0.0/12
+kubernetes_gateway_proxy_host: k8s-gateway-api.lab.canhdinh.com

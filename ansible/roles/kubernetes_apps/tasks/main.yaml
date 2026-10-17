@@ -1,0 +1,146 @@
+---
+- name: Require a certificate-management credential on the control plane only
+  ansible.builtin.assert:
+    that:
+      - cert_manager_cloudflare_api_token is defined
+      - cert_manager_cloudflare_api_token is string
+      - cert_manager_cloudflare_api_token | trim | length > 0
+  no_log: true
+
+- name: Create the Kubernetes applications directory
+  ansible.builtin.file:
+    path: /etc/kubernetes/apps
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download the checksum-pinned official cert-manager manifest
+  ansible.builtin.get_url:
+    url: "https://github.com/cert-manager/cert-manager/releases/download/v{{ kubernetes_apps_cert_manager_version }}/cert-manager.yaml"
+    dest: "/etc/kubernetes/apps/cert-manager-{{ kubernetes_apps_cert_manager_version }}-upstream.yaml"
+    checksum: "{{ kubernetes_apps_cert_manager_checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Read the official cert-manager resources for DNS customization
+  ansible.builtin.slurp:
+    src: "/etc/kubernetes/apps/cert-manager-{{ kubernetes_apps_cert_manager_version }}-upstream.yaml"
+    armor: false
+  register: kubernetes_apps_cert_manager_upstream
+
+- name: Add public DNS self-checks without changing upstream security settings
+  ansible.builtin.template:
+    src: cert-manager.yaml.j2
+    dest: /etc/kubernetes/apps/cert-manager.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Check the cert-manager namespace before server-side dry runs
+  ansible.builtin.command:
+    cmd: /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf get namespace cert-manager --ignore-not-found -o name
+  register: kubernetes_apps_namespace
+  changed_when: false
+
+- name: Bootstrap the cert-manager namespace
+  ansible.builtin.command:
+    cmd: /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf create namespace cert-manager
+  when: kubernetes_apps_namespace.stdout == ''
+  changed_when: true
+
+- name: Reconcile cert-manager
+  ansible.builtin.include_tasks: apply-manifest.yaml
+  vars:
+    kubernetes_apps_manifest: /etc/kubernetes/apps/cert-manager.yaml
+
+- name: Wait for cert-manager deployments
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf -n cert-manager
+      rollout status deployment/{{ item }} --timeout=300s
+  loop: [cert-manager, cert-manager-cainjector, cert-manager-webhook]
+  changed_when: false
+
+- name: Check Cloudflare Secret changes without logging credentials or diffs
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf diff
+      --server-side --field-manager=lab-ansible-apps -f -
+    stdin: "{{ lookup('ansible.builtin.template', 'cloudflare-secret.yaml.j2') }}"
+  register: kubernetes_apps_secret_diff
+  changed_when: false
+  failed_when: kubernetes_apps_secret_diff.rc not in [0, 1]
+  no_log: true
+
+- name: Apply the Cloudflare Secret using stdin only
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf apply
+      --server-side --field-manager=lab-ansible-apps -f -
+    stdin: "{{ lookup('ansible.builtin.template', 'cloudflare-secret.yaml.j2') }}"
+  when: kubernetes_apps_secret_diff.rc == 1
+  changed_when: true
+  no_log: true
+
+- name: Render the Cloudflare DNS-01 ClusterIssuer
+  ansible.builtin.template:
+    src: issuer.yaml.j2
+    dest: /etc/kubernetes/apps/issuer.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reconcile the ClusterIssuer after its webhook is available
+  ansible.builtin.include_tasks: apply-manifest.yaml
+  vars:
+    kubernetes_apps_manifest: /etc/kubernetes/apps/issuer.yaml
+
+- name: Wait for the Let's Encrypt account
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf
+      wait clusterissuer/letsencrypt-cloudflare --for=condition=Ready --timeout=180s
+  changed_when: false
+
+- name: Render the Hubble UI certificate
+  ansible.builtin.template:
+    src: certificate.yaml.j2
+    dest: /etc/kubernetes/apps/hubble-ui-certificate.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reconcile the Hubble UI certificate without replacing its private key
+  ansible.builtin.include_tasks: apply-manifest.yaml
+  vars:
+    kubernetes_apps_manifest: /etc/kubernetes/apps/hubble-ui-certificate.yaml
+
+- name: Wait for the publicly trusted Hubble UI certificate
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system
+      wait certificate/hubble-ui --for=condition=Ready --timeout=600s
+  changed_when: false
+
+- name: Render Hubble UI Gateway and HTTP routes
+  ansible.builtin.template:
+    src: hubble-ui.yaml.j2
+    dest: /etc/kubernetes/apps/hubble-ui.yaml
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Reconcile the HTTPS Gateway after its certificate is ready
+  ansible.builtin.include_tasks: apply-manifest.yaml
+  vars:
+    kubernetes_apps_manifest: /etc/kubernetes/apps/hubble-ui.yaml
+
+- name: Wait for the Hubble UI deployment and Gateway
+  ansible.builtin.command:
+    cmd: "{{ item }}"
+  loop:
+    - /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system rollout status deployment/hubble-ui --timeout=300s
+    - /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system wait gateway/hubble-ui --for=condition=Programmed --timeout=180s
+  changed_when: false

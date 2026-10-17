@@ -1,0 +1,9 @@
+# Only this table is replaced; Cilium and kubelet tables remain untouched.
+destroy table inet lab_gateway
+table inet lab_gateway {
+    chain input {
+        type filter hook input priority -10; policy accept;
+        tcp dport { 80, 443 } ip saddr {{ ansible_facts.getent_ahostsv4 | first }} counter accept
+        tcp dport { 80, 443 } counter drop
+    }
+}

@@ -56,6 +56,9 @@
   when: ansible_facts.swaptotal_mb > 0
   changed_when: true
 
+- name: Protect host-network Gateway listeners before enabling Proxy Protocol
+  ansible.builtin.import_tasks: gateway-firewall.yaml
+
 - name: Disable fstab swap entries across reboots
   ansible.builtin.replace:
     path: /etc/fstab

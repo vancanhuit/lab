@@ -100,6 +100,15 @@
       loop_control:
         label: "{{ item.metadata.name }}"
 
+    - name: Assert the Gateway edge label matches inventory ownership
+      ansible.builtin.assert:
+        that:
+          - "('node-role.kubernetes.io/edge' in item.metadata.labels) == (item.metadata.name in groups['k8s_edge'])"
+        quiet: true
+      loop: "{{ (kubernetes_nodes.stdout | from_json)['items'] }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
     - name: Wait for Cilium cluster health
       ansible.builtin.command:
         cmd: /usr/local/bin/cilium status --wait --wait-duration 5m
@@ -118,6 +127,11 @@
     - name: Wait for Hubble Relay rollout
       ansible.builtin.command:
         cmd: /usr/local/bin/kubectl -n kube-system rollout status deployment/hubble-relay --timeout=180s
+      changed_when: false
+
+    - name: Wait for Hubble UI rollout
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system rollout status deployment/hubble-ui --timeout=180s
       changed_when: false
 
     - name: Read installed Gateway API resources from the official bundle
@@ -167,7 +181,9 @@
       ansible.builtin.assert:
         that:
           - kubernetes_cilium_settings['enable-gateway-api'] == 'true'
+          - kubernetes_cilium_settings['enable-gateway-api-proxy-protocol'] == 'true'
           - kubernetes_cilium_settings['gateway-api-hostnetwork-enabled'] == 'true'
+          - kubernetes_cilium_settings['gateway-api-hostnetwork-nodelabelselector'] == 'node-role.kubernetes.io/edge='
           - kubernetes_cilium_settings['enable-envoy-config'] == 'true'
       vars:
         kubernetes_cilium_settings: "{{ (kubernetes_cilium_config.stdout | from_json).data }}"

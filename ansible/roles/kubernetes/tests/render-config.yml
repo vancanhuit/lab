@@ -17,6 +17,8 @@
         address: 10.205.234.106
         network: 10.205.234.0
         prefix: 24
+      getent_ahostsv4:
+        10.205.234.110: [STREAM, k8s-gateway-api.lab.canhdinh.com]
   tasks:
     - name: Load Kubernetes version pins and production network configuration
       ansible.builtin.include_vars:
@@ -31,9 +33,9 @@
         groups: "{{ item.groups }}"
       loop:
         - { name: k8s-control-plane, groups: [kubernetes, k8s_control_plane] }
-        - { name: k8s-node-01, groups: [kubernetes, k8s_workers] }
-        - { name: k8s-node-02, groups: [kubernetes, k8s_workers] }
-        - { name: k8s-node-03, groups: [kubernetes, k8s_workers] }
+        - { name: k8s-node-01, groups: [kubernetes, k8s_workers, k8s_edge] }
+        - { name: k8s-node-02, groups: [kubernetes, k8s_workers, k8s_edge] }
+        - { name: k8s-node-03, groups: [kubernetes, k8s_workers, k8s_edge] }
 
     - name: Accept the production deployment inputs
       ansible.builtin.include_tasks: ../tasks/validate.yaml
@@ -70,6 +72,7 @@
             - kubeadm-init.yaml.j2
             - cilium-values.yaml.j2
             - containerd.toml.j2
+            - gateway-firewall.nft.j2
 
         - name: Assert kubeadm and Cilium configuration invariants
           ansible.builtin.assert:
@@ -87,10 +90,16 @@
               - kubernetes_cilium.envoy.securityContext.capabilities.keepCapNetBindService
               - kubernetes_cilium.envoy.securityContext.capabilities.envoy == ['NET_ADMIN', 'SYS_ADMIN', 'NET_BIND_SERVICE']
               - kubernetes_cilium.gatewayAPI.enabled
+              - kubernetes_cilium.gatewayAPI.enableProxyProtocol
+              - kubernetes_cilium.gatewayAPI.useRemoteAddress
+              - kubernetes_cilium.gatewayAPI.xffNumTrustedHops == 0
               - kubernetes_cilium.gatewayAPI.gatewayClass.create == 'true'
               - kubernetes_cilium.gatewayAPI.hostNetwork.enabled
+              - kubernetes_cilium.gatewayAPI.hostNetwork.nodes.matchLabels == {'node-role.kubernetes.io/edge':''}
               - kubernetes_cilium.operator.rollOutPods
               - kubernetes_cilium.hubble.enabled
+              - kubernetes_cilium.hubble.ui.enabled
+              - kubernetes_cilium.hubble.ui.service.type == 'ClusterIP'
               - kubernetes_cilium.hubble.relay.enabled
               - kubernetes_cilium.hubble.relay.service.type == 'ClusterIP'
               - kubernetes_cilium.hubble.tls.enabled
@@ -104,6 +113,19 @@
               {{ lookup('ansible.builtin.file', kubernetes_test_directory.path ~ '/kubeadm-init.yaml.j2') | from_yaml_all | list }}
             kubernetes_cilium: >-
               {{ lookup('ansible.builtin.file', kubernetes_test_directory.path ~ '/cilium-values.yaml.j2') | from_yaml }}
+
+        - name: Assert Proxy Protocol listeners trust only HAProxy without flushing Cilium rules
+          ansible.builtin.assert:
+            that:
+              - "'destroy table inet lab_gateway' in kubernetes_firewall"
+              - "'flush ruleset' not in kubernetes_firewall"
+              - "'tcp dport { 80, 443 } ip saddr 10.205.234.110 counter accept' in kubernetes_firewall"
+              - "'tcp dport { 80, 443 } counter drop' in kubernetes_firewall"
+              - "'Before=containerd.service kubelet.service' in kubernetes_firewall_unit"
+          vars:
+            kubernetes_firewall: "{{ lookup('ansible.builtin.file', kubernetes_test_directory.path ~ '/gateway-firewall.nft.j2') }}"
+            kubernetes_firewall_unit: >-
+              {{ lookup('ansible.builtin.file', playbook_dir ~ '/../files/kubernetes-gateway-firewall.service') }}
 
         - name: Assert Gateway API prerequisites precede Cilium and reconcile safely
           ansible.builtin.assert:

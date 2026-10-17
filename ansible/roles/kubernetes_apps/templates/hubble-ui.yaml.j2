@@ -1,0 +1,60 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: hubble-ui
+  namespace: kube-system
+spec:
+  gatewayClassName: cilium
+  listeners:
+    - name: http
+      hostname: {{ kubernetes_apps_hubble_hostname }}
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      hostname: {{ kubernetes_apps_hubble_hostname }}
+      port: 443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: hubble-ui-tls
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hubble-ui-redirect
+  namespace: kube-system
+spec:
+  parentRefs:
+    - name: hubble-ui
+      sectionName: http
+  hostnames:
+    - {{ kubernetes_apps_hubble_hostname }}
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: hubble-ui
+  namespace: kube-system
+spec:
+  parentRefs:
+    - name: hubble-ui
+      sectionName: https
+  hostnames:
+    - {{ kubernetes_apps_hubble_hostname }}
+  rules:
+    - backendRefs:
+        - name: hubble-ui
+          port: 80

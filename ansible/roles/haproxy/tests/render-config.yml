@@ -1,0 +1,40 @@
+---
+- name: Validate private HAProxy TCP passthrough
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_facts:
+      default_ipv4:
+        address: 10.205.234.110
+  tasks:
+    - name: Load the production client allowlist
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../../../host_vars/k8s-gateway-api/vars.yaml"
+
+    - name: Create isolated backend fixtures
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups: "{{ item.groups }}"
+        ansible_host: "{{ item.name }}.lab.canhdinh.com"
+      loop:
+        - { name: k8s-control-plane, groups: [kubernetes, k8s_control_plane] }
+        - { name: k8s-node-01, groups: [kubernetes, k8s_workers, k8s_edge] }
+        - { name: k8s-node-02, groups: [kubernetes, k8s_workers, k8s_edge] }
+        - { name: k8s-node-03, groups: [kubernetes, k8s_workers, k8s_edge] }
+
+    - name: Validate the HAProxy configuration contract
+      ansible.builtin.assert:
+        that:
+          - "'mode tcp' in haproxy_config"
+          - "'bind 10.205.234.110:80' in haproxy_config"
+          - "'bind 10.205.234.110:443' in haproxy_config"
+          - "'accept-proxy' not in haproxy_config"
+          - "'ssl crt' not in haproxy_config"
+          - haproxy_config | regex_findall('check send-proxy-v2') | length == 6
+          - "'server k8s-control-plane' not in haproxy_config"
+          - haproxy_config | regex_findall('tcp-request connection reject if !private_clients') | length == 2
+          - "'10.205.234.0/24 100.64.0.0/10' in haproxy_config"
+          - "'resolvers lab_dns resolve-prefer ipv4 init-addr libc,none' in haproxy_config"
+      vars:
+        haproxy_config: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/../templates/haproxy.cfg.j2') }}"

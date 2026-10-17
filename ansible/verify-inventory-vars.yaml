@@ -6,6 +6,7 @@
   vars:
     inventory_secret_names:
       - cloudflare_api_token
+      - cert_manager_cloudflare_api_token
       - technitium_pfx_password
       - gitea_database_password
       - gitea_s3_access_key
@@ -70,10 +71,12 @@
       gitea_runner:
         - cloudflare_api_token
       debian-incus: []
-      k8s-control-plane: []
+      k8s-control-plane:
+        - cert_manager_cloudflare_api_token
       k8s-node-01: []
       k8s-node-02: []
       k8s-node-03: []
+      k8s-gateway-api: []
   tasks:
     - name: Assert each secret is visible only to its owners
       ansible.builtin.assert:

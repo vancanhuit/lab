@@ -1,0 +1,17 @@
+---
+- name: Check Kubernetes manifest changes without forcing field ownership
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf diff
+      --server-side --field-manager=lab-ansible-apps -f {{ kubernetes_apps_manifest }}
+  register: kubernetes_apps_diff
+  changed_when: false
+  failed_when: kubernetes_apps_diff.rc not in [0, 1]
+
+- name: Apply changed Kubernetes manifest
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf apply
+      --server-side --field-manager=lab-ansible-apps -f {{ kubernetes_apps_manifest }}
+  when: kubernetes_apps_diff.rc == 1
+  changed_when: true

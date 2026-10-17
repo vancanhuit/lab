@@ -1,0 +1,38 @@
+---
+- name: Validate the private TCP load-balancer inputs
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - haproxy_client_networks is sequence
+      - haproxy_client_networks is not string
+      - haproxy_client_networks | length > 0
+      - groups['kubernetes'] | length == 4
+      - groups['k8s_edge'] | length > 0
+      - groups['k8s_edge'] | difference(groups['k8s_workers']) | length == 0
+
+- name: Install the distribution-supported HAProxy package
+  ansible.builtin.apt:
+    name: haproxy
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Configure TCP passthrough and Proxy Protocol v2
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/haproxy -c -f %s
+  notify: Reload HAProxy
+
+- name: Enable and start HAProxy
+  ansible.builtin.systemd_service:
+    name: haproxy
+    enabled: true
+    state: started
+
+- name: Apply HAProxy changes before verification
+  ansible.builtin.meta: flush_handlers
