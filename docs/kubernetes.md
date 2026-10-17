@@ -8,11 +8,13 @@ subsequent kubeadm operations.
 
 ## Architecture diagrams
 
-- [Editable cluster topology](https://excalidraw.com/#json=CTaNsBWFV0n24SRRQqptM,PeofkdckamFgAoguJ9B4Rw)
-- [Editable Gateway and observability flows](https://excalidraw.com/#json=WIr4hnKq3ck5SCi8kK69Z,0GEtun1PGeWYJBeDSdfXpg)
+![Cluster topology: HAProxy targets the three edge workers; the control plane has no Gateway listener.](diagrams/kubernetes-topology.svg)
 
-The diagrams show the installed infrastructure. Application Gateways, routes,
-and listeners are marked separately because they have not been created.
+[Edit the topology in Excalidraw](diagrams/kubernetes-topology.excalidraw).
+The [traffic diagram](#traffic-and-client-identity) and
+[certificate diagram](#certificates-and-renewal) below cover the request and
+renewal paths. Sources and SVG previews are versioned together in
+[`docs/diagrams/`](diagrams/README.md); no hosted diagram link is required.
 
 | Node | DNS hostname | Initial IPv4 address |
 | --- | --- | --- |
@@ -20,6 +22,7 @@ and listeners are marked separately because they have not been created.
 | Worker 1 | `k8s-node-01.lab.canhdinh.com` | `10.205.234.107` |
 | Worker 2 | `k8s-node-02.lab.canhdinh.com` | `10.205.234.108` |
 | Worker 3 | `k8s-node-03.lab.canhdinh.com` | `10.205.234.109` |
+| TCP load balancer (not a Kubernetes node) | `k8s-gateway-api.lab.canhdinh.com` | `10.205.234.110` |
 
 The API endpoint is `k8s-control-plane.lab.canhdinh.com:6443`. Ansible also connects
 using DNS names. **Keep the control-plane IP stable**, preferably with a
@@ -32,6 +35,9 @@ Pins and SHA-256 checksums are in
 `ansible/roles/kubernetes/defaults/main.yaml`: Kubernetes 1.36.5, containerd 2.4.2,
 runc 1.5.2, CNI plugins 1.9.1, crictl 1.36.0, Cilium 1.20.3, Cilium CLI 0.20.1,
 Hubble CLI 1.20.2, and Gateway API 1.6.3 (standard channel).
+cert-manager 1.21.2 and its official manifest checksum are pinned separately in
+`ansible/roles/kubernetes_apps/defaults/main.yaml`. HAProxy uses Debian 13's
+distribution-supported package.
 Kubernetes 1.36 is in Cilium 1.20's tested compatibility matrix. The node binaries,
 including runc and the standard CNI plugins, come from official upstream releases,
 not distribution packages. This avoids a package dependency replacing the manually
@@ -76,17 +82,21 @@ Worker join commands are generated only for unjoined workers. Their tokens expir
 after 15 minutes, are hidden from Ansible output, and are revoked after the join stage.
 No bootstrap token or kubeconfig is committed to the repository. Kubernetes
 nodes are outside the inventory's `lab` group and do not inherit its Cloudflare
-credential.
+credential. Only the control plane owns the separate encrypted
+`cert_manager_cloudflare_api_token` used to create cert-manager's Secret.
 
 The administrator kubeconfig is installed with mode `0600` at
-`/home/admin/.kube/config` on the control plane. Use it without copying credentials
-to the Ansible controller:
+`/home/admin/.kube/config` on the control plane. Access without copying credentials:
 
 ```sh
 ssh admin@k8s-control-plane.lab.canhdinh.com 'kubectl get nodes -o wide'
 ssh admin@k8s-control-plane.lab.canhdinh.com 'kubectl get pods -A -o wide'
 ssh admin@k8s-control-plane.lab.canhdinh.com 'cilium status --wait'
 ```
+
+This control host also has an explicitly imported `lab-kubeadm` context in
+`~/.kube/config` (mode `0600`); use `kubectl --context lab-kubeadm get nodes`.
+The playbook does not copy kubeconfigs to controllers automatically.
 
 Verification checks all four nodes, control-plane membership, CRI health, binary
 versions, systemd cgroups, cgroup v2, CoreDNS, absence of the kube-proxy DaemonSet
@@ -135,22 +145,130 @@ changes automatically roll out both agents and operators, so the operator detect
 the CRDs at startup. Standalone Envoy retains its existing capabilities and gains
 `NET_BIND_SERVICE`, allowing listeners on ports such as 80 and 443.
 
-No Gateway, HTTPRoute, certificate, or application listener is created by this
-deployment. Create a Gateway with `spec.gatewayClassName: cilium` and select its
-listener ports when deploying an application. HTTP, HTTPS, gRPC, and TLS listeners
+The base `kubernetes.yaml` playbook enables the controller, Hubble UI, and Proxy
+Protocol support, but does not create application listeners. The
+`kubernetes-gateway.yaml` entrypoint also creates the Hubble UI certificate,
+Gateway, routes, and HAProxy configuration. HTTP, HTTPS, gRPC, and TLS listeners
 bind directly on the node network rather than relying on a LoadBalancer Service.
-The default node selector includes all four nodes, including the control plane.
+Only the three workers with the `edge` role host the Hubble UI listeners;
+the control plane does not. The Cilium Helm selector is
+`gatewayAPI.hostNetwork.nodes.matchLabels: {node-role.kubernetes.io/edge: ''}`.
+The `k8s_edge` inventory group owns the edge membership and preserves these node
+labels after worker joins. Cilium agents and standalone Envoy remain deployed
+cluster-wide for CNI and L7 network policies; only Gateway sockets are edge-only.
 
-Host-network listeners bind all node interfaces. Reserve unique, unused ports
-across Gateways, and permit only intended clients through the host firewall or
-Tailscale policy. `TCPRoute` and `UDPRoute` CRDs are installed by the standard
+Host-network listeners bind all node interfaces. Ports 80 and 443 are reserved
+for the `kube-system/hubble-ui` Gateway. Do not create a second Gateway using the
+same ports. `TCPRoute` and `UDPRoute` CRDs are installed by the standard
 bundle, but Cilium does not expose those routes directly through host networking;
 their generated Services use NodePorts instead.
 
 Cilium's Gateway API chart also confines socket load balancing to the host
 namespace. The earlier connectivity results above predate this configuration.
-Verification checks controller acceptance and configuration without creating a
-listener; it does not exercise application traffic through a Gateway.
+`verify-kubernetes-gateway.yaml` additionally checks real Hubble UI HTTPS traffic,
+certificate validation, HTTP redirection, routes, and the node firewall.
+
+### Deploy HAProxy, cert-manager, and Hubble UI
+
+From `ansible/`:
+
+```sh
+mise exec -- ansible-playbook kubernetes-gateway.yaml
+mise exec -- ansible-playbook verify-kubernetes-gateway.yaml
+mise exec -- ansible-playbook kubernetes-gateway.yaml
+```
+
+The entrypoint reconciles the cluster first, then deploys cert-manager and its
+DNS-01 issuer, waits for a valid certificate, creates the Gateway and routes, and
+configures HAProxy. The repeat run should report `changed=0` on all five hosts.
+Open **https://hubble-ui.lab.canhdinh.com/** from the lab or Tailscale network.
+The existing private CNAME points to `k8s-gateway-api.lab.canhdinh.com`; the playbook
+does not modify the UI DNS record. HTTP redirects to HTTPS.
+
+### Traffic and client identity
+
+![Private request path: HAProxy sends Proxy Protocol v2 to edge Envoy, which terminates HTTPS and forwards to Hubble UI. Hubble Relay collects flows internally.](diagrams/kubernetes-gateway.svg)
+
+[Edit the traffic diagram in Excalidraw](diagrams/kubernetes-gateway.excalidraw).
+
+HAProxy passes TCP 80 and 443 only to `k8s_edge` nodes, uses DNS-based backend discovery
+and TCP health checks, and sends `send-proxy-v2` on each backend connection.
+It does not terminate TLS or accept client-supplied Proxy Protocol headers.
+Cilium's `gatewayAPI.enableProxyProtocol=true` requires Proxy Protocol for every
+Gateway listener. Envoy terminates TLS using `kube-system/hubble-ui-tls` and passes
+the original address to HTTP backends in `X-Forwarded-For` and
+`X-Envoy-External-Address`, with zero trusted XFF hops. An upstream NAT can still
+hide a client's address before traffic reaches HAProxy.
+
+Each Kubernetes node owns a dedicated `inet lab_gateway` nftables table, loaded
+at boot before containerd and kubelet. It permits TCP 80/443 only from HAProxy's
+resolved IPv4 address, then drops all other IPv4 and IPv6 sources on those ports.
+It never flushes Cilium or kubelet tables. This restriction is necessary because
+Proxy Protocol headers are not authenticated. New listener ports require matching
+firewall and HAProxy updates before use. If the HAProxy address changes, rerun the
+deployment to refresh the node allowlist and HAProxy bind address.
+
+HAProxy binds its private LAN address and permits only `10.205.234.0/24` and
+`100.64.0.0/10`, configured in `ansible/host_vars/k8s-gateway-api/vars.yaml`.
+**Hubble UI has no login and exposes sensitive flow metadata.** Keep these network
+boundaries and Tailscale ACLs in place; add authentication before wider exposure.
+The Relay and UI Services remain ClusterIP; only the Gateway is exposed.
+
+### Certificates and renewal
+
+cert-manager comes from the checksum-verified official release manifest. Its
+upstream security settings are preserved; only DNS-01 self-check resolver flags
+are added. The `letsencrypt-cloudflare` ClusterIssuer uses Cloudflare DNS-01 for
+`lab.canhdinh.com`, storing its account key in the `cert-manager` namespace.
+The explicit `Certificate` resource requests only `hubble-ui.lab.canhdinh.com`.
+It uses ECDSA P-256 and renews automatically, rotating the key on renewal.
+No Gateway annotation or cert-manager Gateway shim is required.
+
+![Certificate flow: cert-manager creates Cloudflare DNS challenges, obtains a Let's Encrypt certificate, and stores the TLS Secret that Cilium syncs to edge Envoy.](diagrams/kubernetes-certificates.svg)
+
+[Edit the certificate diagram in Excalidraw](diagrams/kubernetes-certificates.excalidraw).
+
+Cloudflare needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the `canhdinh.com` zone.
+The credential is SOPS-encrypted under the control plane's host variables and
+sent to the Kubernetes Secret through stdin, with `no_log`; no plaintext Secret
+manifest is written on either host. The initial credential reuses the existing
+lab token. Replacing it with a dedicated zone-scoped token reduces the shared
+rotation and revocation impact; edit only the cert-manager host secret and rerun.
+
+The pod network's port-53 queries to public resolvers returned empty TXT answers
+even though external queries could see the Cloudflare challenge. cert-manager
+therefore uses `--dns01-recursive-nameservers-only` with Cloudflare's public
+DNS-over-HTTPS endpoints at `https://1.1.1.1/dns-query` and
+`https://1.0.0.1/dns-query`. Outbound HTTPS must remain allowed for Cloudflare,
+Let's Encrypt, and DoH. The internal application CNAME does not require
+`cnameStrategy: Follow`; that setting is for delegating `_acme-challenge` records.
+
+Inspect readiness without printing Secrets:
+
+```sh
+kubectl --context lab-kubeadm get pods -n cert-manager
+kubectl --context lab-kubeadm get clusterissuer letsencrypt-cloudflare
+kubectl --context lab-kubeadm -n kube-system get certificate,gateway,httproute
+kubectl --context lab-kubeadm -n kube-system get challenges,orders
+```
+
+Do not delete the ACME account Secret or TLS Secret to retry issuance: doing so
+can consume CA rate limits. Fix DNS or credentials and allow the existing request
+to reconcile. To stop UI exposure without deleting certificate state, stop HAProxy
+and remove the two Hubble UI HTTPRoutes; the full deployment restores them.
+
+### Verified deployment
+
+The complete deployment rerun reports `changed=0` on the control plane, all three
+workers, HAProxy, and the local verification host. Both listener checks pass on
+all three edge nodes; no Gateway socket is present on the control plane.
+HTTPS certificate validation, HTTP redirection, and Hubble UI's live flow display
+were checked. The UI reported all four Hubble nodes connected.
+
+A temporary HTTP echo backend verified that Envoy forwarded the actual Tailscale
+client address, not HAProxy's address. Injecting a forged `X-Forwarded-For` value
+did not replace `X-Envoy-External-Address`. Direct untrusted HTTPS connections to
+each node were blocked. The temporary Pod, Service, and HTTPRoute were removed.
 
 ## Observe flows with Hubble
 
@@ -168,16 +286,18 @@ ssh admin@k8s-control-plane.lab.canhdinh.com 'hubble status'
 ssh admin@k8s-control-plane.lab.canhdinh.com 'hubble observe --last 20'
 ```
 
-Stop the forward with Ctrl-C. Hubble UI, an Ingress, and public access are not
-enabled. Network flow metadata can be sensitive; keep Relay access restricted.
+Stop the forward with Ctrl-C. The UI is also available through the private HTTPS
+Gateway above. Relay remains internal-only; public access is not enabled.
 
 ## Limits
 
 This is not an HA cluster: losing the control plane makes the Kubernetes API and
 scheduling unavailable. There is no etcd backup automation, storage provisioner,
-Ingress controller, external LoadBalancer implementation, or monitoring stack in
+Ingress controller, Kubernetes LoadBalancer IP allocator, or monitoring stack in
 this deployment. Add backups before storing important cluster state. Incus root
 disks hold `/var/lib/etcd` and `/var/lib/containerd`.
+The single HAProxy host is another single point of failure. Certificate/account
+Secrets live in etcd; protect access to them and include them in encrypted backups.
 
 Changing version pins is not a rolling-upgrade procedure. Follow the upstream
 kubeadm and Cilium upgrade guides, back up etcd, and drain workers as appropriate.
@@ -193,3 +313,8 @@ kubeadm and Cilium upgrade guides, back up etcd, and drain workers as appropriat
 - [Cilium Kubernetes IPAM](https://docs.cilium.io/en/v1.20/network/concepts/ipam/kubernetes/)
 - [Hubble TLS and certificate renewal](https://docs.cilium.io/en/v1.20/observability/hubble/configuration/tls/)
 - [Cilium Gateway API and host networking](https://docs.cilium.io/en/v1.20/network/servicemesh/gateway-api/gateway-api/)
+- [HAProxy Proxy Protocol configuration](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/proxying-essentials/client-ip-preservation/enable-proxy-protocol/)
+- [cert-manager installation](https://cert-manager.io/docs/installation/kubectl/)
+- [cert-manager Cloudflare DNS-01](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/)
+- [DNS-01 self-checks and split DNS](https://cert-manager.io/docs/configuration/acme/dns01/)
+- [cert-manager DNS-over-HTTPS controller flags](https://cert-manager.io/docs/cli/controller/)

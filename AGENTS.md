@@ -10,9 +10,11 @@
 
 - `ansible/{dns,postgres,s3,harbor,gitea,gitea-runner,kuma}.yaml` are live service deployment entrypoints. `setup-incus.yaml` targets the Incus host as remote user `lab`, unlike the default `admin` used for instances.
 - `ansible/kubernetes.yaml` deploys the four-node kubeadm/containerd/Cilium cluster; `verify-kubernetes.yaml` is read-only. Kubernetes inventory hosts deliberately do not inherit the `lab` group's secrets.
+- `ansible/kubernetes-gateway.yaml` includes the base cluster, deploys cert-manager and Hubble UI's HTTPS Gateway, then configures HAProxy on `k8s-gateway-api`. `verify-kubernetes-gateway.yaml` is read-only. Only the control plane owns the separate cert-manager Cloudflare credential; node TCP 80/443 listeners trust HAProxy only.
 - `ansible/verify-{postgres,s3,harbor,gitea,gitea-runner,kuma}.yaml` inspect live hosts after deployment. There is no DNS verification playbook.
 - `ansible/roles/*/tests/render-config.yml` are controller-local role contract and template tests. `ansible/verify-inventory-vars.yaml` locally checks that encrypted variables are visible only to their intended inventory hosts.
 - `create-incus-instance.py` is a PEP 723 script run with `uv run create-incus-instance.py --help`; normal execution calls Incus and creates a stopped instance.
+- `docs/diagrams/*.excalidraw` are editable architecture sources; their matching SVG previews are embedded in `docs/kubernetes.md`. Update each source/preview pair together; see `docs/diagrams/README.md` for style and export conventions.
 
 ## Verification
 

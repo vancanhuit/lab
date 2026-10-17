@@ -209,3 +209,17 @@ mise exec -- ansible-playbook kubernetes.yaml
 
 See [Kubernetes](kubernetes.md) for version pins, firewall requirements,
 administrator access, connectivity tests, and the single-control-plane limitations.
+
+To also configure the separate `k8s-gateway-api` TCP load-balancer host,
+cert-manager with Cloudflare DNS-01, and the Hubble UI HTTPS Gateway:
+
+```sh
+mise exec -- ansible-playbook kubernetes-gateway.yaml
+mise exec -- ansible-playbook verify-kubernetes-gateway.yaml
+mise exec -- ansible-playbook kubernetes-gateway.yaml
+```
+
+This includes the base Kubernetes playbook and then deploys the applications and
+HAProxy. Proxy Protocol v2 preserves client addresses; node listener ports trust
+HAProxy only. Hubble UI is private to lab/Tailscale clients at
+`https://hubble-ui.lab.canhdinh.com/` and does not have its own login.
