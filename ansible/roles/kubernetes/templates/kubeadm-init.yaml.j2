@@ -1,0 +1,30 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ ansible_facts.default_ipv4.address }}
+  bindPort: 6443
+nodeRegistration:
+  name: {{ inventory_hostname }}
+  criSocket: unix:///run/containerd/containerd.sock
+skipPhases:
+  - addon/kube-proxy
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: lab
+kubernetesVersion: v{{ kubernetes_version }}
+controlPlaneEndpoint: {{ kubernetes_api_host }}:6443
+apiServer:
+  certSANs:
+    - {{ kubernetes_api_host }}
+networking:
+  podSubnet: {{ kubernetes_pod_subnet }}
+  serviceSubnet: {{ kubernetes_service_subnet }}
+proxy:
+  disabled: true
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+containerRuntimeEndpoint: unix:///run/containerd/containerd.sock
+failSwapOn: true

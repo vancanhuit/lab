@@ -1,0 +1,107 @@
+---
+- name: Render kubeadm bootstrap configuration
+  ansible.builtin.template:
+    src: kubeadm-init.yaml.j2
+    dest: /etc/kubernetes/kubeadm-init.yaml
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Validate kubeadm bootstrap configuration
+  ansible.builtin.command:
+    cmd: /usr/local/bin/kubeadm config validate --config /etc/kubernetes/kubeadm-init.yaml
+  changed_when: false
+
+- name: Initialize the control plane without kube-proxy
+  ansible.builtin.command:
+    cmd: /usr/local/bin/kubeadm init --config /etc/kubernetes/kubeadm-init.yaml --skip-token-print
+    creates: /etc/kubernetes/admin.conf
+  no_log: true
+
+- name: Create the administrator kubeconfig directory
+  ansible.builtin.file:
+    path: /home/admin/.kube
+    state: directory
+    owner: admin
+    group: admin
+    mode: '0700'
+
+- name: Install the administrator kubeconfig without exposing it on the controller
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/admin/.kube/config
+    remote_src: true
+    owner: admin
+    group: admin
+    mode: '0600'
+  no_log: true
+
+- name: Download the pinned official Cilium and Hubble CLIs
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/var/cache/kubernetes/{{ item.name }}"
+    checksum: "{{ item.checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - name: "cilium-cli-{{ kubernetes_cilium_cli_version }}.tar.gz"
+      url: "https://github.com/cilium/cilium-cli/releases/download/v{{ kubernetes_cilium_cli_version }}/cilium-linux-amd64.tar.gz"
+      checksum: "{{ kubernetes_cilium_cli_checksum }}"
+    - name: "hubble-cli-{{ kubernetes_hubble_cli_version }}.tar.gz"
+      url: "https://github.com/cilium/hubble/releases/download/v{{ kubernetes_hubble_cli_version }}/hubble-linux-amd64.tar.gz"
+      checksum: "{{ kubernetes_hubble_cli_checksum }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Install the Cilium and Hubble CLIs
+  ansible.builtin.unarchive:
+    src: "/var/cache/kubernetes/{{ item }}"
+    dest: /usr/local/bin
+    remote_src: true
+    owner: root
+    group: root
+  loop:
+    - "cilium-cli-{{ kubernetes_cilium_cli_version }}.tar.gz"
+    - "hubble-cli-{{ kubernetes_hubble_cli_version }}.tar.gz"
+
+- name: Render the Cilium Helm values
+  ansible.builtin.template:
+    src: cilium-values.yaml.j2
+    dest: /etc/kubernetes/cilium-values.yaml
+    owner: root
+    group: root
+    mode: '0644'
+  register: kubernetes_cilium_values
+
+- name: Check whether Cilium is installed
+  ansible.builtin.command:
+    cmd: /usr/local/bin/kubectl --kubeconfig /etc/kubernetes/admin.conf -n kube-system get daemonset cilium --ignore-not-found -o name
+  register: kubernetes_cilium_daemonset
+  changed_when: false
+
+- name: Install Cilium with eBPF kube-proxy replacement
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/cilium install --version {{ kubernetes_cilium_version }}
+      --kubeconfig /etc/kubernetes/admin.conf --helm-values /etc/kubernetes/cilium-values.yaml
+  when: kubernetes_cilium_daemonset.stdout == ''
+  changed_when: true
+
+- name: Reconcile changed Cilium Helm values
+  ansible.builtin.command:
+    cmd: >-
+      /usr/local/bin/cilium upgrade --version {{ kubernetes_cilium_version }}
+      --kubeconfig /etc/kubernetes/admin.conf --helm-values /etc/kubernetes/cilium-values.yaml
+  when: kubernetes_cilium_daemonset.stdout != '' and kubernetes_cilium_values.changed
+  changed_when: true
+
+- name: Create a short-lived join command only when workers need joining
+  ansible.builtin.command:
+    cmd: /usr/local/bin/kubeadm token create --ttl 15m --print-join-command
+  register: kubernetes_join_command
+  when: >-
+    groups['k8s_workers'] | map('extract', hostvars) |
+    rejectattr('kubernetes_kubelet_state.stat.exists') | list | length > 0
+  changed_when: true
+  no_log: true

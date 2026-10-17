@@ -1,0 +1,48 @@
+---
+- name: Prepare Kubernetes nodes
+  hosts: kubernetes
+  become: true
+  any_errors_fatal: true
+  roles:
+    - kubernetes
+
+- name: Bootstrap the Kubernetes control plane and Cilium
+  hosts: k8s_control_plane
+  become: true
+  any_errors_fatal: true
+  tasks:
+    - name: Initialize the control plane
+      ansible.builtin.include_role:
+        name: kubernetes
+        tasks_from: control-plane
+
+- name: Join Kubernetes workers
+  hosts: k8s_workers
+  become: true
+  tasks:
+    - name: Join unconfigured workers with a short-lived bootstrap token
+      ansible.builtin.command:
+        argv: >-
+          {{ hostvars[groups['k8s_control_plane'][0]].kubernetes_join_command.stdout.split() +
+             ['--cri-socket', 'unix:///run/containerd/containerd.sock', '--node-name', inventory_hostname] }}
+        creates: /etc/kubernetes/kubelet.conf
+      when: not kubernetes_kubelet_state.stat.exists
+      no_log: true
+
+- name: Remove the temporary bootstrap token
+  hosts: k8s_control_plane
+  become: true
+  tasks:
+    - name: Revoke the worker bootstrap token
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/kubeadm
+          - token
+          - delete
+          - "{{ kubernetes_join_command.stdout.split()[4].split('.')[0] }}"
+      when: kubernetes_join_command is not skipped
+      changed_when: true
+      no_log: true
+
+- name: Verify the deployed Kubernetes cluster
+  ansible.builtin.import_playbook: verify-kubernetes.yaml

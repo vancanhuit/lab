@@ -1,0 +1,187 @@
+---
+- name: Verify Kubernetes node runtimes
+  hosts: kubernetes
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Load Kubernetes version pins
+      ansible.builtin.include_vars:
+        file: roles/kubernetes/defaults/main.yaml
+
+    - name: Gather node service facts
+      ansible.builtin.service_facts:
+
+    - name: Verify kubelet and containerd are running and enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services[item].state == 'running'
+          - ansible_facts.services[item].status == 'enabled'
+      loop: [kubelet.service, containerd.service]
+
+    - name: Verify cgroup v2
+      ansible.builtin.command:
+        argv: [stat, -fc, '%T', /sys/fs/cgroup]
+      register: kubernetes_cgroup_fs
+      changed_when: false
+      failed_when: kubernetes_cgroup_fs.rc != 0 or kubernetes_cgroup_fs.stdout != 'cgroup2fs'
+
+    - name: Read kubelet configuration
+      ansible.builtin.slurp:
+        src: /var/lib/kubelet/config.yaml
+        armor: false
+      register: kubernetes_kubelet_config
+
+    - name: Read CRI runtime health and configuration
+      ansible.builtin.command:
+        cmd: /usr/local/bin/crictl info
+      register: kubernetes_cri_info
+      changed_when: false
+      until: >-
+        kubernetes_cri_info.rc == 0 and
+        (kubernetes_cri_info.stdout | from_json).status.conditions |
+        selectattr('type', 'in', ['RuntimeReady', 'NetworkReady']) |
+        selectattr('status', 'equalto', true) | list | length == 2
+      retries: 60
+      delay: 5
+
+    - name: Assert systemd cgroups and healthy CRI networking
+      ansible.builtin.assert:
+        that:
+          - (kubernetes_kubelet_config.content | from_yaml).cgroupDriver == 'systemd'
+          - kubernetes_runtime.config.containerd.runtimes.runc.options.SystemdCgroup
+          - kubernetes_runtime.status.conditions | selectattr('type', 'equalto', 'RuntimeReady') | map(attribute='status') | first
+          - kubernetes_runtime.status.conditions | selectattr('type', 'equalto', 'NetworkReady') | map(attribute='status') | first
+      vars:
+        kubernetes_runtime: "{{ kubernetes_cri_info.stdout | from_json }}"
+
+    - name: Check pinned node binary versions
+      ansible.builtin.command:
+        argv: ["{{ item.binary }}", --version]
+      register: kubernetes_binary_version
+      changed_when: false
+      failed_when: >-
+        kubernetes_binary_version.rc != 0 or
+        item.version not in (kubernetes_binary_version.stdout ~ '\n' ~ kubernetes_binary_version.stderr)
+      loop:
+        - { binary: /usr/local/bin/kubelet, version: "v{{ kubernetes_version }}" }
+        - { binary: /usr/local/bin/containerd, version: "v{{ kubernetes_containerd_version }}" }
+        - { binary: /usr/local/sbin/runc, version: "{{ kubernetes_runc_version }}" }
+        - { binary: /opt/cni/bin/bridge, version: "v{{ kubernetes_cni_version }}" }
+
+- name: Verify Kubernetes cluster health and kube-proxy replacement
+  hosts: k8s_control_plane
+  become: true
+  gather_facts: false
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  tasks:
+    - name: Wait for every Kubernetes node to become Ready
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl wait --for=condition=Ready nodes --all --timeout=300s
+      changed_when: false
+
+    - name: Read registered Kubernetes nodes
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl get nodes -o json
+      register: kubernetes_nodes
+      changed_when: false
+
+    - name: Assert exactly the four inventory nodes are registered
+      ansible.builtin.assert:
+        that:
+          - (kubernetes_nodes.stdout | from_json)['items'] | map(attribute='metadata.name') | sort == groups['kubernetes'] | sort
+
+    - name: Assert the single control-plane role and worker roles
+      ansible.builtin.assert:
+        that:
+          - "('node-role.kubernetes.io/control-plane' in item.metadata.labels) == (item.metadata.name in groups['k8s_control_plane'])"
+        quiet: true
+      loop: "{{ (kubernetes_nodes.stdout | from_json)['items'] }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+    - name: Wait for Cilium cluster health
+      ansible.builtin.command:
+        cmd: /usr/local/bin/cilium status --wait --wait-duration 5m
+      changed_when: false
+
+    - name: Wait for CoreDNS rollout
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system rollout status deployment/coredns --timeout=180s
+      changed_when: false
+
+    - name: Require the standalone Cilium Envoy DaemonSet on every node
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system rollout status daemonset/cilium-envoy --timeout=180s
+      changed_when: false
+
+    - name: Wait for Hubble Relay rollout
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system rollout status deployment/hubble-relay --timeout=180s
+      changed_when: false
+
+    - name: Read the internal Hubble Relay service
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system get service hubble-relay -o json
+      register: kubernetes_hubble_service
+      changed_when: false
+
+    - name: Require Hubble Relay to remain internal-only
+      ansible.builtin.assert:
+        that:
+          - (kubernetes_hubble_service.stdout | from_json).spec.type == 'ClusterIP'
+          - (kubernetes_hubble_service.stdout | from_json).spec.externalIPs | default([]) | length == 0
+
+    - name: Require Hubble Relay to observe all four nodes
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/hubble
+          - status
+          - --server
+          - "{{ kubernetes_hubble_endpoint.spec.clusterIP }}:{{ kubernetes_hubble_endpoint.spec.ports[0].port }}"
+          - --output
+          - json
+      register: kubernetes_hubble_status
+      changed_when: false
+      until: >-
+        kubernetes_hubble_status.rc == 0 and
+        (kubernetes_hubble_status.stdout | from_json).num_connected_nodes | default(0) | int == 4 and
+        (kubernetes_hubble_status.stdout | from_json).num_unavailable_nodes | default(0) | int == 0
+      retries: 30
+      delay: 5
+      vars:
+        kubernetes_hubble_endpoint: "{{ kubernetes_hubble_service.stdout | from_json }}"
+
+    - name: Require kube-proxy DaemonSet and ConfigMap to be absent
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system get daemonset/kube-proxy configmap/kube-proxy --ignore-not-found -o name
+      register: kubernetes_kube_proxy
+      changed_when: false
+      failed_when: kubernetes_kube_proxy.rc != 0 or kubernetes_kube_proxy.stdout != ''
+
+    - name: List Cilium agents
+      ansible.builtin.command:
+        cmd: /usr/local/bin/kubectl -n kube-system get pods -l k8s-app=cilium -o json
+      register: kubernetes_cilium_pods
+      changed_when: false
+
+    - name: Require full kube-proxy replacement on every node
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/kubectl
+          - -n
+          - kube-system
+          - exec
+          - "{{ item.metadata.name }}"
+          - --
+          - cilium-dbg
+          - status
+          - --verbose
+      register: kubernetes_cilium_agent_status
+      changed_when: false
+      failed_when: >-
+        kubernetes_cilium_agent_status.rc != 0 or
+        kubernetes_cilium_agent_status.stdout is not search('KubeProxyReplacement:\s+True')
+      loop: "{{ (kubernetes_cilium_pods.stdout | from_json)['items'] }}"
+      loop_control:
+        label: "{{ item.spec.nodeName }}"

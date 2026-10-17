@@ -191,3 +191,20 @@ ansible-playbook kuma.yaml
 ```
 
 The second deployment should report `changed=0` for `kuma`.
+
+## 8. Deploy Kubernetes
+
+The four Kubernetes VMs form a separate kubeadm cluster with one control plane,
+three workers, containerd, Cilium's eBPF kube-proxy replacement, standalone Envoy,
+and Hubble Relay. The Pod CIDR
+is `10.244.0.0/16`. DNS must resolve all node hostnames, and the control-plane IP
+must remain stable even though clients use a DNS API endpoint.
+
+```sh
+mise exec -- ansible-playbook kubernetes.yaml
+mise exec -- ansible-playbook verify-kubernetes.yaml
+mise exec -- ansible-playbook kubernetes.yaml
+```
+
+See [Kubernetes](kubernetes.md) for version pins, firewall requirements,
+administrator access, connectivity tests, and the single-control-plane limitations.

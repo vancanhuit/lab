@@ -1,0 +1,177 @@
+---
+- name: Validate Kubernetes role contracts and configuration
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_facts:
+      distribution: Debian
+      distribution_major_version: '13'
+      architecture: x86_64
+      service_mgr: systemd
+      hostname: localhost
+      processor_vcpus: 2
+      memtotal_mb: 4096
+      kernel: '6.12.113'
+      default_ipv4:
+        address: 10.205.234.106
+        network: 10.205.234.0
+        prefix: 24
+  tasks:
+    - name: Load Kubernetes version pins and production network configuration
+      ansible.builtin.include_vars:
+        file: "{{ item }}"
+      loop:
+        - "{{ playbook_dir }}/../defaults/main.yaml"
+        - "{{ playbook_dir }}/../../../group_vars/kubernetes/vars.yaml"
+
+    - name: Create isolated topology fixtures without connecting to hosts
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups: "{{ item.groups }}"
+      loop:
+        - { name: k8s-control-plane, groups: [kubernetes, k8s_control_plane] }
+        - { name: k8s-node-01, groups: [kubernetes, k8s_workers] }
+        - { name: k8s-node-02, groups: [kubernetes, k8s_workers] }
+        - { name: k8s-node-03, groups: [kubernetes, k8s_workers] }
+
+    - name: Accept the production deployment inputs
+      ansible.builtin.include_tasks: ../tasks/validate.yaml
+
+    - name: Reject overlapping network ranges
+      block:
+        - name: Run the production network guard with an overlapping Service CIDR
+          ansible.builtin.include_tasks: ../tasks/validate.yaml
+          vars:
+            kubernetes_service_subnet: 10.244.1.0/24
+
+        - name: Fail if overlapping networks were accepted
+          ansible.builtin.fail:
+            msg: The network guard accepted overlapping Pod and Service networks
+      rescue:
+        - name: Require the actual overlap rejection
+          ansible.builtin.assert:
+            that:
+              - "'Pod and Service networks overlap' in ansible_failed_result.stderr | default('')"
+
+    - name: Create a local configuration test directory
+      ansible.builtin.tempfile:
+        state: directory
+      register: kubernetes_test_directory
+
+    - name: Test rendered Kubernetes configuration
+      block:
+        - name: Render production templates
+          ansible.builtin.template:
+            src: "{{ (playbook_dir | dirname) ~ '/templates/' ~ item }}"
+            dest: "{{ kubernetes_test_directory.path }}/{{ item }}"
+            mode: '0600'
+          loop:
+            - kubeadm-init.yaml.j2
+            - cilium-values.yaml.j2
+            - containerd.toml.j2
+
+        - name: Assert kubeadm and Cilium configuration invariants
+          ansible.builtin.assert:
+            that:
+              - kubernetes_init[0].skipPhases == ['addon/kube-proxy']
+              - kubernetes_init[0].nodeRegistration.criSocket == 'unix:///run/containerd/containerd.sock'
+              - kubernetes_init[1].proxy.disabled
+              - kubernetes_init[1].networking.podSubnet == '10.244.0.0/16'
+              - kubernetes_init[1].networking.serviceSubnet == '10.96.0.0/12'
+              - kubernetes_init[1].controlPlaneEndpoint == 'k8s-control-plane.lab.canhdinh.com:6443'
+              - kubernetes_init[2].cgroupDriver == 'systemd'
+              - kubernetes_init[2].failSwapOn
+              - kubernetes_cilium.kubeProxyReplacement
+              - kubernetes_cilium.envoy.enabled
+              - kubernetes_cilium.hubble.enabled
+              - kubernetes_cilium.hubble.relay.enabled
+              - kubernetes_cilium.hubble.relay.service.type == 'ClusterIP'
+              - kubernetes_cilium.hubble.tls.enabled
+              - kubernetes_cilium.hubble.tls.auto.method == 'cronJob'
+              - kubernetes_cilium.k8sServiceHost == kubernetes_api_host
+              - kubernetes_cilium.ipam.mode == 'kubernetes'
+              - kubernetes_cilium.cgroup.hostRoot == '/sys/fs/cgroup'
+              - not kubernetes_cilium.cgroup.autoMount.enabled
+          vars:
+            kubernetes_init: >-
+              {{ lookup('ansible.builtin.file', kubernetes_test_directory.path ~ '/kubeadm-init.yaml.j2') | from_yaml_all | list }}
+            kubernetes_cilium: >-
+              {{ lookup('ansible.builtin.file', kubernetes_test_directory.path ~ '/cilium-values.yaml.j2') | from_yaml }}
+
+        - name: Parse containerd TOML and assert systemd runc and official CNI paths
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python }}"
+              - -c
+              - |
+                import sys, tomllib
+                with open(sys.argv[1], 'rb') as stream:
+                    config = tomllib.load(stream)
+                assert config['version'] == 3
+                runtime = config['plugins']['io.containerd.cri.v1.runtime']
+                runc = runtime['containerd']['runtimes']['runc']
+                assert runc['runtime_type'] == 'io.containerd.runc.v2'
+                assert runc['options']['SystemdCgroup'] is True
+                assert runc['options']['BinaryName'] == '/usr/local/sbin/runc'
+                assert runtime['cni']['bin_dirs'] == ['/opt/cni/bin']
+                assert config['plugins']['io.containerd.cri.v1.images']['pinned_images']['sandbox'] == sys.argv[2]
+              - "{{ kubernetes_test_directory.path }}/containerd.toml.j2"
+              - "{{ kubernetes_pause_image }}"
+          changed_when: false
+
+        - name: Prepare a stderr-only version fixture using the production check
+          ansible.builtin.copy:
+            dest: "{{ kubernetes_test_directory.path }}/verify-version.yaml"
+            mode: '0600'
+            content: >-
+              {{ [kubernetes_version_task | combine({
+                   'ansible.builtin.command': {'argv': [
+                     ansible_playbook_python, '-c',
+                     "import sys; print('v1.9.1', file=sys.stderr); sys.exit(int(sys.argv[1]))",
+                     '{{ kubernetes_test_exit_code }}']},
+                   'loop': [{'version': 'v1.9.1'}]
+                 })] | to_nice_yaml }}
+          vars:
+            kubernetes_version_task: >-
+              {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../../../verify-kubernetes.yaml') | from_yaml)[0].tasks |
+                 selectattr('name', 'equalto', 'Check pinned node binary versions') | first }}
+
+        - name: Accept a successful version command that writes to stderr
+          ansible.builtin.include_tasks: "{{ kubernetes_test_directory.path }}/verify-version.yaml"
+          vars:
+            kubernetes_test_exit_code: '0'
+
+        - name: Reject a nonzero command even when the version matches
+          block:
+            - name: Execute the failing version fixture
+              ansible.builtin.include_tasks: "{{ kubernetes_test_directory.path }}/verify-version.yaml"
+              vars:
+                kubernetes_test_exit_code: '1'
+
+            - name: Fail if a nonzero command was accepted
+              ansible.builtin.fail:
+                msg: Version verification ignored a failed command
+          rescue:
+            - name: Require a command exit-status failure
+              ansible.builtin.assert:
+                that:
+                  - ansible_failed_result.results[0].rc == 1
+
+        - name: Assert join credentials are short-lived and protected from logs
+          ansible.builtin.assert:
+            that:
+              - kubernetes_token_task.no_log
+              - "'--ttl 15m' in kubernetes_token_task['ansible.builtin.command'].cmd"
+              - kubernetes_join_task.no_log
+              - kubernetes_join_task['ansible.builtin.command'].creates == '/etc/kubernetes/kubelet.conf'
+          vars:
+            kubernetes_token_task: >-
+              {{ lookup('ansible.builtin.file', playbook_dir ~ '/../tasks/control-plane.yaml') | from_yaml | last }}
+            kubernetes_join_task: >-
+              {{ (lookup('ansible.builtin.file', playbook_dir ~ '/../../../kubernetes.yaml') | from_yaml)[2].tasks[0] }}
+      always:
+        - name: Remove the local test directory
+          ansible.builtin.file:
+            path: "{{ kubernetes_test_directory.path }}"
+            state: absent

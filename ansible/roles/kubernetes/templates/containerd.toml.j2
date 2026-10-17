@@ -1,0 +1,18 @@
+version = 3
+
+[plugins.'io.containerd.cri.v1.images'.pinned_images]
+  sandbox = '{{ kubernetes_pause_image }}'
+
+[plugins.'io.containerd.cri.v1.runtime'.cni]
+  bin_dirs = ['/opt/cni/bin']
+  conf_dir = '/etc/cni/net.d'
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd]
+  default_runtime_name = 'runc'
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc]
+  runtime_type = 'io.containerd.runc.v2'
+
+[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runc.options]
+  BinaryName = '/usr/local/sbin/runc'
+  SystemdCgroup = true

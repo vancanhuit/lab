@@ -1,0 +1,20 @@
+---
+kubernetes_version: '1.36.5'
+kubernetes_binary_checksums:
+  kubeadm: sha256:be2f2c73cd6d3414b37aafb05016bc3a1da3e17c8393aa75c34636198fefa77c
+  kubelet: sha256:2127c83a9a6ea4573e176ea42ba7415fadce0f05c998324b7154b4949dd2fdd0
+  kubectl: sha256:33bc88a24c3b09cf55bfd59e6ca977881b61fc3f25ab65bc80c65b430248648e
+kubernetes_containerd_version: '2.4.2'
+kubernetes_containerd_checksum: sha256:35880c1dd4627e8ce56526bfabb39c144e83458ffdb197ce6f05d17d94d7d91e
+kubernetes_runc_version: '1.5.2'
+kubernetes_runc_checksum: sha256:599f6f94ff8c5057241eff0d54c3c74f95c34935b6457b33fe545defc61e9488
+kubernetes_cni_version: '1.9.1'
+kubernetes_cni_checksum: sha256:b98f74a0f8522f0a83867178729c1aa70f2158f90c45a2ca8fa791db1c76b303
+kubernetes_crictl_version: '1.36.0'
+kubernetes_crictl_checksum: sha256:83855e114566a8a8c44c548d515670f51de3a5e1da8b2effb59870e2f10c25a3
+kubernetes_cilium_version: '1.20.3'
+kubernetes_cilium_cli_version: '0.20.1'
+kubernetes_cilium_cli_checksum: sha256:24e817dcfcc8a12e325ce7547617bcbcf171c5b0b335bb24d2bb1207ba047f61
+kubernetes_hubble_cli_version: '1.20.2'
+kubernetes_hubble_cli_checksum: sha256:03f248a50cad11e728bf9383382392c57148fd6a19853ad359fb7598dae29312
+kubernetes_pause_image: registry.k8s.io/pause:3.10.2

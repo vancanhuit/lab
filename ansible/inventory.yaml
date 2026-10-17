@@ -22,6 +22,21 @@ lab:
         harbor:
           ansible_host: harbor.lab.canhdinh.com
 
+kubernetes:
+  children:
+    k8s_control_plane:
+      hosts:
+        k8s-control-plane:
+          ansible_host: k8s-control-plane.lab.canhdinh.com
+    k8s_workers:
+      hosts:
+        k8s-node-01:
+          ansible_host: k8s-node-01.lab.canhdinh.com
+        k8s-node-02:
+          ansible_host: k8s-node-02.lab.canhdinh.com
+        k8s-node-03:
+          ansible_host: k8s-node-03.lab.canhdinh.com
+
 incus:
   hosts:
     debian-incus:

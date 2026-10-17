@@ -1,0 +1,35 @@
+---
+- name: Validate Kubernetes hosts and topology
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - ansible_facts.service_mgr == 'systemd'
+      - ansible_facts.hostname == inventory_hostname
+      - ansible_facts.processor_vcpus >= 2
+      - ansible_facts.memtotal_mb >= 3500
+      - ansible_facts.kernel is version('6.1', '>=')
+      - groups['k8s_control_plane'] | length == 1
+      - groups['k8s_workers'] | length == 3
+      - groups['kubernetes'] | length == 4
+      - kubernetes_api_host is match('^[a-z0-9][a-z0-9.-]*[a-z0-9]$')
+    fail_msg: Kubernetes requires four Debian 13 amd64 systemd hosts, one control plane, and three workers
+
+- name: Reject overlapping node, Pod, and Service networks
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import ipaddress, sys
+        pod, service, node = map(ipaddress.ip_network, sys.argv[1:])
+        assert pod.version == service.version == node.version == 4
+        assert not pod.overlaps(service), 'Pod and Service networks overlap'
+        assert not pod.overlaps(node), 'Pod and node networks overlap'
+        assert not service.overlaps(node), 'Service and node networks overlap'
+      - "{{ kubernetes_pod_subnet }}"
+      - "{{ kubernetes_service_subnet }}"
+      - "{{ ansible_facts.default_ipv4.network }}/{{ ansible_facts.default_ipv4.prefix }}"
+  changed_when: false
+  check_mode: false

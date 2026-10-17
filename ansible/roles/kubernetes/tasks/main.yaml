@@ -1,0 +1,231 @@
+---
+- name: Validate deployment prerequisites
+  ansible.builtin.import_tasks: validate.yaml
+
+- name: Require a unified cgroup v2 hierarchy
+  ansible.builtin.command:
+    argv: [stat, -fc, '%T', /sys/fs/cgroup]
+  register: kubernetes_cgroup_fs
+  changed_when: false
+  check_mode: false
+  failed_when: kubernetes_cgroup_fs.rc != 0 or kubernetes_cgroup_fs.stdout != 'cgroup2fs'
+
+- name: Check whether this node has joined Kubernetes
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubernetes_kubelet_state
+
+- name: Check the installed kubelet
+  ansible.builtin.stat:
+    path: /usr/local/bin/kubelet
+  register: kubernetes_kubelet_binary
+
+- name: Read the installed kubelet version
+  ansible.builtin.command:
+    cmd: /usr/local/bin/kubelet --version
+  register: kubernetes_installed_version
+  changed_when: false
+  when: kubernetes_kubelet_binary.stat.exists
+
+- name: Refuse implicit Kubernetes upgrades or adoption of another installation
+  ansible.builtin.assert:
+    that:
+      - >-
+        not kubernetes_kubelet_binary.stat.exists or
+        kubernetes_installed_version.stdout == 'Kubernetes v' ~ kubernetes_version
+      - not kubernetes_kubelet_state.stat.exists or kubernetes_kubelet_binary.stat.exists
+    fail_msg: This playbook bootstraps and reconciles its pinned installation; use the kubeadm upgrade procedure for version changes
+
+- name: Install node prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - conntrack
+      - ethtool
+      - iproute2
+      - iptables
+      - socat
+      - tar
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Disable active swap
+  ansible.builtin.command:
+    cmd: swapoff -a
+  when: ansible_facts.swaptotal_mb > 0
+  changed_when: true
+
+- name: Disable fstab swap entries across reboots
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^(\s*[^#\s]\S*\s+\S+\s+swap\s+.*)$'
+    replace: '# Kubernetes: \1'
+
+- name: Persist the overlay filesystem module
+  ansible.builtin.copy:
+    content: "overlay\n"
+    dest: /etc/modules-load.d/kubernetes.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Load the overlay filesystem module
+  community.general.modprobe:
+    name: overlay
+    state: present
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    sysctl_set: true
+    reload: true
+
+- name: Create Kubernetes runtime directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /var/cache/kubernetes
+    - /etc/kubernetes
+    - /etc/containerd
+    - /etc/cni/net.d
+    - /opt/cni/bin
+    - /usr/local/bin
+    - /usr/local/sbin
+
+- name: Download pinned official runtime archives
+  ansible.builtin.get_url:
+    url: "{{ item.url }}"
+    dest: "/var/cache/kubernetes/{{ item.name }}"
+    checksum: "{{ item.checksum }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - name: "containerd-{{ kubernetes_containerd_version }}.tar.gz"
+      url: >-
+        https://github.com/containerd/containerd/releases/download/v{{ kubernetes_containerd_version
+        }}/containerd-{{ kubernetes_containerd_version }}-linux-amd64.tar.gz
+      checksum: "{{ kubernetes_containerd_checksum }}"
+    - name: "cni-plugins-{{ kubernetes_cni_version }}.tgz"
+      url: >-
+        https://github.com/containernetworking/plugins/releases/download/v{{ kubernetes_cni_version
+        }}/cni-plugins-linux-amd64-v{{ kubernetes_cni_version }}.tgz
+      checksum: "{{ kubernetes_cni_checksum }}"
+    - name: "crictl-{{ kubernetes_crictl_version }}.tar.gz"
+      url: >-
+        https://github.com/kubernetes-sigs/cri-tools/releases/download/v{{ kubernetes_crictl_version
+        }}/crictl-v{{ kubernetes_crictl_version }}-linux-amd64.tar.gz
+      checksum: "{{ kubernetes_crictl_checksum }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Install containerd
+  ansible.builtin.unarchive:
+    src: "/var/cache/kubernetes/containerd-{{ kubernetes_containerd_version }}.tar.gz"
+    dest: /usr/local
+    remote_src: true
+    owner: root
+    group: root
+  notify: Restart containerd
+
+- name: Install official CNI plugins and crictl
+  ansible.builtin.unarchive:
+    src: "/var/cache/kubernetes/{{ item.name }}"
+    dest: "{{ item.dest }}"
+    remote_src: true
+    owner: root
+    group: root
+  loop:
+    - { name: "cni-plugins-{{ kubernetes_cni_version }}.tgz", dest: /opt/cni/bin }
+    - { name: "crictl-{{ kubernetes_crictl_version }}.tar.gz", dest: /usr/local/bin }
+
+- name: Install the official runc binary
+  ansible.builtin.get_url:
+    url: "https://github.com/opencontainers/runc/releases/download/v{{ kubernetes_runc_version }}/runc.amd64"
+    dest: /usr/local/sbin/runc
+    checksum: "{{ kubernetes_runc_checksum }}"
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart containerd
+
+- name: Configure containerd with the systemd cgroup driver
+  ansible.builtin.template:
+    src: containerd.toml.j2
+    dest: /etc/containerd/config.toml
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart containerd
+
+- name: Install the upstream containerd systemd unit
+  ansible.builtin.get_url:
+    url: "https://raw.githubusercontent.com/containerd/containerd/v{{ kubernetes_containerd_version }}/containerd.service"
+    dest: /etc/systemd/system/containerd.service
+    checksum: sha256:1941362cbaa89dd591b99c32b050d82c583d3cd2e5fa63085d7017457ec5fca8
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart containerd
+
+- name: Configure crictl for the containerd CRI socket
+  ansible.builtin.copy:
+    dest: /etc/crictl.yaml
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      runtime-endpoint: unix:///run/containerd/containerd.sock
+      image-endpoint: unix:///run/containerd/containerd.sock
+      timeout: 10
+
+- name: Install pinned official Kubernetes binaries
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/v{{ kubernetes_version }}/bin/linux/amd64/{{ item.key }}"
+    dest: "/usr/local/bin/{{ item.key }}"
+    checksum: "{{ item.value }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop: "{{ kubernetes_binary_checksums | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  notify: Restart kubelet
+
+- name: Install the kubeadm-compatible kubelet systemd unit
+  ansible.builtin.copy:
+    src: kubelet.service
+    dest: /etc/systemd/system/kubelet.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart kubelet
+
+- name: Select the node address explicitly for kubelet
+  ansible.builtin.copy:
+    content: "KUBELET_EXTRA_ARGS=--node-ip={{ ansible_facts.default_ipv4.address }}\n"
+    dest: /etc/default/kubelet
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart kubelet
+
+- name: Apply runtime and kubelet changes before kubeadm
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start node services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - containerd
+    - kubelet
