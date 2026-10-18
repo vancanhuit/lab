@@ -6,7 +6,7 @@ metadata:
   namespace: kube-system
 spec:
   parentRefs:
-    - name: hubble-ui
+    - name: lab-gateway
       sectionName: http
   hostnames:
     - hubble-ui.lab.canhdinh.com
@@ -24,7 +24,7 @@ metadata:
   namespace: kube-system
 spec:
   parentRefs:
-    - name: hubble-ui
+    - name: lab-gateway
       sectionName: https
   hostnames:
     - hubble-ui.lab.canhdinh.com

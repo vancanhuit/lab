@@ -2,8 +2,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  # Preserve the live name when sharing its host-network ports with more apps.
-  name: hubble-ui
+  name: lab-gateway
   namespace: kube-system
 spec:
   gatewayClassName: cilium

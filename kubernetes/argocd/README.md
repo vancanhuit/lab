@@ -19,8 +19,8 @@ argocd.lab.canhdinh.com -> k8s-gateway-api.lab.canhdinh.com
 ```
 
 Traffic follows HAProxy TCP passthrough and Proxy Protocol v2 to the existing
-edge-node Envoy listeners. The shared Gateway keeps its existing name
-`kube-system/hubble-ui`, with separate hostname-specific listeners for each app.
+edge-node Envoy listeners. The shared Gateway is `kube-system/lab-gateway`, with
+separate hostname-specific listeners for each app.
 Do not create another Gateway on ports 80/443.
 
 TLS terminates at Envoy using `kube-system/argocd-tls`. The Argo CD API server
@@ -42,7 +42,9 @@ while retaining Helm ownership and its existing name.
 ## 1. Prepare certificates and the shared Gateway
 
 Apply both frontend certificates before the complete shared Gateway. The existing
-Hubble certificate resource is reconciled in place, not replaced:
+Hubble certificate resource is reconciled in place, not replaced. If the cluster
+still uses Gateway `hubble-ui`, follow the [one-time rename](../README.md#one-time-rename-from-hubble-ui)
+before applying these commands:
 
 ```sh
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
@@ -52,13 +54,13 @@ kubectl --context lab-kubeadm -n kube-system wait certificate/hubble-ui certific
   --for=condition=Ready --timeout=600s
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
   -f kubernetes/gateway/gateway.yaml
-kubectl --context lab-kubeadm -n kube-system wait gateway/hubble-ui \
+kubectl --context lab-kubeadm -n kube-system wait gateway/lab-gateway \
   --for=condition=Programmed --timeout=180s
 ```
 
 `certificate.yaml` uses the existing `letsencrypt-cloudflare` ClusterIssuer and
-ECDSA P-256 with automatic key rotation. Existing Hubble routes keep their parent
-name and listener names; moving the Gateway source does not replace the live object.
+ECDSA P-256 with automatic key rotation. Hubble and Argo routes reference the
+same shared Gateway; their listener names and certificates are unchanged.
 
 ## 2. Install or update Argo CD
 
@@ -142,6 +144,14 @@ repositories, ApplicationSets, and an authorization check succeeded. No GitOps
 Applications, repositories, or test workloads were created. The in-cluster target
 reports `Unknown` until an application uses it, because unused clusters are not
 monitored; this is not a connectivity failure.
+
+Later on **2026-10-18**, the shared Gateway was replaced under the neutral name
+`kube-system/lab-gateway`, and Argo CD was upgraded to Helm revision **3** to
+update its route parent. All four route identities, both Certificate identities
+and specs, and application/TLS Secret identities and contents were preserved.
+Gateway listener settings and Cilium configuration were unchanged. Both UIs,
+HTTP redirects, login enforcement, and authenticated Argo CLI operations passed
+after the rename.
 
 ## References
 

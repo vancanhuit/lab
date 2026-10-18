@@ -95,7 +95,7 @@
       loop:
         - wait clusterissuer/letsencrypt-cloudflare --for=condition=Ready --timeout=60s
         - -n kube-system wait certificate/hubble-ui --for=condition=Ready --timeout=60s
-        - -n kube-system wait gateway/hubble-ui --for=condition=Programmed --timeout=60s
+        - -n kube-system wait gateway/lab-gateway --for=condition=Programmed --timeout=60s
       changed_when: false
 
     - name: Read Hubble UI HTTPRoute status
@@ -108,10 +108,12 @@
       ansible.builtin.assert:
         that:
           - item.status.parents | length == 1
+          - item.status.parents[0].parentRef.name == 'lab-gateway'
           - item.status.parents[0].controllerName == 'io.cilium/gateway-controller'
           - >-
             item.status.parents[0].conditions | selectattr('type', 'in', ['Accepted', 'ResolvedRefs']) |
-            selectattr('status', 'equalto', 'True') | list | length == 2
+            selectattr('status', 'equalto', 'True') |
+            selectattr('observedGeneration', 'equalto', item.metadata.generation) | list | length == 2
         quiet: true
       loop: "{{ (kubernetes_gateway_routes.stdout | from_json)['items'] }}"
       loop_control:

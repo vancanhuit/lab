@@ -86,7 +86,8 @@ See [Cloudflare permissions and renewal](../docs/kubernetes.md#certificates-and-
 ## 3. Apply frontend certificates and the shared Gateway
 
 The Gateway is shared by Hubble UI and Argo CD. Wait for both certificates before
-exposing their HTTPS listeners on a new cluster:
+exposing their HTTPS listeners on a new cluster. If Gateway `hubble-ui` still
+exists, complete the [one-time rename](#one-time-rename-from-hubble-ui) first:
 
 ```sh
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
@@ -97,20 +98,59 @@ kubectl --context lab-kubeadm -n kube-system wait certificate/hubble-ui certific
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
   -f kubernetes/gateway/gateway.yaml \
   -f kubernetes/hubble-ui/routes.yaml
-kubectl --context lab-kubeadm -n kube-system wait gateway/hubble-ui \
+kubectl --context lab-kubeadm -n kube-system wait gateway/lab-gateway \
   --for=condition=Programmed --timeout=180s
 ```
 
-The shared Gateway retains the live name `kube-system/hubble-ui` and its original
-Hubble listener names. Its Argo listeners accept routes only from namespace
-`argocd`. This avoids competing host-network Gateways on ports 80/443; do not
-delete the live Gateway when moving from the former `hubble-ui/gateway.yaml` file.
+The shared Gateway is named `kube-system/lab-gateway`. Its original Hubble listener
+names are unchanged; its Argo listeners accept routes only from namespace
+`argocd`. Only this Gateway may own the edge nodes' host-network ports 80/443.
 
 For later Hubble routing changes, edit `hubble-ui/routes.yaml` and apply that
 file only. Listener changes belong in `gateway/gateway.yaml`. Helm manages
 cert-manager and Argo CD; Ansible manages infrastructure only. Never recursively
 apply this directory: it contains Helm values and an encrypted Secret, and
 installation order matters.
+
+### One-time rename from `hubble-ui`
+
+The lab completed this migration on **2026-10-18**; its live Gateway is now
+`kube-system/lab-gateway`. The procedure below is only for clusters still using
+the old name.
+
+Kubernetes cannot rename a Gateway in place. Replacing `kube-system/hubble-ui`
+with `kube-system/lab-gateway` briefly interrupts **both Hubble UI and Argo CD**.
+Do not apply the new Gateway alongside the old one: their host-network listeners
+would compete for ports 80/443. New clusters do not need this migration.
+
+Before starting, save the existing Gateway and all four HTTPRoutes, record the
+current Argo Helm revision, and keep the previous Helm values for rollback. Do
+not include Secret data in plaintext backups; leave Certificates and TLS Secrets
+in place. Render/test the new Helm values before the interruption.
+
+1. Delete only the old Gateway and wait for its generated resources to be removed:
+
+   ```sh
+   kubectl --context lab-kubeadm -n kube-system delete gateway hubble-ui \
+     --cascade=foreground --wait=true --timeout=180s
+   kubectl --context lab-kubeadm -n kube-system get ciliumenvoyconfig,service,endpointslice \
+     --selector=gateway.networking.k8s.io/gateway-name=hubble-ui
+   ```
+
+   The second command must report no resources.
+
+2. Confirm ports 80/443 are released on all edge nodes, then run the apply/wait
+   commands above to create `lab-gateway` and update the Hubble routes.
+3. Run the [Argo Helm upgrade and redirect apply](argocd/README.md#2-install-or-update-argo-cd).
+   Use Helm for its owned `argocd-server` route; do not patch it out of band.
+4. Verify all four routes have `Accepted=True` and `ResolvedRefs=True` for
+   `lab-gateway` at their current generation. Check both applications' HTTPS,
+   HTTP redirects, and authenticated Argo CLI access.
+
+If migration fails, remove `lab-gateway` and wait for its generated resources and
+edge sockets to disappear **before** restoring the saved old Gateway and plain
+routes. Roll Argo back to the recorded Helm revision to restore its owned route.
+Do not delete either application's Certificates, Secrets, or workloads.
 
 ## 4. Install Argo CD
 

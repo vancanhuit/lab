@@ -22,7 +22,7 @@ extraObjects:
       namespace: argocd
     spec:
       parentRefs:
-        - name: hubble-ui
+        - name: lab-gateway
           namespace: kube-system
           sectionName: argocd-https
       hostnames:

@@ -69,15 +69,15 @@
       ansible.builtin.assert:
         that:
           - gateway.spec.gatewayClassName == 'cilium'
-          - gateway.metadata.name == 'hubble-ui'
+          - gateway.metadata.name == 'lab-gateway'
           - gateway.spec.listeners[:2] | map(attribute='port') | list == [80, 443]
           - gateway.spec.listeners[:2] | map(attribute='hostname') | unique | list == certificate.spec.dnsNames
           - gateway.spec.listeners[1].tls.mode == 'Terminate'
           - gateway.spec.listeners[1].tls.certificateRefs[0].name == certificate.spec.secretName
           - gateway.spec.listeners[:2] | map(attribute='allowedRoutes.namespaces.from') | list == ['Same', 'Same']
-          - redirect.spec.parentRefs[0] == {'name':'hubble-ui','sectionName':'http'}
+          - redirect.spec.parentRefs[0] == {'name':gateway.metadata.name,'sectionName':'http'}
           - redirect.spec.rules[0].filters[0].requestRedirect == {'scheme':'https','statusCode':301}
-          - route.spec.parentRefs[0] == {'name':'hubble-ui','sectionName':'https'}
+          - route.spec.parentRefs[0] == {'name':gateway.metadata.name,'sectionName':'https'}
           - route.spec.hostnames == redirect.spec.hostnames == certificate.spec.dnsNames
           - route.spec.rules[0].backendRefs == [{'name':'hubble-ui','port':80}]
           - gateway.metadata.namespace == redirect.metadata.namespace == route.metadata.namespace == certificate.metadata.namespace == 'kube-system'
@@ -111,7 +111,7 @@
           - service.spec.ports | selectattr('port', 'equalto', 80) | list | length == 1
           - service.spec.ports | selectattr('port', 'equalto', 8080) | map(attribute='appProtocol') | list == ['kubernetes.io/h2c']
           - route.metadata.namespace == 'argocd'
-          - route.spec.parentRefs == [{'name':'hubble-ui','namespace':'kube-system','sectionName':'argocd-https'}]
+          - route.spec.parentRefs == [{'name':gateway.metadata.name,'namespace':gateway.metadata.namespace,'sectionName':'argocd-https'}]
           - route.spec.hostnames == ['argocd.lab.canhdinh.com']
           - route.spec.rules[0].backendRefs[0].name == service.metadata.name
           - route.spec.rules[0].backendRefs[0].port == 8080
@@ -145,7 +145,7 @@
           - certificate.spec.issuerRef == {'name':issuer.metadata.name,'kind':'ClusterIssuer'}
           - certificate.spec.privateKey == {'algorithm':'ECDSA','size':256,'rotationPolicy':'Always'}
           - redirect.metadata.namespace == 'argocd'
-          - redirect.spec.parentRefs == [{'name':'hubble-ui','namespace':'kube-system','sectionName':'argocd-http'}]
+          - redirect.spec.parentRefs == [{'name':gateway.metadata.name,'namespace':gateway.metadata.namespace,'sectionName':'argocd-http'}]
           - redirect.spec.hostnames == certificate.spec.dnsNames
           - redirect.spec.rules[0].filters[0].requestRedirect == {'scheme':'https','statusCode':301}
       vars:

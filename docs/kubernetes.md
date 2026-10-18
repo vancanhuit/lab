@@ -162,12 +162,18 @@ labels after worker joins. Cilium agents and standalone Envoy remain deployed
 cluster-wide for CNI and L7 network policies; only Gateway sockets are edge-only.
 
 Host-network listeners bind all node interfaces. Ports 80 and 443 are reserved
-for the shared `kube-system/hubble-ui` Gateway, defined in
+for the shared `kube-system/lab-gateway` Gateway, defined in
 `kubernetes/gateway/gateway.yaml`. Its original Hubble listener names are retained;
 the manifests add separate Argo CD listeners restricted to namespace `argocd`.
 Do not create a second Gateway using the same ports. `TCPRoute` and `UDPRoute`
 CRDs are installed by the standard bundle, but Cilium does not expose those routes directly through host networking;
 their generated Services use NodePorts instead.
+
+The shared Gateway was renamed from `hubble-ui` to `lab-gateway` on **2026-10-18**.
+This replaced the Gateway and its generated resources, not application routes,
+Certificates, or TLS Secrets. Both applications and authenticated Argo CLI access
+passed verification afterward. See the [one-time migration procedure](../kubernetes/README.md#one-time-rename-from-hubble-ui)
+for clusters still using the old name.
 
 Cilium's Gateway API chart also confines socket load balancing to the host
 namespace. The earlier connectivity results above predate this configuration.
