@@ -126,17 +126,35 @@ initial root token. The server deployment creates no users, auth methods,
 policies, or secrets engines; configure [Gitea SSO](../vault/README.md) separately
 after initialization. The live instance already has this auth configuration.
 
-For file auditing, the role prepares a protected log directory and logrotate
-configuration. After logging in, enable the device once:
+## Audit logging
+
+The role prepares a protected log directory and logrotate configuration; audit
+devices are configured separately through the Vault API, not by Ansible. From
+the repository root, after an administrator login, enable the device once:
 
 ```sh
-vault audit enable file file_path=/var/log/vault/audit.log
-vault audit list
+mise exec -- vault audit enable file file_path=/var/log/vault/audit.log mode=0600 log_raw=false
+mise exec -- vault audit list -detailed
 ```
 
+The live `file/` audit device was enabled on **2026-10-18** using the non-root
+Gitea SSO administrator session. It writes JSON request/response events to
+`/var/log/vault/audit.log`, owned by `vault:vault` with mode `0600`, inside the
+mode `0700` log directory. Sensitive values retain Vault's default HMAC protection;
+do not enable `log_raw`. Audit configuration persists in Vault storage and does
+not need to be enabled again after unsealing.
+
 Logs rotate daily (or at 100 MiB when logrotate next runs), retain 14 rotations,
-and reopen on SIGHUP. These are local logs, not off-host audit retention. Monitor
-free disk: audit-write failure can block requests.
+and reopen on SIGHUP. A forced rotation verified that a fresh authenticated
+request and its response reached the new log, with token values HMAC-protected.
+The logrotate timer was active and enabled, and Vault's PID remained unchanged;
+no restart or reseal was needed.
+
+These are local logs, not off-host audit retention, and Raft snapshots do not
+include them. Treat audit logs as sensitive: paths and some metadata remain
+readable. Monitor free disk and audit errors: requests can block or fail if no
+enabled audit device can write successfully. This installation has only one
+audit device; off-host forwarding and disk-space alerting were not added here.
 
 ## Storage, restarts, and recovery
 
