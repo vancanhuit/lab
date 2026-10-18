@@ -52,6 +52,8 @@
         - gitea_oauth2_jwt_secret
       kuma:
         - cloudflare_api_token
+      vault:
+        - cloudflare_api_token
       s3:
         - cloudflare_api_token
         - seaweedfs_s3_access_key

@@ -1,0 +1,129 @@
+---
+- name: Verify single-node Vault deployment without credentials
+  hosts: vault
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Check Vault version
+      ansible.builtin.command:
+        cmd: /usr/local/bin/vault version
+      changed_when: false
+      failed_when: _task.result.rc != 0 or not _task.result.stdout.startswith('Vault v2.2.0 (')
+
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert Vault and certificate renewal are active and enabled
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.services['vault.service'].state == 'running'
+          - ansible_facts.services['vault.service'].status == 'enabled'
+
+    - name: Check certificate renewal timer # noqa command-instead-of-module
+      ansible.builtin.command:
+        cmd: systemctl is-active lego-renew.timer
+      changed_when: false
+      failed_when: _task.result.rc != 0 or _task.result.stdout != 'active'
+
+    - name: Check certificate renewal timer is enabled # noqa command-instead-of-module
+      ansible.builtin.command:
+        cmd: systemctl is-enabled lego-renew.timer
+      changed_when: false
+      failed_when: _task.result.rc != 0 or _task.result.stdout != 'enabled'
+
+    - name: Check trusted Vault HTTPS endpoint
+      ansible.builtin.uri:
+        url: "https://{{ vault_domain }}/v1/sys/health"
+        validate_certs: true
+        use_proxy: false
+        status_code: [200, 501, 503]
+      register: vault_health
+
+    - name: Check complete compressed Vault UI transfer
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --noproxy
+          - '*'
+          - --compressed
+          - --fail
+          - --silent
+          - --show-error
+          - --output
+          - /dev/null
+          - --write-out
+          - '%{http_code}'
+          - "https://{{ vault_domain }}/ui/"
+      changed_when: false
+      failed_when: _task.result.rc != 0 or _task.result.stdout != '200'
+
+    - name: Check effective Vault service privilege restriction # noqa command-instead-of-module
+      ansible.builtin.command:
+        cmd: systemctl show vault.service --property=NoNewPrivileges --value
+      changed_when: false
+      failed_when: _task.result.rc != 0 or _task.result.stdout != 'yes'
+
+    - name: Read Vault seal and storage status
+      ansible.builtin.uri:
+        url: "https://{{ vault_domain }}/v1/sys/seal-status"
+        validate_certs: true
+        use_proxy: false
+      register: vault_seal_status
+
+    - name: Assert persistent Raft storage and Shamir seal
+      ansible.builtin.assert:
+        that:
+          - vault_seal_status.json.storage_type == 'raft'
+          - vault_seal_status.json.type == 'shamir'
+          - >-
+            (not vault_seal_status.json.initialized and vault_health.status == 501) or
+            (vault_seal_status.json.initialized and vault_seal_status.json.sealed and vault_health.status == 503) or
+            (vault_seal_status.json.initialized and not vault_seal_status.json.sealed and vault_health.status == 200)
+
+    - name: Read Vault TCP listeners
+      ansible.builtin.command:
+        cmd: ss -H -ltnp
+      changed_when: false
+      register: vault_listeners
+
+    - name: Assert HTTPS is exposed and Raft is not exposed remotely
+      ansible.builtin.assert:
+        that:
+          - vault_listeners.stdout is search('0\.0\.0\.0:443\s')
+          - vault_listeners.stdout is not search('(?:0\.0\.0\.0|\*|\[::\]):8201\s')
+          - vault_listeners.stdout is not search(':8200\s')
+
+    - name: Check protected Vault paths
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop:
+        - { path: /var/lib/vault, owner: vault, group: vault, mode: '0700' }
+        - { path: /var/lib/vault/raft, owner: vault, group: vault, mode: '0700' }
+        - { path: /var/log/vault, owner: vault, group: vault, mode: '0700' }
+        - { path: /etc/vault.d/vault.hcl, owner: root, group: vault, mode: '0640' }
+        - { path: /etc/vault.d/tls/server.key, owner: root, group: vault, mode: '0640' }
+      register: vault_paths
+
+    - name: Assert protected path ownership and permissions
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+        quiet: true
+      loop: "{{ vault_paths.results }}"
+      loop_control:
+        label: "{{ item.item.path }}"
+
+    - name: Check audit log rotation configuration
+      ansible.builtin.command:
+        cmd: logrotate --debug /etc/logrotate.d/vault
+      changed_when: false
+
+    - name: Report Vault bootstrap state without secrets
+      ansible.builtin.debug:
+        msg:
+          initialized: "{{ vault_seal_status.json.initialized }}"
+          sealed: "{{ vault_seal_status.json.sealed }}"
+          storage: "{{ vault_seal_status.json.storage_type }}"

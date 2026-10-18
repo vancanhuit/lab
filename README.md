@@ -1,6 +1,6 @@
 # Homelab with Incus, Cloudflare, and Tailscale VPN
 
-This repository contains the Ansible configuration for a Debian 13 homelab running [Incus](https://linuxcontainers.org/incus/docs/main/), [Technitium DNS](https://technitium.com/dns/), [PostgreSQL](https://www.postgresql.org/docs/18/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs), [Harbor](https://goharbor.io/docs/2.15.0/), [Gitea](https://docs.gitea.com/), [Gitea Actions](https://docs.gitea.com/runner/), and [Uptime Kuma](https://github.com/louislam/uptime-kuma) over a Tailscale virtual private network (VPN).
+This repository contains the Ansible configuration for a Debian 13 homelab running [Incus](https://linuxcontainers.org/incus/docs/main/), [Technitium DNS](https://technitium.com/dns/), [PostgreSQL](https://www.postgresql.org/docs/18/), [SeaweedFS](https://github.com/seaweedfs/seaweedfs), [Harbor](https://goharbor.io/docs/2.15.0/), [Gitea](https://docs.gitea.com/), [Gitea Actions](https://docs.gitea.com/runner/), [Uptime Kuma](https://github.com/louislam/uptime-kuma), and [HashiCorp Vault](https://developer.hashicorp.com/vault/docs) over a Tailscale virtual private network (VPN).
 
 ## Environment
 
@@ -53,6 +53,7 @@ Start with [Getting started](docs/getting-started.md), then follow the deploymen
 | [TLS certificates](docs/tls.md) | Internal-service certificates, lego renewal, deployment hooks, and troubleshooting |
 | [Deployment](docs/deployment.md) | Required deployment order and verification commands |
 | [Uptime Kuma operations](docs/uptime-kuma.md) | Initial setup, monitoring, backup, restore, upgrade, and troubleshooting |
+| [Vault operations](docs/vault.md) | Single-node systemd deployment, private initialization, unsealing, TLS, and snapshots |
 | [Harbor operations](docs/harbor.md) | Registry use, vulnerability scanning, lifecycle, and upgrades |
 | [Gitea operations](docs/gitea.md) | Initial access, object storage, migration rollback, and upgrades |
 | [Gitea Actions runner](docs/gitea-runner.md) | Dedicated VM provisioning, deployment, workflows, and upgrades |

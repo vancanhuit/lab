@@ -1,6 +1,6 @@
 # Secret management with SOPS and age
 
-This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets and Kubernetes Secrets encrypted in Git. SOPS encrypts YAML values and leaves the structure readable for review. The age asymmetric key pair controls who can decrypt the file.
+This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets, Kubernetes Secrets, and Vault recovery credentials encrypted in Git. SOPS encrypts YAML and JSON values while leaving their structure readable for review. The age asymmetric key pair controls who can decrypt each file.
 
 ## Repository configuration
 
@@ -9,6 +9,7 @@ The secret-management configuration consists of:
 - `mise.toml`, which pins the `sops` and `age` versions and defines the `secrets:edit`, `secrets:view`, and `secrets:check` tasks.
 - [`ansible/.sops.yaml`](../ansible/.sops.yaml), which applies its age recipient to files ending in `.sops.yaml`.
 - [`kubernetes/.sops.yaml`](../kubernetes/.sops.yaml), using the same recipient but encrypting only Kubernetes Secret `data` and `stringData` fields.
+- [`secrets/.sops.yaml`](../secrets/.sops.yaml), using the same recipient to encrypt all values in the operator-only Vault bootstrap JSON. This directory is outside Ansible inventory and Kubernetes manifests.
 - Encrypted SOPS variable files:
   - [`ansible/group_vars/lab/secrets.sops.yaml`](../ansible/group_vars/lab/secrets.sops.yaml), containing the secrets shared by all hosts in the `lab` group: `cloudflare_api_token`.
   - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](../ansible/group_vars/gitea_stack/secrets.sops.yaml), containing the secrets shared by hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
@@ -21,14 +22,18 @@ The secret-management configuration consists of:
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
 - [`kubernetes/cert-manager/cloudflare-api-token.sops.yaml`](../kubernetes/cert-manager/cloudflare-api-token.sops.yaml), a standalone encrypted Kubernetes Secret. It is not loaded into Ansible inventory. See [application secret deployment](../kubernetes/README.md#2-apply-the-cloudflare-credential-and-issuer) for the direct SOPS-to-kubectl pipeline.
 
-The age recipients in both `.sops.yaml` configurations are public keys and are safe to commit. The corresponding age identity is the private key and must never be committed, pasted into tickets or chat, or stored in shell history.
+[`secrets/vault/bootstrap.sops.json`](../secrets/vault/bootstrap.sops.json) contains the encrypted Vault initialization download, including the unseal shares and initial root token. Ansible never loads it. `mise run secrets:check` authenticates it along with inventory and Kubernetes secrets.
+
+Edit the bootstrap file with `mise exec -- sops secrets/vault/bootstrap.sops.json` in a private terminal. Keep a separate protected recovery copy; anyone who can decrypt this one file has all of its shares and its root token. The original plaintext download remains outside the repository with mode `0600`; remove it privately after confirming your recovery copies.
+
+The age recipients in the `.sops.yaml` configurations are public keys and are safe to commit. The corresponding age identity is the private key and must never be committed, pasted into tickets or chat, or stored in shell history.
 
 ## How encryption works
 
 SOPS uses envelope encryption for each file:
 
 1. SOPS generates a random data key for the file.
-2. It encrypts the YAML values with that data key. YAML keys remain readable, which keeps diffs understandable without revealing their values.
+2. It encrypts the YAML or JSON values with that data key. Field names remain readable, which keeps diffs understandable without revealing their values.
 3. SOPS encrypts a copy of the data key to every configured age recipient and stores those encrypted copies under the top-level `sops` metadata block.
 4. SOPS stores a message authentication code in the metadata so unauthorized value additions, removals, or modifications are detected during decryption.
 5. A matching age identity decrypts the file data key, after which SOPS can decrypt and authenticate the values.
@@ -112,7 +117,7 @@ Test whether your identity can decrypt a specific file without displaying plaint
 sops --decrypt ansible/host_vars/gitea/secrets.sops.yaml >/dev/null
 ```
 
-To authenticate every encrypted inventory file and Kubernetes Secret:
+To authenticate every encrypted inventory file, Kubernetes Secret, and Vault recovery file:
 
 ```sh
 mise run secrets:check
@@ -136,18 +141,21 @@ The `community.sops.sops` vars plugin runs on the Ansible controller:
 4. Ansible merges the resulting values according to normal group and host precedence, so secrets are available only to hosts that inherit or own them.
 5. Only values required by a task are sent to managed hosts. The age private identity stays on the controller.
 
-The vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files, while this repository's creation rule targets only `.sops.yaml` files. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
+The vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files from inventory variable directories. The Ansible creation rule targets `.sops.yaml` files; the separate recovery JSON stays outside those directories. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
 
 ## Add or rotate recipients
 
 When onboarding another operator or rotating a key:
 
 1. Generate or obtain the operator's public age recipient. Never exchange the private identity.
-2. Add the recipient to the matching creation rules in `ansible/.sops.yaml` and `kubernetes/.sops.yaml`.
-3. Update every encrypted file's recipient metadata so its data key is wrapped for the new recipient:
+2. Add the recipient to the matching creation rules in `ansible/.sops.yaml`, `kubernetes/.sops.yaml`, and `secrets/.sops.yaml`.
+3. From the repository root, use Bash to update every encrypted file's recipient metadata. Stop on any failure:
 
-   ```sh
-    find ansible/group_vars ansible/host_vars kubernetes -type f -name '*.sops.yaml' ! -name '.sops.yaml' -print0 |
+    ```bash
+    set -euo pipefail
+     find ansible/group_vars ansible/host_vars kubernetes secrets -type f \
+       \( -name '*.sops.yaml' -o -name '*.sops.json' \) \
+       ! -name '.sops.yaml' -print0 |
      while IFS= read -r -d '' secret_file; do
        sops updatekeys "$secret_file"
      done

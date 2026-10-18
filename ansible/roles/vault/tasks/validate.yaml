@@ -1,0 +1,18 @@
+---
+- name: Require the supported Vault host and pinned release
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == '13'
+      - ansible_facts.architecture == 'x86_64'
+      - vault_domain == 'vault.lab.canhdinh.com'
+      - vault_version == '2.2.0'
+      - vault_archive_sha256 == '05d78b0ac842ca7c522fc297df91527cd43c15420c4c5c0a969d48a7b0ff7b6d'
+    quiet: true
+
+- name: Require swap to be disabled for Raft storage
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.swaptotal_mb | int == 0
+    fail_msg: Disable swap on the Incus host before running Vault with disable_mlock
+    quiet: true

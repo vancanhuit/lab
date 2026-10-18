@@ -31,6 +31,7 @@ getent hosts gitea.lab.canhdinh.com
 getent hosts kuma.lab.canhdinh.com
 getent hosts s3.lab.canhdinh.com
 getent hosts harbor.lab.canhdinh.com
+getent hosts vault.lab.canhdinh.com
 ```
 
 ## 2. Deploy PostgreSQL
@@ -228,3 +229,22 @@ do not require rerunning Ansible. Once ready, optionally run
 Proxy Protocol v2 preserves client addresses; node listener ports trust
 HAProxy only. Hubble UI is private to lab/Tailscale clients at
 `https://hubble-ui.lab.canhdinh.com/` and does not have its own login.
+
+## Deploy Vault independently
+
+Vault runs on its own Debian 13 LXC at `vault.lab.canhdinh.com` using systemd,
+not Kubernetes. It needs DNS and the existing lab Cloudflare credential, but
+does not depend on the other application deployments. Keep swap disabled on
+the Incus host. From `ansible/`:
+
+```sh
+mise exec -- ansible-playbook vault.yaml
+mise exec -- ansible-playbook verify-vault.yaml
+mise exec -- ansible-playbook vault.yaml
+```
+
+The second deployment should report `changed=0`. A fresh installation leaves
+Vault uninitialized; later deployments preserve its initialization state.
+Verification accepts an uninitialized or sealed instance without creating credentials.
+Continue with [Vault initialization and operations](vault.md) in a private,
+unrecorded session before storing secrets.

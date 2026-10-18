@@ -1,0 +1,13 @@
+/var/log/vault/audit.log {
+    daily
+    maxsize 100M
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0600 vault vault
+    postrotate
+        /usr/bin/systemctl reload vault.service
+    endscript
+}

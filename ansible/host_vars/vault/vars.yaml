@@ -1,0 +1,8 @@
+---
+vault_domain: vault.lab.canhdinh.com
+lego_domain_names:
+  - vault.lab.canhdinh.com
+lego_certificate_name: vault
+lego_hooks:
+  deploy:
+    script: "{{ lookup('ansible.builtin.template', playbook_dir ~ '/roles/vault/templates/lego-deploy-hook.sh.j2') }}"

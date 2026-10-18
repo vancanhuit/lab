@@ -69,6 +69,7 @@ sudo -u postgres pgbackrest --stanza=main check
 | Harbor local state | The [2026-10-07 upgrade backup](harbor.md#harbor-2153-upgrade-2026-10-07) includes Valkey state, Trivy databases, configuration, and TLS/ACME state; the VM snapshot additionally preserves Docker images and logs; no scheduled off-host backup |
 | Gitea repositories and generated state | `/var/lib/gitea` uses the separate 20 GiB `pool1/gitea-data` custom volume; instance snapshots do not include it; a custom-volume snapshot and encrypted off-host copy are retained for the [2026-10-07 upgrade](gitea.md#gitea-2810-upgrade-2026-10-07); no scheduled off-host backup |
 | Uptime Kuma SQLite state | Validated gzip backups under `/var/backups/uptime-kuma/`; newest 14 retained by count; no off-host replication |
+| Vault secrets and audit logs | Raft data on the LXC root filesystem at `/var/lib/vault/raft`; local audit rotation is prepared but must be enabled after initialization; no automatic snapshots or off-host backup; follow [Vault snapshot and key custody guidance](vault.md#storage-restarts-and-recovery) before storing real secrets |
 
 > [!WARNING]
 > The latest Gitea upgrade archive covers 2026-10-07 10:50:55 UTC; the Harbor upgrade archive covers 2026-10-07 11:06:45 UTC. Newer writes have no scheduled off-host protection. Routine PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. Add scheduled off-host protection before retiring rollback copies.

@@ -1,0 +1,37 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+
+exec 9>/run/vault-tls.lock
+flock --exclusive 9
+
+SRC_CRT=/var/lib/lego/certificates/vault.crt
+SRC_KEY=/var/lib/lego/certificates/vault.key
+DST_CRT=/etc/vault.d/tls/server.crt
+DST_KEY=/etc/vault.d/tls/server.key
+NEW_CRT="${DST_CRT}.new"
+NEW_KEY="${DST_KEY}.new"
+
+cleanup() {
+  rm -f "$NEW_CRT" "$NEW_KEY"
+}
+trap cleanup EXIT
+
+openssl x509 -in "$SRC_CRT" -checkend 0 -noout
+openssl verify -partial_chain -trusted "$SRC_CRT" -verify_hostname {{ vault_domain | quote }} "$SRC_CRT"
+cert_digest="$(openssl x509 -in "$SRC_CRT" -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum)"
+key_digest="$(openssl pkey -in "$SRC_KEY" -pubout -outform DER | sha256sum)"
+if [ "$cert_digest" != "$key_digest" ]; then
+  echo "ERROR: Vault certificate and key do not match" >&2
+  exit 1
+fi
+
+install -o root -g vault -m 0644 "$SRC_CRT" "$NEW_CRT"
+install -o root -g vault -m 0640 "$SRC_KEY" "$NEW_KEY"
+mv -f "$NEW_CRT" "$DST_CRT"
+mv -f "$NEW_KEY" "$DST_KEY"
+
+# Reloading TLS must not restart and reseal an initialized Vault.
+if systemctl is-active --quiet vault.service; then
+  systemctl reload vault.service
+fi

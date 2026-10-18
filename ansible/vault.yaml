@@ -1,0 +1,33 @@
+---
+- name: Deploy single-node Vault with private HTTPS
+  hosts: vault
+  become: true
+  roles:
+    - vault
+    - lego
+  post_tasks:
+    - name: Reconcile active Vault certificate from preserved lego state
+      ansible.builtin.command:
+        cmd: /etc/lego/hooks/deploy
+      changed_when: false
+
+    - name: Apply Vault service changes after certificate issuance
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start Vault
+      ansible.builtin.systemd_service:
+        name: vault.service
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Check Vault HTTPS health without initializing or unsealing
+      ansible.builtin.uri:
+        url: "https://{{ vault_domain }}/v1/sys/health"
+        validate_certs: true
+        use_proxy: false
+        status_code: [200, 501, 503]
+      register: vault_health
+      until: vault_health.status in [200, 501, 503]
+      retries: 12
+      delay: 5

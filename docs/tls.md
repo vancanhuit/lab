@@ -1,6 +1,6 @@
 # Public TLS certificates with lego
 
-The [`lego` Ansible role](../ansible/roles/lego/) uses [lego](https://go-acme.github.io/lego/) as an Automated Certificate Management Environment (ACME) client. It obtains publicly trusted Transport Layer Security (TLS) certificates from [Let's Encrypt](https://letsencrypt.org/) for Technitium DNS, PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma.
+The [`lego` Ansible role](../ansible/roles/lego/) uses [lego](https://go-acme.github.io/lego/) as an Automated Certificate Management Environment (ACME) client. It obtains publicly trusted Transport Layer Security (TLS) certificates from [Let's Encrypt](https://letsencrypt.org/) for Technitium DNS, PostgreSQL, SeaweedFS S3, Harbor, Gitea, Uptime Kuma, and Vault.
 
 The services are reachable only through the homelab network and Tailscale, but their names are subdomains of the publicly registered `canhdinh.com` domain. Clients therefore trust the normal Let's Encrypt certificate chain without installing a private certificate authority.
 
@@ -74,8 +74,9 @@ The shared role handles issuance and renewal. Each service playbook sets the fin
 | Harbor | `harbor.crt` and `harbor.key` | Validates expiry and certificate/key match; updates `/etc/harbor/tls/` and runtime copies under `/var/lib/harbor/secret/cert/`; restarts the Harbor proxy container |
 | Gitea | `gitea.crt` and `gitea.key` | Validates expiry and certificate/key match; stages and renames each file under `/etc/gitea/tls/`; runs `systemctl reload-or-restart gitea.service` |
 | Uptime Kuma | `kuma.crt` and `kuma.key` | Validates expiry and certificate/key match; stages and renames each file under `/etc/uptime-kuma/tls/`; validates and reloads Nginx |
+| Vault | `vault.crt` and `vault.key` | Validates expiry, hostname, and certificate/key match; installs under `/etc/vault.d/tls/` with a group-readable private key; reloads TLS with SIGHUP without restarting or resealing |
 
-Technitium requires a password-protected SHA-256 PFX. PostgreSQL, SeaweedFS S3, Harbor, Gitea, and Uptime Kuma consume PEM certificate and key pairs with service-specific ownership and restrictive private-key permissions.
+Technitium requires a password-protected SHA-256 PFX. PostgreSQL, SeaweedFS S3, Harbor, Gitea, Uptime Kuma, and Vault consume PEM certificate and key pairs with service-specific ownership and restrictive private-key permissions.
 
 ## Automatic renewal
 

@@ -1,0 +1,87 @@
+---
+- name: Validate Vault role contract
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vault_domain: vault.lab.canhdinh.com
+    ansible_facts:
+      distribution: Debian
+      distribution_major_version: '13'
+      architecture: x86_64
+      swaptotal_mb: 0
+  tasks:
+    - name: Load Vault defaults
+      ansible.builtin.include_vars:
+        file: "{{ (playbook_dir | dirname) ~ '/defaults/main.yaml' }}"
+
+    - name: Validate supported deployment
+      ansible.builtin.import_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+
+    - name: Reject enabled swap
+      block:
+        - name: Exercise swap validation
+          ansible.builtin.include_tasks: "{{ (playbook_dir | dirname) ~ '/tasks/validate.yaml' }}"
+          vars:
+            ansible_facts:
+              distribution: Debian
+              distribution_major_version: '13'
+              architecture: x86_64
+              swaptotal_mb: 1024
+
+        - name: Fail if swap was accepted
+          ansible.builtin.fail:
+            msg: Vault accepted enabled swap
+      rescue:
+        - name: Require the expected validation error
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.msg is search('Disable swap on the Incus host')
+
+    - name: Render Vault templates
+      ansible.builtin.set_fact:
+        vault_config: "{{ lookup('ansible.builtin.template', (playbook_dir | dirname) ~ '/templates/vault.hcl.j2') }}"
+        vault_service: "{{ lookup('ansible.builtin.template', (playbook_dir | dirname) ~ '/templates/vault.service.j2') }}"
+        vault_hook: "{{ lookup('ansible.builtin.template', (playbook_dir | dirname) ~ '/templates/lego-deploy-hook.sh.j2') }}"
+
+    - name: Assert persistent TLS-only single-node configuration
+      ansible.builtin.assert:
+        that:
+          - vault_config is search('storage "raft"')
+          - vault_config is search('path = "/var/lib/vault/raft"')
+          - vault_config is search('api_addr = "https://vault.lab.canhdinh.com"')
+          - vault_config is search('address = "0.0.0.0:443"')
+          - vault_config is search('cluster_address = "127.0.0.1:8201"')
+          - vault_config is search('tls_cert_file = "/etc/vault.d/tls/server.crt"')
+          - vault_config is search('tls_key_file = "/etc/vault.d/tls/server.key"')
+          - vault_config is not search('tls_disable|retry_join|seal "')
+
+    - name: Assert service privileges and reload behavior
+      ansible.builtin.assert:
+        that:
+          - vault_service is search('User=vault')
+          - vault_service is search('AmbientCapabilities=CAP_NET_BIND_SERVICE')
+          - vault_service is search('LimitCORE=0')
+          - vault_service is search('NoNewPrivileges=true')
+          - vault_service is search('ProtectSystem=strict')
+          - vault_service is search('ReadWritePaths=/var/lib/vault /var/log/vault')
+          - vault_service is search('ExecReload=/bin/kill --signal HUP')
+          - vault_service is search('ExecStartPre=.*/proc/swaps')
+          - vault_service is not search('-dev|CAP_IPC_LOCK')
+          - vault_hook is search('set -euo pipefail')
+          - vault_hook is search('flock --exclusive 9')
+          - vault_hook is search('-verify_hostname vault.lab.canhdinh.com')
+          - vault_hook is search('systemctl reload vault.service')
+          - vault_hook is not search('systemctl restart|reload-or-restart')
+
+    - name: Check deploy hook shell syntax
+      ansible.builtin.command:
+        cmd: bash -n
+        stdin: "{{ vault_hook }}"
+      changed_when: false
+
+    - name: Test certificate validation and reload without root privileges
+      ansible.builtin.command:
+        cmd: python3 {{ playbook_dir }}/test-deploy-hook.py
+        stdin: "{{ vault_hook }}"
+      changed_when: false

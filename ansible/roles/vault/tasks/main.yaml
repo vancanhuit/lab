@@ -1,0 +1,121 @@
+---
+- name: Validate Vault deployment inputs
+  ansible.builtin.import_tasks: validate.yaml
+
+- name: Install Vault dependencies
+  ansible.builtin.apt:
+    name: [ca-certificates, curl, unzip, openssl, logrotate]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create Vault system group
+  ansible.builtin.group:
+    name: vault
+    system: true
+
+- name: Create Vault system user
+  ansible.builtin.user:
+    name: vault
+    group: vault
+    home: /var/lib/vault
+    shell: /usr/sbin/nologin
+    system: true
+    create_home: false
+
+- name: Create protected Vault directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: vault
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /var/lib/vault, owner: vault, mode: '0700' }
+    - { path: /var/lib/vault/raft, owner: vault, mode: '0700' }
+    - { path: /var/log/vault, owner: vault, mode: '0700' }
+    - { path: /etc/vault.d, owner: root, mode: '0750' }
+    - { path: /etc/vault.d/tls, owner: root, mode: '0750' }
+
+- name: Create versioned Vault release directory
+  ansible.builtin.file:
+    path: "/opt/vault/{{ vault_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Download checksum-pinned Vault release
+  ansible.builtin.get_url:
+    url: "https://releases.hashicorp.com/vault/{{ vault_version }}/vault_{{ vault_version }}_linux_amd64.zip"
+    dest: "/var/tmp/vault_{{ vault_version }}_linux_amd64.zip"
+    checksum: "sha256:{{ vault_archive_sha256 }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Extract verified Vault binary
+  ansible.builtin.unarchive:
+    src: "/var/tmp/vault_{{ vault_version }}_linux_amd64.zip"
+    dest: "/opt/vault/{{ vault_version }}"
+    remote_src: true
+    include: [vault]
+    owner: root
+    group: root
+    mode: '0755'
+  notify: Restart Vault
+
+- name: Activate pinned Vault binary
+  ansible.builtin.file:
+    src: "/opt/vault/{{ vault_version }}/vault"
+    dest: /usr/local/bin/vault
+    state: link
+    owner: root
+    group: root
+    follow: false
+  notify: Restart Vault
+
+- name: Install Vault configuration
+  ansible.builtin.template:
+    src: vault.hcl.j2
+    dest: /etc/vault.d/vault.hcl
+    owner: root
+    group: vault
+    mode: '0640'
+  notify: Restart Vault
+
+- name: Install Vault systemd service
+  ansible.builtin.template:
+    src: vault.service.j2
+    dest: /etc/systemd/system/vault.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Vault
+
+- name: Create Vault-specific systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/vault.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Preserve privilege restriction despite LXC global service overrides
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      NoNewPrivileges=true
+    dest: /etc/systemd/system/vault.service.d/zzzz-hardening.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart Vault
+
+- name: Install Vault audit log rotation
+  ansible.builtin.copy:
+    src: vault.logrotate
+    dest: /etc/logrotate.d/vault
+    owner: root
+    group: root
+    mode: '0644'
