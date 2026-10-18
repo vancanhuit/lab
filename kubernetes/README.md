@@ -1,27 +1,26 @@
 # Kubernetes applications
 
-Manage applications here with Helm and `kubectl`, independently of Ansible.
-Ansible still owns kubeadm, containerd, Cilium (including Hubble UI and Relay),
+Manage applications with Helm, `kubectl`, and the Argo CD Applications described
+below. Ansible owns kubeadm, containerd, Cilium (including Hubble UI and Relay),
 Gateway API CRDs, edge labels, node firewalls, and HAProxy.
 
 Run commands from the repository root. `mise install` provides Helm 4 and a
 cluster-matched `kubectl`. You need the `lab-kubeadm` kubeconfig context, access
 to the private API, and the configured SOPS age identity for credential recovery.
-Cloudflare and Argo CD OIDC credentials are sourced from Vault through ESO;
-their encrypted SOPS copies are retained as backups.
+External Secrets Operator (ESO) synchronizes Cloudflare and Argo CD OIDC
+credentials from Vault. Keep their encrypted SOPS copies as recovery backups.
 The [Kubernetes guide](../docs/kubernetes.md) covers infrastructure and access.
 
 ## 1. Install or update cert-manager
 
 Use the [official OCI chart](https://cert-manager.io/docs/installation/helm/),
-pinned to **v1.21.2** and its OCI digest. `cert-manager/values.yaml` enables CRDs,
+pinned to v1.21.2 and its OCI digest. `cert-manager/values.yaml` enables CRDs,
 keeps them on uninstall, and preserves the public DNS-over-HTTPS self-checks. Do not change
 `crds.keep` to `false`: deleting CRDs also deletes their custom resources.
 
-For a fresh installation or an existing Helm release:
-
-The live lab was adopted into this Helm release on **2026-10-18**. Use the
-command below for subsequent updates; it does not need `--take-ownership`.
+The lab adopted cert-manager into this Helm release on 2026-10-18. Use the
+command below for fresh installations and subsequent updates. Neither needs
+`--take-ownership`.
 
 ```sh
 helm --kube-context lab-kubeadm upgrade --install cert-manager \
@@ -110,7 +109,7 @@ installation order matters.
 
 ### One-time rename from `hubble-ui`
 
-The lab completed this migration on **2026-10-18**; its live Gateway is now
+The lab completed this migration on 2026-10-18; its live Gateway is now
 `kube-system/lab-gateway`. The procedure below is only for clusters still using
 the old name.
 
@@ -151,25 +150,29 @@ Do not delete either application's Certificates, Secrets, or workloads.
 ## 4. Install Argo CD
 
 Follow [Argo CD deployment](argocd/README.md) for the Vault-sourced Gitea OIDC
-credential and retained SOPS backup, pinned Helm command, HTTP redirect, private DNS record, and SSO login at
-`https://argocd.lab.canhdinh.com/`. The chart owns its HTTPS HTTPRoute; the shared
-Gateway and certificates remain plain manifests.
+credential, retained SOPS backup, and pinned Helm installation. It also covers
+the HTTP redirect, private DNS record, and SSO login at
+`https://argocd.lab.canhdinh.com/`. The chart owns its HTTPS HTTPRoute; manage the
+shared Gateway and certificates as plain manifests.
 
 ## 5. Connect External Secrets Operator to Vault
 
-Follow [External Secrets Operator](external-secrets/README.md) for the pinned
-Helm release, namespace-scoped Vault SecretStore, and short-lived Kubernetes
-authentication against the existing Vault LXC. The demo role reads only
+Follow [External Secrets Operator](external-secrets/README.md) for Helm bootstrap,
+the namespace-scoped Vault SecretStore, and short-lived Kubernetes authentication
+against the existing Vault LXC. The demo role reads only
 `secret/kubernetes/vault-secrets/*`; cert-manager uses a separate exact-key role
 for its Cloudflare credential (step 2), and Argo CD has its own exact-key SSO
-credential role (step 4). The dummy-data example is optional and
-is not left running.
-Once Argo CD is available, the [ESO Application](argocd/README.md#external-secrets-operator-application)
-tracks the existing operator with the same chart digest and Git-hosted values.
-Registration does not sync or adopt it; automatic sync and pruning remain off.
+credential role (step 4). The dummy-data example is optional; remove it after testing.
+
+Once Argo CD is available, register the [ESO Application](argocd/README.md#external-secrets-operator-application)
+with the same chart digest and Git-hosted values. Registration leaves the running
+operator unchanged. After the first manual sync, use Argo for chart changes;
+do not alternate it with Helm upgrades. The lab completed adoption on 2026-10-18.
+Automatic sync and pruning remain off.
+
 The separate [Vault integrations Application](argocd/README.md#vault-integrations-application)
-tracks authentication resources and the Argo/Cloudflare ExternalSecrets, never
-their generated Secret values or encrypted backups.
+manages authentication resources and the Argo/Cloudflare ExternalSecrets.
+ESO manages generated Secret values; SOPS files remain recovery backups.
 
 ## Verify
 

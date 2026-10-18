@@ -1,12 +1,14 @@
 # External Secrets Operator with external Vault
 
-External Secrets Operator (ESO) **2.13.0** connects `lab-kubeadm` to the existing
-Vault LXC at **https://vault.lab.canhdinh.com**. It does not deploy Vault inside
-Kubernetes or change the existing Gitea SSO configuration. Helm bootstraps the
-operator; the [Argo CD Application](../argocd/README.md#external-secrets-operator-application)
-tracks the same chart and values with manual sync only. The separate
+External Secrets Operator (ESO) 2.13.0 connects `lab-kubeadm` to Vault at
+https://vault.lab.canhdinh.com. Vault runs in an external LXC; this integration
+leaves its Gitea SSO configuration unchanged. Helm bootstraps the operator, then
+the [Argo CD Application](../argocd/README.md#external-secrets-operator-application)
+manages the same chart and values through manual syncs. The separate
 [Vault integrations Application](../argocd/README.md#vault-integrations-application)
-tracks the existing authentication and secret-mapping manifests. Ansible owns neither.
+manages authentication and secret-mapping manifests. Ansible manages neither
+the operator nor these integration resources.
+
 [cert-manager](../cert-manager/README.md) has a separate SecretStore, service
 account binding, and exact-key Vault role for its Cloudflare credential.
 [Argo CD](../argocd/vault-secrets.md) has its own equivalent integration for the
@@ -14,19 +16,21 @@ confidential Gitea web client secret. The roles cannot read each other's keys.
 
 ## Access boundaries
 
+The integration limits Vault access by namespace and service account:
+
 - The Helm release and its three controller Deployments live in `external-secrets`.
-- `vault-secrets/vault` is a **SecretStore**, not a ClusterSecretStore. Only
+- `vault-secrets/vault` is a namespaced SecretStore. Only
   ExternalSecrets in `vault-secrets` can reference it.
 - ESO can request short-lived JWTs for `vault-secrets/vault-auth`,
-  `cert-manager/vault-auth`, and `argocd/vault-auth` through separate namespace-scoped Roles. The
-  chart's cluster-wide `serviceaccounts/token` permission is disabled; the
-  namespaced Role grants this capability for that account name only.
+  `cert-manager/vault-auth`, and `argocd/vault-auth` through namespace-scoped Roles.
+  The chart's cluster-wide `serviceaccounts/token` permission is disabled; each
+  namespaced Role grants this capability for its named account only.
 - Vault's `kubernetes/` auth mount accepts role `eso-vault-secrets` only for that
   service account and namespace. Identity aliases use the service-account UID.
 - The Vault policy reads only `secret/data/kubernetes/vault-secrets/*`, plus
   own-token lookup/renew/revoke. It grants no writes, metadata/list access,
-  administration, default policy, or cubbyhole. Tokens start at ten minutes and
-  have a hard one-hour maximum.
+  administration, or cubbyhole access. Tokens have no default policy, start at
+  ten minutes, and have a hard one-hour maximum.
 - Client JWTs double as TokenReview credentials. The service account can only
   create `authentication.k8s.io/tokenreviews`, not SubjectAccessReviews. No
   static Vault token, long-lived reviewer JWT, or service-account-token Secret is
@@ -47,12 +51,13 @@ Deployment as privileged infrastructure. Anyone able to run Pods as `vault-auth`
 mint its tokens, or edit this namespace's ESO resources can potentially access
 the authorized Vault prefix. A namespace is the workload trust boundary.
 
-## 1. Install or update ESO
+## 1. Bootstrap ESO with Helm
 
 Run from the repository root with `lab-kubeadm` access. The official OCI chart
-is pinned by version and digest. CRDs are retained on uninstall.
-This is the bootstrap/manual-Helm path. After a deliberate first Argo sync,
-update the chart through Argo instead; do not run both reconcilers for it.
+is pinned by version and digest, and Helm retains CRDs on uninstall. Use this
+Helm procedure only before Argo adoption. The lab adopted ESO into Argo on
+2026-10-18; make subsequent chart changes through Git and manual Argo syncs.
+Do not alternate Helm upgrades and Argo syncs.
 
 ```sh
 mise exec -- helm --kube-context lab-kubeadm upgrade --install external-secrets \
@@ -63,17 +68,17 @@ mise exec -- kubectl --context lab-kubeadm apply --server-side --field-manager=l
   -f kubernetes/external-secrets/vault-auth.yaml
 ```
 
-This creates the integration namespace `vault-secrets`, its dedicated service
-account, TokenReview grant, and ESO's scoped TokenRequest grant. Do not
-recursively apply this directory: the optional example needs a source secret.
-To track the running operator without changing it, apply the
+The authentication manifest creates namespace `vault-secrets`, its dedicated
+service account, the TokenReview grant, and ESO's scoped TokenRequest grant.
+Do not recursively apply this directory: the optional example needs a source
+secret. To register the running operator without changing it, apply the
 [ESO Application](../argocd/README.md#external-secrets-operator-application).
 Use the separate [Vault integrations Application](../argocd/README.md#vault-integrations-application)
 for the authentication resources, stores, and real credential mappings. Its
-allowlist excludes this directory's optional dummy example. The commands below
-remain bootstrap/recovery procedures; after adoption, use Git/manual Argo sync
-for routine changes to its selected Kubernetes manifests. Vault CLI steps remain
-operator-managed.
+allowlist excludes this directory's optional dummy example. Use the Kubernetes
+commands below for bootstrap or recovery. After adoption, edit the selected
+manifests in Git and sync through Argo. Manage Vault configuration separately
+with the Vault CLI.
 
 ## 2. Configure Vault Kubernetes authentication
 
@@ -92,7 +97,7 @@ This mount is dedicated to `lab-kubeadm`; a second cluster needs its own mount.
 Apply the public API CA, policy, and bound role. The CA pipeline contains no
 credentials and does not copy the administrator kubeconfig into Vault. Vault
 must reach `k8s-control-plane.lab.canhdinh.com:6443`; Pods must resolve and reach
-Vault on TCP 443. Nothing needs a new Gateway, public listener, or DNS record.
+Vault on TCP 443. The integration needs no new Gateway, public listener, or DNS record.
 
 ```bash
 mise exec -- bash <<'SH'
@@ -107,11 +112,11 @@ vault write auth/kubernetes/role/eso-vault-secrets @vault/kubernetes/eso-vault-s
 SH
 ```
 
-`token_reviewer_jwt` is deliberately unset. If adopting an existing config,
-check `token_reviewer_jwt_set` first; investigate and deliberately clear a stored
-reviewer credential rather than silently keeping a stale one. Reapply the public
-CA after cluster CA replacement. Rebuilding the cluster also requires checking
-the API endpoint and audience, not copying old service-account tokens.
+Leave `token_reviewer_jwt` unset. When adopting an existing configuration, check
+`token_reviewer_jwt_set` first and investigate any stored reviewer credential
+before clearing it. Reapply the public CA after cluster CA replacement. When
+rebuilding the cluster, check the API endpoint and audience; do not copy old
+service-account tokens.
 
 ## 3. Apply the SecretStore
 
@@ -133,8 +138,8 @@ The policy deliberately does not support `dataFrom.find` or listing source keys.
 `example.yaml` maps two fields from Vault key
 `secret/kubernetes/vault-secrets/example` into Kubernetes Secret
 `vault-secrets/vault-example`. It refreshes every minute and owns that target
-Secret. The target is retained if the source temporarily disappears, not when
-the ExternalSecret owner is deleted.
+Secret. ESO retains the target if the source temporarily disappears. Deleting
+the ExternalSecret owner deletes the target Secret.
 
 Use only dummy values below. First ensure neither the example key nor the
 example Kubernetes resources are somebody else's existing data. Create-only
@@ -174,9 +179,9 @@ stop. Revoking source access does not erase already synchronized credentials.
 
 ## Verification and recovery
 
-Controller-local chart, RBAC, role, and policy contracts need registry access,
-not a cluster or credentials. They also run in `mise run ansible:test`. For a
-focused run, use the following from `ansible/`:
+Local chart, RBAC, role, and policy contracts need registry access but no cluster
+or credentials. They run in `mise run ansible:test`. For a focused run, use the
+following from `ansible/`:
 
 ```sh
 mise exec -- ansible-playbook -i localhost, tests/external-secrets.yml
@@ -190,6 +195,9 @@ mise exec -- kubectl --context lab-kubeadm -n external-secrets get deployments,p
 mise exec -- kubectl --context lab-kubeadm -n vault-secrets get secretstore,externalsecret
 ```
 
+After Argo adoption, Helm status shows only the bootstrap release record. Check
+the ESO Application for the managed chart's current sync and health status.
+
 If readiness fails, inspect the SecretStore/ExternalSecret conditions and Events,
 then check Vault seal state, trusted DNS/TLS, audience, bound service account,
 TokenRequest/TokenReview RBAC, and source path. Do not print JWTs or client tokens
@@ -197,7 +205,7 @@ or disable TLS validation as a workaround. Issued Vault tokens are independent
 of their login JWT: removing a Kubernetes credential does not revoke previously
 issued Vault tokens, which must be revoked separately or expire.
 
-Before upgrades, back up ESO resources and **encrypt** any Secret backups. If an
+Before upgrades, back up ESO resources and encrypt any Secret backups. If an
 upgrade fails before Argo adoption, inspect Helm status and retry or roll back to
 the previous known revision with its matching values. After adoption, revert
 the chart digest/values in Git and manually sync Argo instead; the Helm release
@@ -209,25 +217,28 @@ confirming no consumers depend on them. Never disable the shared KV mount.
 
 ### Verified deployment
 
-On **2026-10-18**, Helm installed release `external-secrets`, revision **1**,
-chart/app **2.13.0**. All three Deployments were ready, and SecretStore
+On 2026-10-18, Helm installed release `external-secrets`, revision 1,
+chart/app 2.13.0. All three Deployments were ready, and SecretStore
 `vault-secrets/vault` reported `Ready=True`. A dummy two-field Vault secret
 synced into an owned Kubernetes Secret; the normal one-minute refresh propagated
 a new Vault version without replacing the target Secret's UID.
 
 Direct Kubernetes login verified the ten-minute TTL, absence of the default
-policy, and read-only KV prefix. Writes, other prefixes, metadata/list access,
-administration, token creation, and cubbyhole were denied. Wrong service accounts
-and wrong Vault audiences were rejected. A JWT bound to a deleted test Secret
-was rejected after approximately **ten seconds** of TokenReview propagation;
+policy, and read-only KV prefix. Vault denied writes, other prefixes,
+metadata/list access, administration, token creation, and cubbyhole access.
+It rejected wrong service accounts and Vault audiences. A JWT bound to a deleted
+test Secret failed after approximately ten seconds of TokenReview propagation;
 do not rely on instantaneous credential revocation.
 
-The example ExternalSecret and owned Secret, dummy Vault keys and all versions,
-and token-bound test Secrets were removed. Temporary Vault login tokens were
-revoked. The operator, RBAC, namespace, Vault auth/policy/role, and SecretStore
-remain configured; the example is not left running. The CLI retains a refreshed
-non-root administrator SSO session. No existing application credentials were
-migrated and Vault was not restarted or resealed.
+Cleanup removed the example ExternalSecret and owned Secret, dummy Vault keys
+and all versions, and token-bound test Secrets. Temporary Vault login tokens
+were revoked. The operator, RBAC, namespace, Vault auth/policy/role, and
+SecretStore stayed configured; the example was not left running.
+
+At that point, the CLI had a refreshed non-root administrator SSO session.
+This initial deployment migrated no existing application credentials and did
+not restart or reseal Vault. The later credential migrations and Argo adoption
+are recorded in the linked application guides.
 
 ## References
 

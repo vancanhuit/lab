@@ -1,37 +1,36 @@
 # Cloudflare credential in Vault
 
 cert-manager reads Secret `cert-manager/cloudflare-api-token`, key `api-token`.
-External Secrets Operator (ESO) now maintains that same Secret from KV v2 path
+External Secrets Operator (ESO) maintains that Secret from Vault KV v2 path
 `secret/kubernetes/cert-manager/cloudflare-api-token`, property `api-token`.
 The issuer and certificate manifests do not change.
 
-`cloudflare-api-token.sops.yaml` remains an encrypted **backup**, not a second
-active writer. Do not routinely apply it while ESO is reconciling. Ansible/lego's
-separate inventory credential is unchanged; this migration does not rotate or
-revoke the existing Cloudflare token.
+Keep `cloudflare-api-token.sops.yaml` as an encrypted backup. Do not apply it
+while ESO is reconciling. Ansible/lego's separate inventory credential is
+unchanged; this migration does not rotate or revoke the existing Cloudflare token.
 
 ## Set up or recover the integration
 
 Run from the repository root. Install cert-manager using the
 [application guide](../README.md#1-install-or-update-cert-manager), then install
 [ESO and its shared Vault Kubernetes auth mount](../external-secrets/README.md)
-(steps 1–2). You do not need the demo ExternalSecret. Use an authorized non-root
+(steps 1 and 2). You do not need the demo ExternalSecret. Use an authorized non-root
 Vault administrator SSO session and the configured SOPS age identity.
 
 The [Vault integrations Application](../argocd/README.md#vault-integrations-application)
-tracks these Kubernetes manifests. The commands below remain bootstrap/recovery
-procedures; after adoption, use Git/manual Argo sync for routine manifest changes.
-Vault values and the encrypted backup remain operator-managed.
+tracks these Kubernetes manifests. Use the commands below for bootstrap or
+recovery. After adoption, edit manifests in Git and sync through Argo. Manage
+Vault values and the encrypted backup separately.
 
 ### 1. Import the backup once
 
 First confirm the SOPS backup contains the intended current token. On an
 existing cluster, compare it privately with the live Secret before importing;
-never print either value or use `kubectl diff` on the Secret. The initial live
-migration checked equality in memory before making any change.
+never print either value or use `kubectl diff` on the Secret. The initial migration
+compared the values in memory before making changes.
 
-This pipeline authenticates/decrypts SOPS, decodes Kubernetes' base64 value, and
-writes JSON through stdin. It does not create a plaintext file or put the token
+The pipeline authenticates and decrypts SOPS, decodes Kubernetes' base64 value,
+and writes JSON through stdin. It does not create a plaintext file or put the token
 in command arguments. Use Bash with `pipefail` and never enable shell tracing:
 
 ```bash
@@ -43,9 +42,9 @@ sops --decrypt --output-type json kubernetes/cert-manager/cloudflare-api-token.s
 SH
 ```
 
-Create-only CAS refuses to overwrite any existing Vault key. If it already
-exists, verify it privately and skip the import if it matches. Do not remove
-CAS or delete an existing key to make the command succeed.
+Create-only check-and-set (CAS) refuses to overwrite an existing Vault key. If
+the key exists, verify it privately and skip the import if it matches. Do not
+remove CAS or delete an existing key to make the command succeed.
 
 ### 2. Apply the dedicated Vault policy and role
 
@@ -54,11 +53,13 @@ mise exec -- vault policy write eso-cert-manager vault/kubernetes/eso-cert-manag
 mise exec -- vault write auth/kubernetes/role/eso-cert-manager @vault/kubernetes/eso-cert-manager.json
 ```
 
-Only `cert-manager/vault-auth` can use this role. It reads the **exact** Cloudflare
-KV data path, not all of `secret/` or even the entire cert-manager prefix. It has
-no default policy, metadata/list/write access, or administration. Own-token
-lookup/renew/revoke is allowed. Tokens start at ten minutes with a one-hour hard
-maximum. The demo `vault-secrets` role remains isolated from this credential.
+Only `cert-manager/vault-auth` can use this role. The policy allows reads from
+the exact Cloudflare KV data path and own-token lookup/renew/revoke. It denies
+access to the rest of `secret/`, including other cert-manager keys, and grants
+no metadata/list/write access or Vault administration.
+
+Tokens have no default policy, start at ten minutes, and have a one-hour hard
+maximum. The demo `vault-secrets` role cannot read this credential.
 
 ### 3. Apply Kubernetes authentication and synchronization
 
@@ -132,6 +133,10 @@ fallback with a stale token. Retain the namespace/auth role/policy during a
 temporary fallback. A fresh-cluster recovery can also use this pipeline to
 bootstrap cert-manager before ESO is available.
 
+Do not sync the Vault integrations Application during fallback: a manual sync
+can recreate the ExternalSecret and overwrite the restored token. Confirm the
+intended Vault value before resuming Argo syncs.
+
 ## Verify without exposing credentials
 
 ```sh
@@ -152,15 +157,16 @@ and the [shared integration's security notes](../external-secrets/README.md#acce
 
 ### Verified migration
 
-On **2026-10-18**, the token was imported with create-only CAS and the dedicated
-SecretStore and ExternalSecret both reported `Ready=True`. Private comparisons
-confirmed that Vault, SOPS, and Kubernetes contained the same token; the encrypted
-backup was byte-for-byte unchanged. The existing Cloudflare, ACME account, Hubble,
-and Argo CD TLS Secrets retained their UIDs and contents. The issuer and both
-Certificates remained ready. ESO's normal periodic refresh also succeeded.
+On 2026-10-18, the import used create-only CAS. The dedicated SecretStore and
+ExternalSecret reported `Ready=True`, and periodic refresh succeeded. Private
+comparisons confirmed that Vault, SOPS, and Kubernetes contained the same token;
+the encrypted backup was byte-for-byte unchanged.
+
+The existing Cloudflare, ACME account, Hubble, and Argo CD TLS Secrets retained
+their UIDs and contents. The issuer and both Certificates remained ready.
 
 Live checks verified exact-key read-only access, denial of the token to the demo
 role, rejection of cross-namespace role logins, and the scoped TokenRequest grant.
-Temporary login tokens and test resources were cleaned up. The SOPS fallback
-passed a server dry run with the historical field manager. No certificate was
-reissued and no Cloudflare credential was rotated or revoked.
+Temporary login tokens and test resources were removed. The SOPS fallback passed
+a server dry run with the historical field manager. The migration required no
+certificate reissuance or Cloudflare credential rotation or revocation.
