@@ -37,6 +37,7 @@ set -euo pipefail
 
 ansible-playbook -i localhost, tests/ansible-core.yml
 ansible-playbook -i localhost, tests/kubernetes-manifests.yml
+ansible-playbook -i localhost, tests/vault-oidc.yml
 for playbook in roles/*/tests/render-config.yml; do
   ansible-playbook -i localhost, "$playbook"
 done
@@ -58,7 +59,7 @@ dir = "ansible"
 run = 'sops --decrypt "${SOPS_FILE:?set SOPS_FILE to a path relative to ansible/}"'
 
 [tasks."secrets:check"]
-description = "Authenticate every SOPS-encrypted inventory, Kubernetes, and recovery file"
+description = "Authenticate every SOPS-encrypted inventory, Kubernetes, and operator file"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail

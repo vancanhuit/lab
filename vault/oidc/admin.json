@@ -1,0 +1,18 @@
+{
+  "role_type": "oidc",
+  "user_claim": "email",
+  "bound_subject": "2",
+  "bound_claims": {"email_verified": true},
+  "allowed_redirect_uris": [
+    "https://vault.lab.canhdinh.com/ui/vault/auth/oidc/oidc/callback",
+    "http://localhost:8250/oidc/callback"
+  ],
+  "oidc_scopes": ["email", "public-only"],
+  "claim_mappings": {"email": "email"},
+  "token_policies": ["gitea-admin"],
+  "token_no_default_policy": true,
+  "token_ttl": "1h",
+  "token_max_ttl": "8h",
+  "token_explicit_max_ttl": "8h",
+  "verbose_oidc_logging": false
+}

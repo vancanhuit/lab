@@ -1,0 +1,56 @@
+---
+- name: Validate Vault OIDC access boundaries without credentials or a server
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    oidc_root: "{{ playbook_dir }}/../../vault/oidc"
+    admin_role: "{{ lookup('ansible.builtin.file', oidc_root ~ '/admin.json') | from_json }}"
+    login_role: "{{ lookup('ansible.builtin.file', oidc_root ~ '/login.json') | from_json }}"
+    login_policy: "{{ lookup('ansible.builtin.file', oidc_root ~ '/login.hcl') }}"
+  tasks:
+    - name: Require subject-bound administration and a separate limited role
+      ansible.builtin.assert:
+        that:
+          - admin_role.bound_subject == '2'
+          - admin_role.token_policies == ['gitea-admin']
+          - login_role.token_policies == ['gitea-login']
+          - "'bound_subject' not in login_role"
+          - "'groups_claim' not in admin_role"
+
+    - name: Require code-flow roles with restricted callbacks and token lifetimes
+      ansible.builtin.assert:
+        that:
+          - item.role_type == 'oidc'
+          - item.user_claim == 'email'
+          - "item.bound_claims == {'email_verified': true}"
+          - item.oidc_scopes == ['email', 'public-only']
+          - "item.claim_mappings == {'email': 'email'}"
+          - item.token_no_default_policy
+          - item.token_ttl == '1h'
+          - item.token_max_ttl == '8h'
+          - item.token_explicit_max_ttl == '8h'
+          - not item.verbose_oidc_logging
+          - >-
+            item.allowed_redirect_uris ==
+            ['https://vault.lab.canhdinh.com/ui/vault/auth/oidc/oidc/callback',
+             'http://localhost:8250/oidc/callback']
+      loop: "{{ [admin_role, login_role] }}"
+
+    - name: Require sign-in-only ACL without default-policy or secret access
+      ansible.builtin.assert:
+        that:
+          - >-
+            login_policy | regex_findall('path "([^"]+)"') ==
+            ['auth/token/lookup-self', 'auth/token/renew-self', 'auth/token/revoke-self',
+             'sys/capabilities-self', 'sys/internal/ui/resultant-acl']
+          - login_policy is not search('sudo|create|delete|list|cubbyhole|secret/')
+          - >-
+            login_policy | regex_findall('capabilities = \["([^"]+)"\]') ==
+            ['read', 'update', 'update', 'update', 'read']
+          - >-
+            lookup('ansible.builtin.file', oidc_root ~ '/admin.hcl')
+            | regex_findall('path "([^"]+)"') == ['*']
+          - >-
+            lookup('ansible.builtin.file', oidc_root ~ '/admin.hcl')
+            is search('capabilities = \["create", "read", "update", "patch", "delete", "list", "sudo"\]')

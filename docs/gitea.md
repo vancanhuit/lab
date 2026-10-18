@@ -15,6 +15,13 @@ Argo CD grants `vancanhuit` (OIDC subject `2`) admin and other authenticated
 Gitea accounts read-only access. Email-confirmed registration therefore also
 allows new accounts to read Argo CD resources.
 
+Gitea also provides [Vault SSO](../vault/README.md) through a separate instance-wide
+confidential **Vault** application (ID `10`). Its credentials are encrypted under
+`secrets/vault/`, outside Ansible inventory. Vault administration is restricted to
+subject `2`; other accounts can sign in but cannot access shared secrets or
+administration. Vault identities use verified email addresses; administrator
+authorization independently requires the stable subject.
+
 ## Repository interface
 
 Use the repository navigation bar to browse source, issues, pull requests,

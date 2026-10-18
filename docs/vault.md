@@ -69,8 +69,12 @@ On **2026-10-18**, after operator initialization and unsealing, the control-node
 CLI authenticated with the SOPS-stored root token without displaying it.
 Status showed initialized, unsealed, active Vault 2.2.0 with Raft storage.
 Authenticated peer inspection confirmed one voter/leader, node `vault`, with
-equal committed/applied indexes. The root token remains cached locally; replace
-routine root use with a least-privilege auth method when configured.
+equal committed/applied indexes. [Gitea OIDC SSO](../vault/README.md) now provides non-root administrator
+login for subject `2` and sign-in-only access for other Gitea accounts. Identities
+use verified email addresses, independently of the administrator subject check.
+The CLI now caches the non-root SSO login as `oidc-vancanhuit@gmail.com` with the
+`gitea-admin` policy, replacing the cached root login. The initial root token
+remains in the encrypted bootstrap backup and has not been revoked.
 
 ## Initialize and unseal privately
 
@@ -118,8 +122,9 @@ Enter the initial root token at the hidden login prompt, never in a command-line
 argument. The CLI stores a token in `~/.vault-token`; protect it with mode `0600`.
 Before storing real secrets, enable auditing, configure a least-privilege auth
 method and policies, verify non-root administrative access, then revoke the
-initial root token. No users, auth methods, policies, or secrets engines are
-created automatically.
+initial root token. The server deployment creates no users, auth methods,
+policies, or secrets engines; configure [Gitea SSO](../vault/README.md) separately
+after initialization. The live instance already has this auth configuration.
 
 For file auditing, the role prepares a protected log directory and logrotate
 configuration. After logging in, enable the device once:

@@ -9,7 +9,7 @@ The secret-management configuration consists of:
 - `mise.toml`, which pins the `sops` and `age` versions and defines the `secrets:edit`, `secrets:view`, and `secrets:check` tasks.
 - [`ansible/.sops.yaml`](../ansible/.sops.yaml), which applies its age recipient to files ending in `.sops.yaml`.
 - [`kubernetes/.sops.yaml`](../kubernetes/.sops.yaml), using the same recipient but encrypting only Kubernetes Secret `data` and `stringData` fields.
-- [`secrets/.sops.yaml`](../secrets/.sops.yaml), using the same recipient to encrypt all values in the operator-only Vault bootstrap JSON. This directory is outside Ansible inventory and Kubernetes manifests.
+- [`secrets/.sops.yaml`](../secrets/.sops.yaml), using the same recipient to encrypt all values in the operator-only Vault bootstrap and OIDC configuration JSON files. This directory is outside Ansible inventory and Kubernetes manifests.
 - Encrypted SOPS variable files:
   - [`ansible/group_vars/lab/secrets.sops.yaml`](../ansible/group_vars/lab/secrets.sops.yaml), containing the secrets shared by all hosts in the `lab` group: `cloudflare_api_token`.
   - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](../ansible/group_vars/gitea_stack/secrets.sops.yaml), containing the secrets shared by hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
@@ -25,6 +25,12 @@ The secret-management configuration consists of:
 [`secrets/vault/bootstrap.sops.json`](../secrets/vault/bootstrap.sops.json) contains the encrypted Vault initialization download, including the unseal shares and initial root token. Ansible never loads it. `mise run secrets:check` authenticates it along with inventory and Kubernetes secrets.
 
 Edit the bootstrap file with `mise exec -- sops secrets/vault/bootstrap.sops.json` in a private terminal. Keep a separate protected recovery copy; anyone who can decrypt this one file has all of its shares and its root token. The original plaintext download remains outside the repository with mode `0600`; remove it privately after confirming your recovery copies.
+
+[`secrets/vault/oidc.sops.json`](../secrets/vault/oidc.sops.json) contains the separate
+Gitea OIDC client configuration and confidential client secret. It is never loaded
+by Ansible and is covered by `mise run secrets:check`. Apply it directly to the
+initialized Vault through the [SSO configuration pipeline](../vault/README.md#apply-or-recover-configuration).
+It contains no root token or unseal shares.
 
 The age recipients in the `.sops.yaml` configurations are public keys and are safe to commit. The corresponding age identity is the private key and must never be committed, pasted into tickets or chat, or stored in shell history.
 
@@ -117,7 +123,7 @@ Test whether your identity can decrypt a specific file without displaying plaint
 sops --decrypt ansible/host_vars/gitea/secrets.sops.yaml >/dev/null
 ```
 
-To authenticate every encrypted inventory file, Kubernetes Secret, and Vault recovery file:
+To authenticate every encrypted inventory file, Kubernetes Secret, and Vault operator file:
 
 ```sh
 mise run secrets:check
@@ -141,7 +147,7 @@ The `community.sops.sops` vars plugin runs on the Ansible controller:
 4. Ansible merges the resulting values according to normal group and host precedence, so secrets are available only to hosts that inherit or own them.
 5. Only values required by a task are sent to managed hosts. The age private identity stays on the controller.
 
-The vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files from inventory variable directories. The Ansible creation rule targets `.sops.yaml` files; the separate recovery JSON stays outside those directories. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
+The vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files from inventory variable directories. The Ansible creation rule targets `.sops.yaml` files; the separate Vault operator JSON files stay outside those directories. Run playbooks from `ansible/` so `ansible.cfg`, inventory, roles, and the vars plugin configuration are applied together.
 
 ## Add or rotate recipients
 
