@@ -223,6 +223,15 @@ administrator access remained intact. Test keys and histories were removed,
 the temporary token was revoked, and the cached administrator login was preserved.
 No production credentials or workload policies were added.
 
+### Kubernetes consumption
+
+[External Secrets Operator](../kubernetes/external-secrets/README.md) connects
+`lab-kubeadm` to this external Vault through the `kubernetes/` auth mount, using
+short-lived service-account JWTs and TokenReview without a stored reviewer JWT.
+Its initial namespace-scoped role can read only
+`secret/data/kubernetes/vault-secrets/*`, with no default policy or write access.
+The integration does not replace Gitea SSO or deploy another Vault server.
+
 ## Storage, restarts, and recovery
 
 - Integrated Raft data lives under `/var/lib/vault/raft` with mode `0700` on the

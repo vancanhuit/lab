@@ -160,6 +160,14 @@ credential, pinned Helm command, HTTP redirect, private DNS record, and SSO logi
 `https://argocd.lab.canhdinh.com/`. The chart owns its HTTPS HTTPRoute; the shared
 Gateway and certificates remain plain manifests.
 
+## 5. Connect External Secrets Operator to Vault
+
+Follow [External Secrets Operator](external-secrets/README.md) for the pinned
+Helm release, namespace-scoped Vault SecretStore, and short-lived Kubernetes
+authentication against the existing Vault LXC. The initial integration reads
+only `secret/kubernetes/vault-secrets/*`; no existing application credentials
+are migrated. Its dummy-data example is optional and is not left running.
+
 ## Verify
 
 ```sh
@@ -174,7 +182,7 @@ For host firewall, HAProxy backend, route, and HTTPS checks, optionally run
 It is read-only and is no longer part of infrastructure deployment.
 
 Local contract tests run with `mise run ansible:test`. They render the pinned
-cert-manager and Argo CD Helm charts (requiring registry access) and validate plain
+cert-manager, Argo CD, and External Secrets Helm charts (requiring registry access) and validate plain
 manifests and encrypted Secret references without contacting a cluster or
 decrypting credentials.
 

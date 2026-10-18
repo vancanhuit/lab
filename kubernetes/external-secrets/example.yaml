@@ -1,0 +1,24 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vault-example
+  namespace: vault-secrets
+spec:
+  refreshPolicy: Periodic
+  refreshInterval: 1m
+  secretStoreRef:
+    name: vault
+    kind: SecretStore
+  target:
+    name: vault-example
+    creationPolicy: Owner
+    deletionPolicy: Retain
+  data:
+    - secretKey: username
+      remoteRef:
+        key: kubernetes/vault-secrets/example
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: kubernetes/vault-secrets/example
+        property: password

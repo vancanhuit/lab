@@ -37,6 +37,7 @@ set -euo pipefail
 
 ansible-playbook -i localhost, tests/ansible-core.yml
 ansible-playbook -i localhost, tests/kubernetes-manifests.yml
+ansible-playbook -i localhost, tests/external-secrets.yml
 ansible-playbook -i localhost, tests/vault-oidc.yml
 for playbook in roles/*/tests/render-config.yml; do
   ansible-playbook -i localhost, "$playbook"

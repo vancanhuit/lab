@@ -318,6 +318,17 @@ an HTTP/1 backend; RPC traffic uses a separate HTTP/2 Service port. The
 [application guide](../kubernetes/argocd/README.md) includes installation and login
 commands. DNS changes are not automated by these manifests.
 
+## External Secrets Operator
+
+[External Secrets Operator](../kubernetes/external-secrets/README.md) synchronizes
+selected KV v2 values from the external Vault LXC into Kubernetes Secrets.
+The pinned Helm release lives in `external-secrets`; its first SecretStore is
+namespace-scoped in `vault-secrets`. Kubernetes service-account authentication
+uses short-lived JWTs and TokenReview, with a read-only Vault prefix and no
+static Vault or reviewer token. Existing application credentials remain unchanged.
+The application guide covers installation, access boundaries, and a disposable
+sync/refresh example. Ansible does not reconcile this application.
+
 ## Observe flows with Hubble
 
 The Hubble CLI is installed on the control plane. Start a loopback-only forward

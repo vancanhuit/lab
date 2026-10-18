@@ -1,0 +1,23 @@
+installCRDs: true
+crds:
+  annotations:
+    helm.sh/resource-policy: keep
+  createClusterExternalSecret: false
+  createClusterSecretStore: false
+  createClusterGenerator: false
+  createClusterPushSecret: false
+  createPushSecret: false
+
+processClusterExternalSecret: false
+processClusterStore: false
+processClusterGenerator: false
+processClusterPushSecret: false
+processPushSecret: false
+openshiftFinalizers: false
+
+rbac:
+  # Grant TokenRequest only for the explicitly authorized identity in vault-auth.yaml.
+  serviceAccountTokenCreate: false
+
+readinessProbe:
+  enabled: true
