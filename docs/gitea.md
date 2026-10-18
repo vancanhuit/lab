@@ -6,6 +6,13 @@ Open `https://gitea.lab.canhdinh.com/` and sign in as `gitea-admin`. The initial
 
 User registration is enabled, and new accounts must confirm their email address through the configured Brevo transactional mail service.
 
+Gitea also provides [Argo CD SSO](../kubernetes/argocd/README.md#gitea-sso).
+The two OAuth applications are owned by `gitea-admin`; the web client secret is
+stored separately as a SOPS-encrypted Kubernetes Secret, not in Gitea inventory.
+Argo CD grants `vancanhuit` (OIDC subject `2`) admin and other authenticated
+Gitea accounts read-only access. Email-confirmed registration therefore also
+allows new accounts to read Argo CD resources.
+
 ## Repository interface
 
 Use the repository navigation bar to browse source, issues, pull requests,

@@ -128,6 +128,94 @@
         service: "{{ rendered | selectattr('kind', 'equalto', 'Service') | selectattr('metadata.name', 'equalto', 'argocd-server') | first }}"
         route: "{{ rendered | selectattr('kind', 'equalto', 'HTTPRoute') | first }}"
 
+    - name: Assert direct Gitea OIDC uses an encrypted external Secret and subject-only RBAC
+      ansible.builtin.assert:
+        that:
+          - oidc.name == 'Gitea'
+          - oidc.issuer == 'https://gitea.lab.canhdinh.com'
+          - oidc.clientID == 'c0e406e0-c3ed-4eff-b3d7-ca9157f11342'
+          - oidc.cliClientID == '080a65cc-28ea-4443-a83c-2182c1ec8c4a'
+          - oidc.clientID != oidc.cliClientID
+          - oidc.clientSecret == '$' ~ secret.metadata.name ~ ':client-secret'
+          - oidc.enablePKCEAuthentication
+          - oidc.requestedScopes == ['openid', 'profile', 'email', 'public-only']
+          - not oidc.get('skipAudienceCheckWhenTokenHasNoAudience', false)
+          - not config.data.get('oidc.tls.insecure.skip.verify', 'false') | bool
+          - config.data.get('dex.config', '') == ''
+          - rendered | selectattr('kind', 'equalto', 'Deployment') | selectattr('metadata.name', 'equalto', 'argocd-dex-server') | list | length == 0
+          - rbac.data['policy.default'] == 'role:readonly'
+          - rbac.data['policy.csv'] | trim == 'g, 2, role:admin'
+          - rbac.data.scopes | from_yaml == []
+          - secret.kind == 'Secret'
+          - secret.metadata.namespace == 'argocd'
+          - "secret.metadata.labels['app.kubernetes.io/part-of'] == 'argocd'"
+          - secret.data['client-secret'] is match('^ENC\[AES256_GCM,')
+          - secret.sops.encrypted_regex == '^(data|stringData)$'
+          - rendered | selectattr('kind', 'equalto', 'Secret') | selectattr('metadata.name', 'equalto', secret.metadata.name) | list | length == 0
+      vars:
+        rendered: "{{ argocd_render.stdout | from_yaml_all | list }}"
+        config: "{{ rendered | selectattr('kind', 'equalto', 'ConfigMap') | selectattr('metadata.name', 'equalto', 'argocd-cm') | first }}"
+        oidc: "{{ config.data['oidc.config'] | from_yaml }}"
+        rbac: "{{ rendered | selectattr('kind', 'equalto', 'ConfigMap') | selectattr('metadata.name', 'equalto', 'argocd-rbac-cm') | first }}"
+        secret: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/argocd/gitea-oidc.sops.yaml') | from_yaml }}"
+
+    - name: Check rendered RBAC with the matching Argo CD CLI
+      block:
+        - name: Create temporary RBAC policy file
+          ansible.builtin.tempfile:
+            state: file
+            suffix: -argocd-rbac.yaml
+          register: rbac_file
+
+        - name: Write the rendered RBAC ConfigMap
+          ansible.builtin.copy:
+            content: "{{ rbac | to_nice_yaml }}"
+            dest: "{{ rbac_file.path }}"
+            mode: '0600'
+          vars:
+            rendered: "{{ argocd_render.stdout | from_yaml_all | list }}"
+            rbac: "{{ rendered | selectattr('kind', 'equalto', 'ConfigMap') | selectattr('metadata.name', 'equalto', 'argocd-rbac-cm') | first }}"
+
+        - name: Validate RBAC syntax without a cluster
+          ansible.builtin.command:
+            argv: [argocd, admin, settings, rbac, validate, --policy-file, '{{ rbac_file.path }}']
+          changed_when: false
+
+        - name: Assert only the selected subject can modify applications
+          ansible.builtin.command:
+            argv:
+              - argocd
+              - admin
+              - settings
+              - rbac
+              - can
+              - '{{ item.subject }}'
+              - '{{ item.action }}'
+              - applications
+              - default/test
+              - --policy-file
+              - '{{ rbac_file.path }}'
+          loop:
+            - {subject: '2', action: get, expected: 'Yes'}
+            - {subject: '2', action: create, expected: 'Yes'}
+            - {subject: '2', action: sync, expected: 'Yes'}
+            - {subject: '2', action: delete, expected: 'Yes'}
+            - {subject: '1', action: get, expected: 'Yes'}
+            - {subject: '1', action: sync, expected: 'No'}
+            - {subject: '3', action: get, expected: 'Yes'}
+            - {subject: '3', action: create, expected: 'No'}
+            - {subject: '3', action: sync, expected: 'No'}
+            - {subject: '3', action: delete, expected: 'No'}
+            - {subject: 'vancanhuit@gmail.com', action: sync, expected: 'No'}
+          changed_when: false
+          failed_when: _task.result.rc != (0 if item.expected == 'Yes' else 1) or _task.result.stdout | trim != item.expected
+      always:
+        - name: Remove temporary RBAC policy file
+          ansible.builtin.file:
+            path: '{{ rbac_file.path }}'
+            state: absent
+          when: rbac_file.path is defined
+
     - name: Assert shared listeners isolate Argo CD and reference its Gateway-local certificate
       ansible.builtin.assert:
         that:

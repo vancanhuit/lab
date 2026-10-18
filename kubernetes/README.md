@@ -6,7 +6,8 @@ Gateway API CRDs, edge labels, node firewalls, and HAProxy.
 
 Run commands from the repository root. `mise install` provides Helm 4 and a
 cluster-matched `kubectl`. You need the `lab-kubeadm` kubeconfig context, access
-to the private API, and the configured SOPS age identity for the Cloudflare Secret.
+to the private API, and the configured SOPS age identity for the Cloudflare and
+Argo CD OIDC Secrets.
 The [Kubernetes guide](../docs/kubernetes.md) covers infrastructure and access.
 
 ## 1. Install or update cert-manager
@@ -154,8 +155,8 @@ Do not delete either application's Certificates, Secrets, or workloads.
 
 ## 4. Install Argo CD
 
-Follow [Argo CD deployment](argocd/README.md) for the pinned Helm command, HTTP
-redirect, private DNS record, and secure initial login at
+Follow [Argo CD deployment](argocd/README.md) for the encrypted Gitea OIDC
+credential, pinned Helm command, HTTP redirect, private DNS record, and SSO login at
 `https://argocd.lab.canhdinh.com/`. The chart owns its HTTPS HTTPRoute; the shared
 Gateway and certificates remain plain manifests.
 

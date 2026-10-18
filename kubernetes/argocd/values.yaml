@@ -2,9 +2,28 @@ global:
   domain: argocd.lab.canhdinh.com
 
 configs:
+  cm:
+    # Gitea grants broad API access without the additional public-only scope.
+    oidc.config: |
+      name: Gitea
+      issuer: https://gitea.lab.canhdinh.com
+      clientID: c0e406e0-c3ed-4eff-b3d7-ca9157f11342
+      clientSecret: $argocd-gitea-oidc:client-secret
+      cliClientID: 080a65cc-28ea-4443-a83c-2182c1ec8c4a
+      enablePKCEAuthentication: true
+      requestedScopes: [openid, profile, email, public-only]
+  rbac:
+    policy.default: role:readonly
+    # Bind vancanhuit@gmail.com's Gitea user ID, not a mutable email or group.
+    policy.csv: |
+      g, 2, role:admin
+    scopes: '[]'
   params:
     # Envoy terminates HTTPS; the backend stays on its internal ClusterIP.
     server.insecure: true
+
+dex:
+  enabled: false
 
 server:
   service:
