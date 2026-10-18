@@ -126,13 +126,14 @@
           - gateway.spec.listeners[:2] | map(attribute='port') | list == [80, 443]
           - gateway.spec.listeners[:2] | map(attribute='hostname') | unique | list == certificate.spec.dnsNames
           - gateway.spec.listeners[1].tls.mode == 'Terminate'
-          - gateway.spec.listeners[1].tls.certificateRefs[0].name == certificate.spec.secretName
+          - gateway.spec.listeners[1].tls.certificateRefs == [{'group':'','kind':'Secret','name':certificate.spec.secretName}]
           - gateway.spec.listeners[:2] | map(attribute='allowedRoutes.namespaces.from') | list == ['Same', 'Same']
-          - redirect.spec.parentRefs[0] == {'name':gateway.metadata.name,'sectionName':'http'}
+          - redirect.spec.parentRefs == [{'group':'gateway.networking.k8s.io','kind':'Gateway','name':gateway.metadata.name,'sectionName':'http'}]
           - redirect.spec.rules[0].filters[0].requestRedirect == {'scheme':'https','statusCode':301}
-          - route.spec.parentRefs[0] == {'name':gateway.metadata.name,'sectionName':'https'}
+          - route.spec.parentRefs == [{'group':'gateway.networking.k8s.io','kind':'Gateway','name':gateway.metadata.name,'sectionName':'https'}]
           - route.spec.hostnames == redirect.spec.hostnames == certificate.spec.dnsNames
-          - route.spec.rules[0].backendRefs == [{'name':'hubble-ui','port':80}]
+          - route.spec.rules[0].backendRefs == [{'group':'','kind':'Service','name':'hubble-ui','port':80,'weight':1}]
+          - route.spec.rules[0].matches == redirect.spec.rules[0].matches == [{'path':{'type':'PathPrefix','value':'/'}}]
           - gateway.metadata.namespace == redirect.metadata.namespace == route.metadata.namespace == certificate.metadata.namespace == 'kube-system'
 
     - name: Render the pinned Argo CD chart without cluster access
@@ -280,7 +281,7 @@
           - listeners | map(attribute='protocol') | list == ['HTTP', 'HTTPS']
           - listeners | map(attribute='allowedRoutes.namespaces') | unique | list == [namespace_policy]
           - listeners[1].tls.mode == 'Terminate'
-          - listeners[1].tls.certificateRefs == [{'name':certificate.spec.secretName}]
+          - listeners[1].tls.certificateRefs == [{'group':'','kind':'Secret','name':certificate.spec.secretName}]
           - certificate.metadata.namespace == gateway.metadata.namespace
           - certificate.spec.dnsNames == ['argocd.lab.canhdinh.com']
           - certificate.spec.issuerRef == {'name':issuer.metadata.name,'kind':'ClusterIssuer'}

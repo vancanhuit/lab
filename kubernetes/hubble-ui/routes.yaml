@@ -5,8 +5,11 @@ metadata:
   name: hubble-ui-redirect
   namespace: kube-system
 spec:
+  # Keep API-defaulted references and matches explicit for Argo's SSA comparison.
   parentRefs:
-    - name: lab-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: lab-gateway
       sectionName: http
   hostnames:
     - hubble-ui.lab.canhdinh.com
@@ -16,6 +19,10 @@ spec:
           requestRedirect:
             scheme: https
             statusCode: 301
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -24,11 +31,20 @@ metadata:
   namespace: kube-system
 spec:
   parentRefs:
-    - name: lab-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: lab-gateway
       sectionName: https
   hostnames:
     - hubble-ui.lab.canhdinh.com
   rules:
     - backendRefs:
-        - name: hubble-ui
+        - group: ""
+          kind: Service
+          name: hubble-ui
           port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /

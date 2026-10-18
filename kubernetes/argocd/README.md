@@ -247,6 +247,11 @@ mise exec -- argocd app get gateway --hard-refresh --argocd-context lab-argocd-s
 mise exec -- argocd app get hubble-ui --hard-refresh --argocd-context lab-argocd-sso
 ```
 
+Gateway API manifests spell out the API-defaulted reference groups/kinds, route
+matches, and backend weight. Omitting them produced persistent OutOfSync status
+after successful SSA syncs, even though the CLI diff was empty. Keep those defaults
+explicit instead of hiding route/listener differences with ignore rules.
+
 Registration runs no sync. Automatic sync, self-healing, and pruning are off;
 none of these Applications has a deletion finalizer. Manual sync uses server-side
 apply. Review diffs and chart hooks before adoption, and do not use Force,

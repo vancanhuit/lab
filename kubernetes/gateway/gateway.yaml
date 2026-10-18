@@ -21,7 +21,10 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
-          - name: hubble-ui-tls
+          # Match API defaults so Argo's SSA comparison stays stable.
+          - group: ""
+            kind: Secret
+            name: hubble-ui-tls
       allowedRoutes:
         namespaces:
           from: Same
@@ -42,7 +45,9 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
-          - name: argocd-tls
+          - group: ""
+            kind: Secret
+            name: argocd-tls
       allowedRoutes:
         namespaces:
           from: Selector
