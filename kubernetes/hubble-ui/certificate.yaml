@@ -1,3 +1,4 @@
+---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -6,7 +7,7 @@ metadata:
 spec:
   secretName: hubble-ui-tls
   dnsNames:
-    - {{ kubernetes_apps_hubble_hostname }}
+    - hubble-ui.lab.canhdinh.com
   issuerRef:
     name: letsencrypt-cloudflare
     kind: ClusterIssuer

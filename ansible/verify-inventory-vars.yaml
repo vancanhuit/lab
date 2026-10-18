@@ -6,6 +6,7 @@
   vars:
     inventory_secret_names:
       - cloudflare_api_token
+      # Retired inventory credential: no host should inherit the Kubernetes Secret.
       - cert_manager_cloudflare_api_token
       - technitium_pfx_password
       - gitea_database_password
@@ -71,8 +72,7 @@
       gitea_runner:
         - cloudflare_api_token
       debian-incus: []
-      k8s-control-plane:
-        - cert_manager_cloudflare_api_token
+      k8s-control-plane: []
       k8s-node-01: []
       k8s-node-02: []
       k8s-node-03: []

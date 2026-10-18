@@ -1,6 +1,6 @@
 # Secret management with SOPS and age
 
-This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets encrypted in Git. SOPS encrypts YAML values and leaves the structure readable for review. The age asymmetric key pair controls who can decrypt the file.
+This repository uses [SOPS](https://getsops.io/) with [age](https://age-encryption.org/) to keep Ansible secrets and Kubernetes Secrets encrypted in Git. SOPS encrypts YAML values and leaves the structure readable for review. The age asymmetric key pair controls who can decrypt the file.
 
 ## Repository configuration
 
@@ -8,19 +8,20 @@ The secret-management configuration consists of:
 
 - `mise.toml`, which pins the `sops` and `age` versions and defines the `secrets:edit`, `secrets:view`, and `secrets:check` tasks.
 - [`ansible/.sops.yaml`](../ansible/.sops.yaml), which applies its age recipient to files ending in `.sops.yaml`.
+- [`kubernetes/.sops.yaml`](../kubernetes/.sops.yaml), using the same recipient but encrypting only Kubernetes Secret `data` and `stringData` fields.
 - Encrypted SOPS variable files:
   - [`ansible/group_vars/lab/secrets.sops.yaml`](../ansible/group_vars/lab/secrets.sops.yaml), containing the secrets shared by all hosts in the `lab` group: `cloudflare_api_token`.
   - [`ansible/group_vars/gitea_stack/secrets.sops.yaml`](../ansible/group_vars/gitea_stack/secrets.sops.yaml), containing the secrets shared by hosts in the `gitea_stack` group (currently `postgres` and `gitea`): `gitea_database_password`.
   - [`ansible/group_vars/harbor_stack/secrets.sops.yaml`](../ansible/group_vars/harbor_stack/secrets.sops.yaml), containing the secrets shared by hosts in the `harbor_stack` group (`postgres` and `harbor`): `harbor_database_password`.
   - [`ansible/host_vars/dns/secrets.sops.yaml`](../ansible/host_vars/dns/secrets.sops.yaml), containing secrets owned by the `dns` host: `technitium_pfx_password`.
-  - [`ansible/host_vars/k8s-control-plane/secrets.sops.yaml`](../ansible/host_vars/k8s-control-plane/secrets.sops.yaml), containing only `cert_manager_cloudflare_api_token`. The workers and HAProxy do not inherit this credential. See [Kubernetes certificate management](kubernetes.md#certificates-and-renewal) for permissions and rotation.
   - [`ansible/host_vars/gitea/secrets.sops.yaml`](../ansible/host_vars/gitea/secrets.sops.yaml), containing secrets owned by the `gitea` host: `gitea_s3_access_key`, `gitea_s3_secret_key`, `gitea_smtp_password`, `gitea_secret_key`, `gitea_internal_token`, `gitea_lfs_jwt_secret`, `gitea_admin_password`, `gitea_oauth2_jwt_secret`.
   - [`ansible/host_vars/harbor/secrets.sops.yaml`](../ansible/host_vars/harbor/secrets.sops.yaml), containing secrets owned by the `harbor` host: `harbor_admin_password`, `harbor_s3_access_key`, `harbor_s3_secret_key`.
   - [`ansible/host_vars/s3/secrets.sops.yaml`](../ansible/host_vars/s3/secrets.sops.yaml), containing secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`, `seaweedfs_harbor_access_key`, `seaweedfs_harbor_secret_key`, `seaweedfs_ui_username`, `seaweedfs_ui_password`, `seaweedfs_ui_password_hash`. See [SeaweedFS UI credentials](seaweedfs.md#credentials) for retrieval and rotation.
 - `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
+- [`kubernetes/cert-manager/cloudflare-api-token.sops.yaml`](../kubernetes/cert-manager/cloudflare-api-token.sops.yaml), a standalone encrypted Kubernetes Secret. It is not loaded into Ansible inventory. See [application secret deployment](../kubernetes/README.md#2-apply-the-cloudflare-credential-and-issuer) for the direct SOPS-to-kubectl pipeline.
 
-The age recipient in `ansible/.sops.yaml` is a public key and is safe to commit. The corresponding age identity is the private key and must never be committed, pasted into tickets or chat, or stored in shell history.
+The age recipients in both `.sops.yaml` configurations are public keys and are safe to commit. The corresponding age identity is the private key and must never be committed, pasted into tickets or chat, or stored in shell history.
 
 ## How encryption works
 
@@ -87,6 +88,15 @@ SOPS_FILE=host_vars/gitea/secrets.sops.yaml mise run secrets:edit
 
 SOPS decrypts the values for the editor process, then validates and re-encrypts the file when the editor exits. Git continues to see only encrypted values.
 
+Edit Kubernetes Secrets directly from the repository root, without Ansible:
+
+```sh
+mise exec -- sops kubernetes/cert-manager/cloudflare-api-token.sops.yaml
+```
+
+Kubernetes `data` values must be base64-encoded before SOPS encryption. Keep
+metadata readable, and decrypt only into the documented `kubectl` stdin pipeline.
+
 Inspect decrypted values only when necessary:
 
 ```sh
@@ -102,7 +112,7 @@ Test whether your identity can decrypt a specific file without displaying plaint
 sops --decrypt ansible/host_vars/gitea/secrets.sops.yaml >/dev/null
 ```
 
-To authenticate every encrypted inventory file:
+To authenticate every encrypted inventory file and Kubernetes Secret:
 
 ```sh
 mise run secrets:check
@@ -133,11 +143,11 @@ The vars plugin loads `.sops.yaml`, `.sops.yml`, and `.sops.json` files, while t
 When onboarding another operator or rotating a key:
 
 1. Generate or obtain the operator's public age recipient. Never exchange the private identity.
-2. Add the recipient to the matching creation rule in `ansible/.sops.yaml`.
-3. Update every encrypted inventory file's recipient metadata so its data key is wrapped for the new recipient:
+2. Add the recipient to the matching creation rules in `ansible/.sops.yaml` and `kubernetes/.sops.yaml`.
+3. Update every encrypted file's recipient metadata so its data key is wrapped for the new recipient:
 
    ```sh
-   find ansible/group_vars ansible/host_vars -type f -name '*.sops.yaml' -print0 |
+    find ansible/group_vars ansible/host_vars kubernetes -type f -name '*.sops.yaml' ! -name '.sops.yaml' -print0 |
      while IFS= read -r -d '' secret_file; do
        sops updatekeys "$secret_file"
      done
@@ -146,4 +156,4 @@ When onboarding another operator or rotating a key:
 4. Confirm the new identity can decrypt every file to `/dev/null` before removing the old recipient.
 5. Revoke and securely delete the old private identity only after every encrypted file has been updated and recovery access has been tested.
 
-Changing `ansible/.sops.yaml` alone affects new encryption operations; it does not automatically rewrite recipient metadata in files that are already encrypted. Keep at least one tested recovery identity until rotation is complete.
+Changing a `.sops.yaml` configuration alone affects new encryption operations; it does not automatically rewrite recipient metadata in files that are already encrypted. Keep at least one tested recovery identity until rotation is complete.

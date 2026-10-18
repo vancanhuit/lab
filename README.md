@@ -27,7 +27,9 @@ mise run ansible:test
 ```
 
 The task runs Ansible Core compatibility checks, every role's
-`tests/render-config.yml`, and the Kuma backup behavior test against local fixtures.
+`tests/render-config.yml`, standalone Kubernetes application checks, and the Kuma
+backup behavior test against local fixtures. Application checks download and render
+the pinned cert-manager Helm chart but do not contact a cluster.
 An isolated localhost inventory lets you run it without an age identity or live
 hosts. The tests cover template rendering, input validation, and shared production
 checks. Command-validation fixtures check that a nonzero exit status fails
@@ -55,4 +57,5 @@ Start with [Getting started](docs/getting-started.md), then follow the deploymen
 | [Gitea operations](docs/gitea.md) | Initial access, object storage, migration rollback, and upgrades |
 | [Gitea Actions runner](docs/gitea-runner.md) | Dedicated VM provisioning, deployment, workflows, and upgrades |
 | [Kubernetes](docs/kubernetes.md) | Kubeadm, Cilium, Hubble UI, HAProxy Gateway API, and cert-manager DNS-01 |
+| [Kubernetes applications](kubernetes/README.md) | Direct Helm and kubectl deployment, encrypted Secrets, and cert-manager adoption |
 | [Backups and PostgreSQL](docs/backups-and-postgresql.md) | Backup coverage, health checks, and point-in-time restore |

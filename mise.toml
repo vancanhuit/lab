@@ -11,6 +11,8 @@ sops = "3.13.3"
 python = "3.14.8"
 uv = { version = "0.13.1", depends = ["python"] }
 gh = "2.102.0"
+helm = "4.3.1"
+kubectl = "1.36.5"
 "pipx:ansible-lint" = { version = "26.10.1", depends = ["python", "uv"] }
 "pipx:ansible" = { version = "14.5.0", depends = ["python", "uv"] }
 "pipx:ansible-core" = { version = "2.21.5", depends = ["python", "uv"] }
@@ -22,13 +24,14 @@ dir = "ansible"
 run = "ansible-galaxy collection install -r requirements.yaml"
 
 [tasks."ansible:test"]
-description = "Run controller-local role and backup behavior tests"
+description = "Run controller-local role, Kubernetes manifest, and backup behavior tests"
 dir = "ansible"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 
 ansible-playbook -i localhost, tests/ansible-core.yml
+ansible-playbook -i localhost, tests/kubernetes-manifests.yml
 for playbook in roles/*/tests/render-config.yml; do
   ansible-playbook -i localhost, "$playbook"
 done
@@ -50,15 +53,14 @@ dir = "ansible"
 run = 'sops --decrypt "${SOPS_FILE:?set SOPS_FILE to a path relative to ansible/}"'
 
 [tasks."secrets:check"]
-description = "Authenticate every sops-encrypted inventory file"
-dir = "ansible"
+description = "Authenticate every SOPS-encrypted inventory file and Kubernetes Secret"
 run = '''
 #!/usr/bin/env bash
 set -euo pipefail
 
 while IFS= read -r -d '' secret_file; do
   sops --decrypt "$secret_file" >/dev/null
-done < <(find group_vars host_vars -type f -name '*.sops.yaml' -print0 | sort -z)
+done < <(find ansible/group_vars ansible/host_vars kubernetes -type f -name '*.sops.yaml' ! -name '.sops.yaml' -print0 | sort -z)
 '''
 
 [tasks."security:secrets"]

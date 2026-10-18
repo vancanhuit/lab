@@ -10,7 +10,8 @@
 
 - `ansible/{dns,postgres,s3,harbor,gitea,gitea-runner,kuma}.yaml` are live service deployment entrypoints. `setup-incus.yaml` targets the Incus host as remote user `lab`, unlike the default `admin` used for instances.
 - `ansible/kubernetes.yaml` deploys the four-node kubeadm/containerd/Cilium cluster; `verify-kubernetes.yaml` is read-only. Kubernetes inventory hosts deliberately do not inherit the `lab` group's secrets.
-- `ansible/kubernetes-gateway.yaml` includes the base cluster, deploys cert-manager and Hubble UI's HTTPS Gateway, then configures HAProxy on `k8s-gateway-api`. `verify-kubernetes-gateway.yaml` is read-only. Only the control plane owns the separate cert-manager Cloudflare credential; node TCP 80/443 listeners trust HAProxy only.
+- `ansible/kubernetes-gateway.yaml` includes the base cluster and configures HAProxy on `k8s-gateway-api`; it does not deploy applications or run their live verification. Node TCP 80/443 listeners trust HAProxy only. `verify-kubernetes-gateway.yaml` is read-only and requires the applications to be installed first.
+- `kubernetes/` owns cert-manager Helm values and plain issuer, Certificate, and Hubble UI Gateway manifests. Apply them directly using `kubernetes/README.md`; Ansible must not reconcile them. The Cloudflare credential is an encrypted Kubernetes Secret, not an inventory variable.
 - `ansible/verify-{postgres,s3,harbor,gitea,gitea-runner,kuma}.yaml` inspect live hosts after deployment. There is no DNS verification playbook.
 - `ansible/roles/*/tests/render-config.yml` are controller-local role contract and template tests. `ansible/verify-inventory-vars.yaml` locally checks that encrypted variables are visible only to their intended inventory hosts.
 - `create-incus-instance.py` is a PEP 723 script run with `uv run create-incus-instance.py --help`; normal execution calls Incus and creates a stopped instance.
@@ -18,7 +19,7 @@
 
 ## Verification
 
-- Run all controller-local Ansible tests with `mise run ansible:test`; this includes the Kuma backup behavior test and uses an isolated localhost inventory.
+- Run all controller-local Ansible tests with `mise run ansible:test`; this includes the Kuma backup behavior test and Kubernetes manifest/Helm contract tests and uses an isolated localhost inventory. Helm tests require registry access, not cluster access or an age identity.
 - For an Ansible role change, run its focused local test from `ansible/`: `mise exec -- ansible-playbook -i localhost, roles/<role>/tests/render-config.yml`. For Kuma backup changes, also run `sh roles/uptime_kuma/tests/test-backup-behavior.sh`.
 - For inventory variable ownership changes, run `mise exec -- ansible-playbook verify-inventory-vars.yaml`. This requires access to the configured age identity because inventory loading decrypts SOPS files.
 - Syntax-check each affected playbook with `mise exec -- ansible-playbook --syntax-check <playbook>.yaml`, then lint affected Ansible paths with `mise exec -- ansible-lint <paths>`.
@@ -29,6 +30,6 @@
 ## Secrets And Operations
 
 - Never decrypt secrets into repository files or print them in shared or recorded output. Edit encrypted files with `SOPS_FILE=<path-relative-to-ansible> mise run secrets:edit`; `secrets:view` prints plaintext and should normally be avoided.
-- Keep secrets in the narrowest ownership-scoped `.sops.yaml` file under `ansible/group_vars/` or `ansible/host_vars/`. If ownership changes, update and run `verify-inventory-vars.yaml`.
+- Keep Ansible secrets in the narrowest ownership-scoped `.sops.yaml` file under `ansible/group_vars/` or `ansible/host_vars/`. If ownership changes, update and run `verify-inventory-vars.yaml`. Kubernetes Secrets belong under `kubernetes/` with only `data`/`stringData` encrypted using `kubernetes/.sops.yaml`; edit with `mise exec -- sops <path>` and decrypt only into `kubectl` stdin.
 - Changing an S3 backend in inventory changes configuration only; it does not migrate existing Gitea objects. Follow `docs/gitea.md`'s object-storage migration procedure before switching providers.
 - Do not casually delete `/var/lib/lego` or weaken certificate/private-key permissions. The directory contains ACME account and certificate state, and repeated replacement issuance can consume Let's Encrypt rate limits.

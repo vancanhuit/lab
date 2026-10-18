@@ -210,16 +210,21 @@ mise exec -- ansible-playbook kubernetes.yaml
 See [Kubernetes](kubernetes.md) for version pins, firewall requirements,
 administrator access, connectivity tests, and the single-control-plane limitations.
 
-To also configure the separate `k8s-gateway-api` TCP load-balancer host,
-cert-manager with Cloudflare DNS-01, and the Hubble UI HTTPS Gateway:
+To also configure the separate `k8s-gateway-api` TCP load-balancer host:
 
 ```sh
 mise exec -- ansible-playbook kubernetes-gateway.yaml
-mise exec -- ansible-playbook verify-kubernetes-gateway.yaml
 mise exec -- ansible-playbook kubernetes-gateway.yaml
 ```
 
-This includes the base Kubernetes playbook and then deploys the applications and
-HAProxy. Proxy Protocol v2 preserves client addresses; node listener ports trust
+This includes the base Kubernetes playbook and HAProxy, but no applications.
+Next, follow [Kubernetes applications](../kubernetes/README.md) from the repository
+root: Helm installs cert-manager, then `kubectl` applies the encrypted Cloudflare
+Secret, issuer, certificate, and Gateway routes in order. Existing static-manifest
+installations need the documented one-time Helm adoption step. Application changes
+do not require rerunning Ansible. Once ready, optionally run
+`mise exec -- ansible-playbook verify-kubernetes-gateway.yaml` from `ansible/`.
+
+Proxy Protocol v2 preserves client addresses; node listener ports trust
 HAProxy only. Hubble UI is private to lab/Tailscale clients at
 `https://hubble-ui.lab.canhdinh.com/` and does not have its own login.

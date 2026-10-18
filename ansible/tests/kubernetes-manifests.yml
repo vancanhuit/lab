@@ -1,0 +1,82 @@
+---
+- name: Validate standalone Kubernetes applications without a cluster or credentials
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    manifests_dir: "{{ playbook_dir }}/../../kubernetes"
+    cert_manager_chart: oci://quay.io/jetstack/charts/cert-manager@sha256:634dce9c13b56677a2c05e2ab76c312d0be2664022d5dd05815da67e1fd5f610
+    cert_manager_version: v1.21.2
+    issuer: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/cert-manager/issuer.yaml') | from_yaml }}"
+    secret: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/cert-manager/cloudflare-api-token.sops.yaml') | from_yaml }}"
+    certificate: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/hubble-ui/certificate.yaml') | from_yaml }}"
+    routes: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/hubble-ui/gateway.yaml') | from_yaml_all | list }}"
+    gateway: "{{ routes[0] }}"
+    redirect: "{{ routes[1] }}"
+    route: "{{ routes[2] }}"
+  tasks:
+    - name: Render the official cert-manager Helm chart with and without lab DNS settings
+      ansible.builtin.command:
+        argv: >-
+          {{ ['helm', 'template', 'cert-manager', cert_manager_chart,
+              '--version', cert_manager_version, '--namespace', 'cert-manager'] + item }}
+      loop:
+        - ['--set', 'crds.enabled=true']
+        - ['--values', '{{ manifests_dir }}/cert-manager/values.yaml']
+      register: cert_manager_renders
+      changed_when: false
+
+    - name: Assert controller DNS settings preserve upstream security and image pins
+      ansible.builtin.assert:
+        that:
+          - controller.args == original_controller.args + dns_args
+          - controller | combine({'args':original_controller.args}) == original_controller
+          - controller.image == 'quay.io/jetstack/cert-manager-controller:' ~ cert_manager_version
+          - crds | length == 6
+          - crds | selectattr('metadata.annotations', 'equalto', {'helm.sh/resource-policy':'keep'}) | list | length == 6
+      vars:
+        original: "{{ cert_manager_renders.results[0].stdout | from_yaml_all | list }}"
+        rendered: "{{ cert_manager_renders.results[1].stdout | from_yaml_all | list }}"
+        controller: >-
+          {{ (rendered | selectattr('kind', 'equalto', 'Deployment') |
+              selectattr('metadata.name', 'equalto', 'cert-manager') | first).spec.template.spec.containers[0] }}
+        original_controller: >-
+          {{ (original | selectattr('kind', 'equalto', 'Deployment') |
+              selectattr('metadata.name', 'equalto', 'cert-manager') | first).spec.template.spec.containers[0] }}
+        crds: "{{ rendered | selectattr('kind', 'equalto', 'CustomResourceDefinition') | list }}"
+        dns_args:
+          - --dns01-recursive-nameservers-only=true
+          - --dns01-recursive-nameservers=https://1.1.1.1/dns-query,https://1.0.0.1/dns-query
+
+    - name: Assert certificate solver and encrypted credential references
+      ansible.builtin.assert:
+        that:
+          - issuer.spec.acme.server == 'https://acme-v02.api.letsencrypt.org/directory'
+          - issuer.spec.acme.solvers[0].selector.dnsZones == ['lab.canhdinh.com']
+          - issuer.spec.acme.solvers[0].dns01.cloudflare.apiTokenSecretRef.name == secret.metadata.name
+          - issuer.spec.acme.solvers[0].dns01.cloudflare.apiTokenSecretRef.key == 'api-token'
+          - secret.kind == 'Secret'
+          - secret.metadata.namespace == 'cert-manager'
+          - secret.data['api-token'] is match('^ENC\[AES256_GCM,')
+          - secret.sops.encrypted_regex == '^(data|stringData)$'
+          - certificate.spec.secretName == 'hubble-ui-tls'
+          - certificate.spec.dnsNames == ['hubble-ui.lab.canhdinh.com']
+          - certificate.spec.issuerRef.name == issuer.metadata.name
+          - certificate.spec.issuerRef.kind == 'ClusterIssuer'
+          - certificate.spec.privateKey == {'algorithm':'ECDSA','size':256,'rotationPolicy':'Always'}
+
+    - name: Assert same-namespace HTTPS termination and HTTP redirection
+      ansible.builtin.assert:
+        that:
+          - gateway.spec.gatewayClassName == 'cilium'
+          - gateway.spec.listeners | map(attribute='port') | list == [80, 443]
+          - gateway.spec.listeners | map(attribute='hostname') | unique | list == certificate.spec.dnsNames
+          - gateway.spec.listeners[1].tls.mode == 'Terminate'
+          - gateway.spec.listeners[1].tls.certificateRefs[0].name == certificate.spec.secretName
+          - gateway.spec.listeners | map(attribute='allowedRoutes.namespaces.from') | list == ['Same', 'Same']
+          - redirect.spec.parentRefs[0] == {'name':'hubble-ui','sectionName':'http'}
+          - redirect.spec.rules[0].filters[0].requestRedirect == {'scheme':'https','statusCode':301}
+          - route.spec.parentRefs[0] == {'name':'hubble-ui','sectionName':'https'}
+          - route.spec.hostnames == redirect.spec.hostnames == certificate.spec.dnsNames
+          - route.spec.rules[0].backendRefs == [{'name':'hubble-ui','port':80}]
+          - gateway.metadata.namespace == redirect.metadata.namespace == route.metadata.namespace == certificate.metadata.namespace == 'kube-system'

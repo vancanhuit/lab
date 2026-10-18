@@ -1,8 +1,0 @@
-{% for resource in kubernetes_apps_cert_manager_upstream.content | from_yaml_all %}
-{% if resource.kind == 'Deployment' and resource.metadata.name == 'cert-manager' %}
-{% set container = resource.spec.template.spec.containers[0] %}
-{% set resource = resource | combine({'spec': {'template': {'spec': {'containers': [container | combine({'args': container.args + kubernetes_apps_dns_args})]}}}}, recursive=true) %}
-{% endif %}
----
-{{ resource | to_nice_yaml(indent=2, width=120) }}
-{% endfor %}

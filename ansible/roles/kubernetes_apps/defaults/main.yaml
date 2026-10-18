@@ -1,7 +1,0 @@
----
-kubernetes_apps_cert_manager_version: '1.21.2'
-kubernetes_apps_cert_manager_checksum: sha256:e03b668ec8675214af6b0a671699d088f2601fa3878e0dbe1b41d3feafd1879f
-kubernetes_apps_dns_args:
-  - --dns01-recursive-nameservers-only
-  - --dns01-recursive-nameservers=https://1.1.1.1/dns-query,https://1.0.0.1/dns-query
-kubernetes_apps_hubble_hostname: hubble-ui.lab.canhdinh.com

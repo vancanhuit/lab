@@ -1,3 +1,4 @@
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -7,14 +8,14 @@ spec:
   gatewayClassName: cilium
   listeners:
     - name: http
-      hostname: {{ kubernetes_apps_hubble_hostname }}
+      hostname: hubble-ui.lab.canhdinh.com
       port: 80
       protocol: HTTP
       allowedRoutes:
         namespaces:
           from: Same
     - name: https
-      hostname: {{ kubernetes_apps_hubble_hostname }}
+      hostname: hubble-ui.lab.canhdinh.com
       port: 443
       protocol: HTTPS
       tls:
@@ -35,7 +36,7 @@ spec:
     - name: hubble-ui
       sectionName: http
   hostnames:
-    - {{ kubernetes_apps_hubble_hostname }}
+    - hubble-ui.lab.canhdinh.com
   rules:
     - filters:
         - type: RequestRedirect
@@ -53,7 +54,7 @@ spec:
     - name: hubble-ui
       sectionName: https
   hostnames:
-    - {{ kubernetes_apps_hubble_hostname }}
+    - hubble-ui.lab.canhdinh.com
   rules:
     - backendRefs:
         - name: hubble-ui

@@ -2,19 +2,9 @@
 - name: Reconcile Kubernetes and protect host-network listeners
   ansible.builtin.import_playbook: kubernetes.yaml
 
-- name: Deploy certificate management and Hubble UI routes
-  hosts: k8s_control_plane
-  become: true
-  any_errors_fatal: true
-  roles:
-    - kubernetes_apps
-
 - name: Deploy the private Gateway TCP load balancer
   hosts: k8s_gateway
   become: true
   any_errors_fatal: true
   roles:
     - haproxy
-
-- name: Verify Gateway HTTPS access
-  ansible.builtin.import_playbook: verify-kubernetes-gateway.yaml

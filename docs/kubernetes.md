@@ -35,8 +35,9 @@ Pins and SHA-256 checksums are in
 `ansible/roles/kubernetes/defaults/main.yaml`: Kubernetes 1.36.5, containerd 2.4.2,
 runc 1.5.2, CNI plugins 1.9.1, crictl 1.36.0, Cilium 1.20.3, Cilium CLI 0.20.1,
 Hubble CLI 1.20.2, and Gateway API 1.6.3 (standard channel).
-cert-manager 1.21.2 and its official manifest checksum are pinned separately in
-`ansible/roles/kubernetes_apps/defaults/main.yaml`. HAProxy uses Debian 13's
+cert-manager uses the official OCI Helm chart pinned to 1.21.2 in the
+[application commands](../kubernetes/README.md), with lab settings in
+`kubernetes/cert-manager/values.yaml`. HAProxy uses Debian 13's
 distribution-supported package.
 Kubernetes 1.36 is in Cilium 1.20's tested compatibility matrix. The node binaries,
 including runc and the standard CNI plugins, come from official upstream releases,
@@ -82,8 +83,8 @@ Worker join commands are generated only for unjoined workers. Their tokens expir
 after 15 minutes, are hidden from Ansible output, and are revoked after the join stage.
 No bootstrap token or kubeconfig is committed to the repository. Kubernetes
 nodes are outside the inventory's `lab` group and do not inherit its Cloudflare
-credential. Only the control plane owns the separate encrypted
-`cert_manager_cloudflare_api_token` used to create cert-manager's Secret.
+credential. cert-manager's separate credential is an encrypted Kubernetes Secret
+under `kubernetes/cert-manager/`; no Ansible inventory host owns it.
 
 The administrator kubeconfig is installed with mode `0600` at
 `/home/admin/.kube/config` on the control plane. Access without copying credentials:
@@ -147,8 +148,9 @@ the CRDs at startup. Standalone Envoy retains its existing capabilities and gain
 
 The base `kubernetes.yaml` playbook enables the controller, Hubble UI, and Proxy
 Protocol support, but does not create application listeners. The
-`kubernetes-gateway.yaml` entrypoint also creates the Hubble UI certificate,
-Gateway, routes, and HAProxy configuration. HTTP, HTTPS, gRPC, and TLS listeners
+`kubernetes-gateway.yaml` entrypoint adds HAProxy configuration. The certificate,
+Gateway, and routes are applied separately from `kubernetes/` using `kubectl`.
+HTTP, HTTPS, gRPC, and TLS listeners
 bind directly on the node network rather than relying on a LoadBalancer Service.
 Only the three workers with the `edge` role host the Hubble UI listeners;
 the control plane does not. The Cilium Helm selector is
@@ -174,13 +176,20 @@ From `ansible/`:
 
 ```sh
 mise exec -- ansible-playbook kubernetes-gateway.yaml
-mise exec -- ansible-playbook verify-kubernetes-gateway.yaml
 mise exec -- ansible-playbook kubernetes-gateway.yaml
 ```
 
-The entrypoint reconciles the cluster first, then deploys cert-manager and its
-DNS-01 issuer, waits for a valid certificate, creates the Gateway and routes, and
-configures HAProxy. The repeat run should report `changed=0` on all five hosts.
+The entrypoint reconciles the cluster and HAProxy only. The repeat run should
+report `changed=0` on all five hosts. Then follow
+[`kubernetes/README.md`](../kubernetes/README.md) from the repository root to
+install cert-manager with Helm and apply its DNS-01 issuer, the Hubble UI
+certificate, and Gateway routes with `kubectl`. It includes the one-time adoption
+step for the existing static-manifest cert-manager installation. Application
+updates no longer require any Ansible playbook.
+
+After the applications are ready, optionally run
+`mise exec -- ansible-playbook verify-kubernetes-gateway.yaml` from `ansible/`
+for the read-only end-to-end checks.
 Open **https://hubble-ui.lab.canhdinh.com/** from the lab or Tailscale network.
 The existing private CNAME points to `k8s-gateway-api.lab.canhdinh.com`; the playbook
 does not modify the UI DNS record. HTTP redirects to HTTPS.
@@ -216,10 +225,11 @@ The Relay and UI Services remain ClusterIP; only the Gateway is exposed.
 
 ### Certificates and renewal
 
-cert-manager comes from the checksum-verified official release manifest. Its
-upstream security settings are preserved; only DNS-01 self-check resolver flags
-are added. The `letsencrypt-cloudflare` ClusterIssuer uses Cloudflare DNS-01 for
-`lab.canhdinh.com`, storing its account key in the `cert-manager` namespace.
+cert-manager comes from the version- and digest-pinned official Helm chart. Its upstream
+security settings are preserved; lab values enable retained CRDs and public
+DNS-01 self-check resolvers. The `letsencrypt-cloudflare` ClusterIssuer uses
+Cloudflare DNS-01 for `lab.canhdinh.com`, storing its account key in the
+`cert-manager` namespace.
 The explicit `Certificate` resource requests only `hubble-ui.lab.canhdinh.com`.
 It uses ECDSA P-256 and renews automatically, rotating the key on renewal.
 No Gateway annotation or cert-manager Gateway shim is required.
@@ -229,11 +239,13 @@ No Gateway annotation or cert-manager Gateway shim is required.
 [Edit the certificate diagram in Excalidraw](diagrams/kubernetes-certificates.excalidraw).
 
 Cloudflare needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the `canhdinh.com` zone.
-The credential is SOPS-encrypted under the control plane's host variables and
-sent to the Kubernetes Secret through stdin, with `no_log`; no plaintext Secret
-manifest is written on either host. The initial credential reuses the existing
-lab token. Replacing it with a dedicated zone-scoped token reduces the shared
-rotation and revocation impact; edit only the cert-manager host secret and rerun.
+The credential is SOPS-encrypted in
+`kubernetes/cert-manager/cloudflare-api-token.sops.yaml` and decrypted directly
+into `kubectl`'s stdin, without writing a plaintext manifest. It is no longer an
+Ansible inventory variable. The initial credential reuses the existing lab token.
+Replacing it with a dedicated zone-scoped token reduces the shared rotation and
+revocation impact; edit the encrypted Kubernetes Secret with SOPS and reapply it
+as described in the [application guide](../kubernetes/README.md#2-apply-the-cloudflare-credential-and-issuer).
 
 The pod network's port-53 queries to public resolvers returned empty TXT answers
 even though external queries could see the Cloudflare challenge. cert-manager
@@ -255,11 +267,13 @@ kubectl --context lab-kubeadm -n kube-system get challenges,orders
 Do not delete the ACME account Secret or TLS Secret to retry issuance: doing so
 can consume CA rate limits. Fix DNS or credentials and allow the existing request
 to reconcile. To stop UI exposure without deleting certificate state, stop HAProxy
-and remove the two Hubble UI HTTPRoutes; the full deployment restores them.
+and remove the two Hubble UI HTTPRoutes; reapplying
+`kubernetes/hubble-ui/gateway.yaml` restores them.
 
 ### Verified deployment
 
-The complete deployment rerun reports `changed=0` on the control plane, all three
+Before the application extraction, the complete Ansible deployment rerun reported
+`changed=0` on the control plane, all three
 workers, HAProxy, and the local verification host. Both listener checks pass on
 all three edge nodes; no Gateway socket is present on the control plane.
 HTTPS certificate validation, HTTP redirection, and Hubble UI's live flow display
@@ -269,6 +283,17 @@ A temporary HTTP echo backend verified that Envoy forwarded the actual Tailscale
 client address, not HAProxy's address. Injecting a forged `X-Forwarded-For` value
 did not replace `X-Envoy-External-Address`. Direct untrusted HTTPS connections to
 each node were blocked. The temporary Pod, Service, and HTTPRoute were removed.
+
+On **2026-10-18**, cert-manager was adopted in place into the official Helm chart
+at v1.21.2, release `cert-manager` in namespace `cert-manager`, revision 1. An
+age-encrypted resource backup was created and decrypt-verified before adoption.
+All 46 existing chart resources retained their UIDs, as did the issuer and
+certificate resources. The Cloudflare token, ACME account, Hubble TLS Secret,
+and Cilium's synced TLS Secret retained both their identities and contents.
+All three controller Deployments, the issuer, Certificate, and Gateway were ready
+afterward; Hubble UI returned trusted HTTPS `200` and an HTTP `301` redirect.
+Future updates use the regular Helm command without `--take-ownership` in the
+[application guide](../kubernetes/README.md#1-install-or-update-cert-manager).
 
 ## Observe flows with Hubble
 
@@ -314,7 +339,7 @@ kubeadm and Cilium upgrade guides, back up etcd, and drain workers as appropriat
 - [Hubble TLS and certificate renewal](https://docs.cilium.io/en/v1.20/observability/hubble/configuration/tls/)
 - [Cilium Gateway API and host networking](https://docs.cilium.io/en/v1.20/network/servicemesh/gateway-api/gateway-api/)
 - [HAProxy Proxy Protocol configuration](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/proxying-essentials/client-ip-preservation/enable-proxy-protocol/)
-- [cert-manager installation](https://cert-manager.io/docs/installation/kubectl/)
+- [cert-manager Helm installation](https://cert-manager.io/docs/installation/helm/)
 - [cert-manager Cloudflare DNS-01](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/)
 - [DNS-01 self-checks and split DNS](https://cert-manager.io/docs/configuration/acme/dns01/)
 - [cert-manager DNS-over-HTTPS controller flags](https://cert-manager.io/docs/cli/controller/)
