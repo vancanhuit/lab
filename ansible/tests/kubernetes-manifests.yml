@@ -133,8 +133,8 @@
         that:
           - oidc.name == 'Gitea'
           - oidc.issuer == 'https://gitea.lab.canhdinh.com'
-          - oidc.clientID == 'c0e406e0-c3ed-4eff-b3d7-ca9157f11342'
-          - oidc.cliClientID == '080a65cc-28ea-4443-a83c-2182c1ec8c4a'
+          - oidc.clientID == 'd4d791ed-a781-4bc4-91de-855cf943e4fb'
+          - oidc.cliClientID == '152a9c4e-b450-4b17-81da-d80eb7f64d6a'
           - oidc.clientID != oidc.cliClientID
           - oidc.clientSecret == '$' ~ secret.metadata.name ~ ':client-secret'
           - oidc.enablePKCEAuthentication

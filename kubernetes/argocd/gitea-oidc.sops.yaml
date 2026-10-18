@@ -7,19 +7,19 @@ metadata:
     app.kubernetes.io/part-of: argocd
 type: Opaque
 data:
-  client-secret: ENC[AES256_GCM,data:nuv9OlWtVLunomR549Hc9elYdO/ehBhgWVIXVw1vruL801gGeFw2DkGd0LARj7NtEw4eqE8zI4TUUtdRDM3maZS2MjA9HZY5gJdr/w==,iv:ll24Chj0CUu5dyx5a4DxcQ0KTzX3ViLojKu/dr3pcSg=,tag:BGnbwmPXMDBaDKtZwH/S4w==,type:str]
+  client-secret: ENC[AES256_GCM,data:Vep5KZ2qATEOERuQWduGRW6xEBmuCH276fpmvedoSKzimd4u+P3GWz9TLgm14C+XeStAyVHw8WKt32eE4yCFz6eiwFGaXQhZwXwXSw==,iv:mnVN3V8clab6AoKWV/btipaUHXgMgb+Kc+emBB6CAKA=,tag:T72+ZnJj+fVIy2yaYPX5eg==,type:str]
 sops:
   age:
     - enc: |
         -----BEGIN AGE ENCRYPTED FILE-----
-        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSAwcDZudWM2dzE0MThCZDc3
-        MERIR3dVNis1ZHljNEpqU291MFozell6TWdnCmFWbC8yNEtYK3Z2MnFZb3dCK3Jr
-        M2h3QWJQTWJiTHhPYmI5MjdoM3Urdk0KLS0tIGtiM2xXUElOQURyOGN0bmNDM3lB
-        WVdEcm1UYmVodjFoY05MVVhWRUc2eE0KghNcQ8L9YxGvrFHL8i5+QdFtD8zupYNl
-        GIz4Pi1vDgDU5wBW9tnqXqz0bW4aymB+xAyAmpH9VwnCA9bGU9WILg==
+        YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBjRzZZWEFUVGpUTWZWc3h3
+        QzVBeVFYd2R3VXV5L3VtcjJZMEJqSUJjTDNrCk1UblBLUWZidWY5eFRab2pid20v
+        SzRjSDBZOHF6YTNMUTBzUXVyd1drTGMKLS0tIHQ0ZmRsQ3pTYm5SQy9OQjhUS3Jy
+        UGlyTTVOdjN4a1RsSVZISWF5QUc3c0kKCo5Uwozqz6le2+h80w3/BiHj6tYE1G8o
+        uCjWii5p7HrdC1Fb8HU5YewlLyPAPRpr8Nv48ETi9AGdcYCVhUMPcg==
         -----END AGE ENCRYPTED FILE-----
       recipient: age134tr568at5vanpnt2f29925cxflwtzy2cmxrvcwt2e9tupm48vusvrl2t0
   encrypted_regex: ^(data|stringData)$
-  lastmodified: "2026-10-18T02:32:37Z"
-  mac: ENC[AES256_GCM,data:luOrCLhTV/6yCcOiCzDuIoC6txG65VMDYktJv03PzCTn6rdEdwcUSISdPlMn6VAKc38MzfRVQUPNSRVgcCscS3zg1t6j1FPOy5us32X7wT2Ji8MpoJH20IfIlyHNOW/bABVwS4tCIWX42YQ9MpKgxO7mYENuIheuaaeKkJ5+gRc=,iv:5hRGD/FToyWa9ZypJOMD2va0F0bwab5ljhx7KQByE1s=,tag:QUh5o/dEOkeUCcVSyrWu+Q==,type:str]
+  lastmodified: "2026-10-18T02:55:45Z"
+  mac: ENC[AES256_GCM,data:dfsKjl2x71OW57EEr8GAmjVggSQgNz5YdHEdY3ZsywOyRDv6QacbMwOkbTylsbVc0nEGWRqqYnJmrD3uZYvxQ+q0gJ8OGwXN62ffADGe1QCh8LSbq5P2YvoPOT4UdcncM2flpqfKfFtATxaIh+nhpnAEXzqSksjVbp7MAtnLkgM=,iv:NzMfC3a+Dfiuh4cyjJu8kOkxGRtnt4bZajaeOitmqG4=,tag:EvFflxCW8ctj6fleGeLunw==,type:str]
   version: 3.13.3

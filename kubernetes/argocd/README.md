@@ -178,8 +178,22 @@ the existing local-admin CLI session, all nodes/workloads, and all four routes
 passed. The Gateway, Hubble routes, both Certificates/TLS Secrets, and existing
 Argo credential identities and contents were preserved. Temporary bootstrap
 tokens were removed. The operator subsequently confirmed that browser SSO works.
-SSO-authenticated CLI operations remain **unverified**. The local admin password
-has not been rotated.
+The operator then logged in with the CLI; `lab-argocd-sso` reported
+`vancanhuit@gmail.com`, issuer `https://gitea.lab.canhdinh.com`, and permission to
+sync `default/*`. The local Argo admin password has not been rotated.
+
+Helm revision **5** subsequently switched to instance-wide Gitea OAuth
+applications **8** and **9**, created through Site Administration using
+`gitea-admin` credentials. Real web and CLI SSO passed with that account, and
+Argo correctly allowed reads but denied sync for its subject `1`. The `2` admin
+binding and other RBAC settings were unchanged. The old user-owned clients
+**6** and **7**, their grants, and the temporary verification grants were removed.
+Existing sessions issued to the old client IDs must log in again. The operator
+completed post-migration CLI SSO; `get-user-info` confirmed `vancanhuit@gmail.com`
+with the Gitea issuer, and the sync authorization check returned `yes`.
+The Gateway, certificates, TLS Secrets, and other application credentials were
+preserved; the external OIDC Secret retained its identity while its credential
+rotated.
 
 ## Gitea SSO
 
@@ -191,20 +205,28 @@ deployment changes are needed.
 
 ### Provider registration and credentials
 
-Two OAuth applications are owned by Gitea's `gitea-admin` account. Manage them at
-`https://gitea.lab.canhdinh.com/user/settings/applications` while signed in as
-that account:
+Two **instance-wide** OAuth applications are managed under Gitea's Site
+Administration at `https://gitea.lab.canhdinh.com/-/admin/applications`. Sign in
+with a Gitea site administrator such as `gitea-admin`; the applications belong
+to the instance, not that account. Do not create them under personal settings
+or through the user-scoped `/api/v1/user/applications/oauth2` endpoint.
 
 | Application | Client type | Registered redirect URI |
 | --- | --- | --- |
-| Argo CD (ID 6) | Confidential | `https://argocd.lab.canhdinh.com/auth/callback` |
-| Argo CD CLI (ID 7) | Public | `http://localhost:8085/auth/callback` |
+| Argo CD (ID 8) | Confidential | `https://argocd.lab.canhdinh.com/auth/callback` |
+| Argo CD CLI (ID 9) | Public | `http://localhost:8085/auth/callback` |
 
 Keep user consent enabled. The public CLI client uses a separate `cliClientID`
 and no client secret. The confidential web client secret is in
 `gitea-oidc.sops.yaml`, referenced as `$argocd-gitea-oidc:client-secret`. Its
 `app.kubernetes.io/part-of: argocd` label lets Argo CD resolve the external Secret.
 Client IDs are public and live in `values.yaml`.
+
+The instance-level migration required new registrations because Gitea does not
+provide an ownership-transfer operation. The original user-owned registrations
+were removed after the replacements passed real web and CLI login checks.
+Do not restore the old client IDs from Git without also restoring their provider
+registrations and matching encrypted credential.
 
 If rebuilding Gitea without its database, recreate both applications, update the
 client IDs and encrypted credential, and rerun the controller-local tests before
@@ -218,7 +240,8 @@ If scopes change, users may need to revoke the previous authorization in Gitea
 and consent again.
 
 To rotate the web client secret, regenerate it in the existing Gitea application,
-then immediately edit the encrypted Secret in a private terminal:
+under Site Administration, then immediately edit the encrypted Secret in a
+private terminal:
 
 ```sh
 mise exec -- sops kubernetes/argocd/gitea-oidc.sops.yaml
@@ -271,6 +294,10 @@ URI. Both client IDs are accepted as token audiences; no missing-audience or TLS
 bypass is enabled. The existing `lab-argocd` password context is kept separate.
 The CLI configuration contains tokens and must remain mode `0600`.
 
+After the instance-level migration, rerun the login command above to replace the
+old `lab-argocd-sso` token. Its issuer and user are unchanged, but its audience
+must be the new CLI client ID.
+
 Gitea does not advertise an OIDC logout endpoint. Logging out of Argo CD does not
 log the browser out of Gitea; end that session in Gitea separately when using a
 shared workstation.
@@ -291,6 +318,14 @@ pre-SSO commit before another upgrade, or it will re-enable SSO. The encrypted
 pre-change backup is under `~/.local/state/lab/backups/before-argocd-gitea-sso-*.json.age`;
 it was decrypt-verified, not restore-tested. Do not apply an entire backup over
 newer Application resources or Secrets.
+
+Do not roll back only to revision **4** after the instance-level migration: it
+references deleted user-owned clients, and Helm does not restore the external
+OIDC Secret. The migration's encrypted backup is
+`~/.local/state/lab/backups/before-argocd-instance-oidc-*.json.age`, containing the
+old registration/grant records, live Argo resources, and matching credential.
+It was decrypt-verified, not restore-tested. Prefer revision 3's local-admin
+recovery path unless deliberately restoring the entire former OIDC integration.
 
 ## References
 
