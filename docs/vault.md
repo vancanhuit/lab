@@ -221,7 +221,8 @@ destruction, and full-key cleanup. A temporary `login`-role SSO token received
 HTTP `403` for KV data, listing, metadata, and deletion/recovery operations;
 administrator access remained intact. Test keys and histories were removed,
 the temporary token was revoked, and the cached administrator login was preserved.
-No production credentials or workload policies were added.
+That initial KV exercise added no production credentials or workload policies;
+the later Cloudflare integration below uses a real credential.
 
 ### Kubernetes consumption
 
@@ -231,6 +232,12 @@ short-lived service-account JWTs and TokenReview without a stored reviewer JWT.
 Its initial namespace-scoped role can read only
 `secret/data/kubernetes/vault-secrets/*`, with no default policy or write access.
 The integration does not replace Gitea SSO or deploy another Vault server.
+
+[cert-manager's Cloudflare credential](../kubernetes/cert-manager/README.md) now
+lives at `secret/kubernetes/cert-manager/cloudflare-api-token`. A separate
+`eso-cert-manager` role can read only that exact data key from
+`cert-manager/vault-auth`; the demo role cannot access it. ESO maintains the
+existing Kubernetes Secret, and the original SOPS-encrypted file remains a backup.
 
 ## Storage, restarts, and recovery
 

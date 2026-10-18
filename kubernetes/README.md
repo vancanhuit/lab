@@ -6,8 +6,9 @@ Gateway API CRDs, edge labels, node firewalls, and HAProxy.
 
 Run commands from the repository root. `mise install` provides Helm 4 and a
 cluster-matched `kubectl`. You need the `lab-kubeadm` kubeconfig context, access
-to the private API, and the configured SOPS age identity for the Cloudflare and
-Argo CD OIDC Secrets.
+to the private API, and the configured SOPS age identity for credential recovery
+and the Argo CD OIDC Secret. Cloudflare's active source is Vault through ESO;
+its encrypted SOPS copy is retained as a backup.
 The [Kubernetes guide](../docs/kubernetes.md) covers infrastructure and access.
 
 ## 1. Install or update cert-manager
@@ -55,14 +56,13 @@ reconciled. Do not apply those stale copies or use them to delete live resources
 
 ## 2. Apply the Cloudflare credential and issuer
 
-The encrypted file is already a Kubernetes Secret, not an Ansible variable.
-Decrypt only into the pipe; do not use `tee`, shell tracing, or Secret diffs.
-Use Bash with `pipefail` so decryption failures cannot be hidden:
+Follow the [Cloudflare Vault integration](cert-manager/README.md) first to install
+ESO, import the retained SOPS backup once, and configure cert-manager's dedicated
+Vault role and SecretStore. ESO maintains Secret `cert-manager/cloudflare-api-token`
+without changing the issuer's credential reference. Wait for the ExternalSecret
+to be ready, then apply the issuer:
 
-```bash
-set -euo pipefail
-mise exec -- sops --decrypt kubernetes/cert-manager/cloudflare-api-token.sops.yaml |
-  kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps -f -
+```sh
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
   -f kubernetes/cert-manager/issuer.yaml
 kubectl --context lab-kubeadm wait clusterissuer/letsencrypt-cloudflare \
@@ -73,14 +73,9 @@ The historical `lab-ansible-apps` field manager is retained for these plain
 resources to preserve ownership across the move. Its name does not run or
 require Ansible. Do not routinely force ownership conflicts.
 
-To rotate the token, edit the encrypted Secret and rerun only the Secret pipeline:
-
-```sh
-mise exec -- sops kubernetes/cert-manager/cloudflare-api-token.sops.yaml
-mise run secrets:check
-```
-
-The `data.api-token` value is base64-encoded, as required by a Kubernetes Secret.
+Do not routinely apply `cloudflare-api-token.sops.yaml`: it is a backup, not a
+second active writer. The integration guide covers [rotation](cert-manager/README.md#rotation-and-backup)
+and [emergency SOPS fallback](cert-manager/README.md#emergency-sops-fallback).
 Keep plaintext tokens out of command arguments, shell history, and Git.
 See [Cloudflare permissions and renewal](../docs/kubernetes.md#certificates-and-renewal).
 
@@ -164,9 +159,10 @@ Gateway and certificates remain plain manifests.
 
 Follow [External Secrets Operator](external-secrets/README.md) for the pinned
 Helm release, namespace-scoped Vault SecretStore, and short-lived Kubernetes
-authentication against the existing Vault LXC. The initial integration reads
-only `secret/kubernetes/vault-secrets/*`; no existing application credentials
-are migrated. Its dummy-data example is optional and is not left running.
+authentication against the existing Vault LXC. The demo role reads only
+`secret/kubernetes/vault-secrets/*`; cert-manager uses a separate exact-key role
+for its Cloudflare credential (step 2). The dummy-data example is optional and
+is not left running.
 
 ## Verify
 

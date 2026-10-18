@@ -20,7 +20,7 @@ The secret-management configuration consists of:
   - [`ansible/host_vars/s3/secrets.sops.yaml`](../ansible/host_vars/s3/secrets.sops.yaml), containing secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`, `seaweedfs_harbor_access_key`, `seaweedfs_harbor_secret_key`, `seaweedfs_ui_username`, `seaweedfs_ui_password`, `seaweedfs_ui_password_hash`. See [SeaweedFS UI credentials](seaweedfs.md#credentials) for retrieval and rotation.
 - `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
-- [`kubernetes/cert-manager/cloudflare-api-token.sops.yaml`](../kubernetes/cert-manager/cloudflare-api-token.sops.yaml), a standalone encrypted Kubernetes Secret. It is not loaded into Ansible inventory. See [application secret deployment](../kubernetes/README.md#2-apply-the-cloudflare-credential-and-issuer) for the direct SOPS-to-kubectl pipeline.
+- [`kubernetes/cert-manager/cloudflare-api-token.sops.yaml`](../kubernetes/cert-manager/cloudflare-api-token.sops.yaml), the retained encrypted backup of cert-manager's Cloudflare credential. Vault is the active source; ESO maintains the Kubernetes Secret. It is not loaded into Ansible inventory. See [migration, rotation, and SOPS fallback](../kubernetes/cert-manager/README.md); do not routinely apply this backup alongside ESO.
 
 [`secrets/vault/bootstrap.sops.json`](../secrets/vault/bootstrap.sops.json) contains the encrypted Vault initialization download, including the unseal shares and initial root token. Ansible never loads it. `mise run secrets:check` authenticates it along with inventory and Kubernetes secrets.
 
@@ -106,7 +106,9 @@ mise exec -- sops kubernetes/cert-manager/cloudflare-api-token.sops.yaml
 ```
 
 Kubernetes `data` values must be base64-encoded before SOPS encryption. Keep
-metadata readable, and decrypt only into the documented `kubectl` stdin pipeline.
+metadata readable, and decrypt only into documented stdin pipelines. For the
+Cloudflare backup, update Vault as described in the integration guide; editing
+SOPS alone no longer rotates cert-manager's live credential.
 
 Inspect decrypted values only when necessary:
 

@@ -249,13 +249,15 @@ No Gateway annotation or cert-manager Gateway shim is required.
 [Edit the certificate diagram in Excalidraw](diagrams/kubernetes-certificates.excalidraw).
 
 Cloudflare needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the `canhdinh.com` zone.
-The credential is SOPS-encrypted in
-`kubernetes/cert-manager/cloudflare-api-token.sops.yaml` and decrypted directly
-into `kubectl`'s stdin, without writing a plaintext manifest. It is no longer an
-Ansible inventory variable. The initial credential reuses the existing lab token.
-Replacing it with a dedicated zone-scoped token reduces the shared rotation and
-revocation impact; edit the encrypted Kubernetes Secret with SOPS and reapply it
-as described in the [application guide](../kubernetes/README.md#2-apply-the-cloudflare-credential-and-issuer).
+The active credential is in Vault KV v2 at
+`secret/kubernetes/cert-manager/cloudflare-api-token`, property `api-token`.
+ESO maintains the existing `cert-manager/cloudflare-api-token` Secret using a
+dedicated namespaced identity and exact-key read-only Vault policy. The unchanged
+`kubernetes/cert-manager/cloudflare-api-token.sops.yaml` remains an encrypted
+backup, not an active second writer. See [migration, rotation, and emergency
+fallback](../kubernetes/cert-manager/README.md). The initial credential still
+reuses the existing lab token; Ansible/lego's inventory configuration is unchanged.
+A separate zone-scoped token would reduce shared rotation and revocation impact.
 
 The pod network's port-53 queries to public resolvers returned empty TXT answers
 even though external queries could see the Cloudflare challenge. cert-manager
@@ -325,7 +327,8 @@ selected KV v2 values from the external Vault LXC into Kubernetes Secrets.
 The pinned Helm release lives in `external-secrets`; its first SecretStore is
 namespace-scoped in `vault-secrets`. Kubernetes service-account authentication
 uses short-lived JWTs and TokenReview, with a read-only Vault prefix and no
-static Vault or reviewer token. Existing application credentials remain unchanged.
+static Vault or reviewer token. cert-manager's Cloudflare token now uses a
+separate exact-key Vault role; other application credentials remain unchanged.
 The application guide covers installation, access boundaries, and a disposable
 sync/refresh example. Ansible does not reconcile this application.
 

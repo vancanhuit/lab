@@ -3,14 +3,17 @@
 External Secrets Operator (ESO) **2.13.0** connects `lab-kubeadm` to the existing
 Vault LXC at **https://vault.lab.canhdinh.com**. It does not deploy Vault inside
 Kubernetes or change the existing Gitea SSO configuration. Helm owns the operator;
-the files here own its first namespace-scoped integration. Ansible owns neither.
+the files here own its demo namespace-scoped integration. Ansible owns neither.
+[cert-manager](../cert-manager/README.md) has a separate SecretStore, service
+account binding, and exact-key Vault role for its Cloudflare credential.
 
 ## Access boundaries
 
 - The Helm release and its three controller Deployments live in `external-secrets`.
 - `vault-secrets/vault` is a **SecretStore**, not a ClusterSecretStore. Only
   ExternalSecrets in `vault-secrets` can reference it.
-- ESO can request a short-lived JWT only for `vault-secrets/vault-auth`. The
+- ESO can request short-lived JWTs for `vault-secrets/vault-auth` and
+  `cert-manager/vault-auth` through separate namespace-scoped Roles. The
   chart's cluster-wide `serviceaccounts/token` permission is disabled; the
   namespaced Role grants this capability for that account name only.
 - Vault's `kubernetes/` auth mount accepts role `eso-vault-secrets` only for that

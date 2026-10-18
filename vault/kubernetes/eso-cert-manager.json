@@ -1,0 +1,11 @@
+{
+  "bound_service_account_names": ["vault-auth"],
+  "bound_service_account_namespaces": ["cert-manager"],
+  "audience": "vault",
+  "alias_name_source": "serviceaccount_uid",
+  "token_policies": ["eso-cert-manager"],
+  "token_no_default_policy": true,
+  "token_ttl": "10m",
+  "token_max_ttl": "1h",
+  "token_explicit_max_ttl": "1h"
+}
