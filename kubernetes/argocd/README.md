@@ -3,7 +3,10 @@
 Deploy Argo CD at **https://argocd.lab.canhdinh.com/** with the official
 `argo-cd` Helm chart **10.10.5** (Argo CD **v3.5.5**), pinned by OCI digest below.
 This is the chart's non-HA installation in namespace `argocd`, using direct
-Gitea OIDC for SSO. No Applications or repository credentials are configured.
+Gitea OIDC for SSO. The [ESO Application](#external-secrets-operator-application)
+tracks the operator deployment, and [Vault integrations](#vault-integrations-application)
+tracks its credential mappings and authentication resources. Both use public
+sources without repository credentials.
 
 `mise install` also installs the matching Argo CD CLI **3.5.5**. Run commands
 from the repository root after the
@@ -94,6 +97,114 @@ Vault-sourced, ESO-managed Secret, not a Helm value or part of Helm release hist
 Retained CRDs do not make uninstall harmless: back up Argo CD resources and Secrets before upgrades,
 and never delete an Application casually because its finalizer may delete the
 workloads it manages.
+
+## External Secrets Operator Application
+
+After Argo CD and [ESO](../external-secrets/README.md) are installed, register
+the existing operator for drift and health tracking:
+
+```sh
+mise exec -- kubectl --context lab-kubeadm apply --server-side --field-manager=lab-apps \
+  -f kubernetes/argocd/applications/external-secrets.yaml
+mise exec -- argocd app get external-secrets --hard-refresh --argocd-context lab-argocd-sso
+```
+
+The Application uses the same release name/namespace `external-secrets`, exact
+ESO **2.13.0** OCI digest, and `kubernetes/external-secrets/values.yaml` from
+`main` in the public GitHub repository. The Git source has no `path`: it supplies
+values only, so Vault auth resources, ExternalSecrets, examples, and SOPS backups
+are not rendered or applied. Changes to the values must be pushed to `main`
+before Argo can see them. The Application manifest itself is applied explicitly,
+not managed by an app-of-apps.
+
+Automatic sync, self-healing, and pruning are **off**. Creating this Application
+does not adopt, restart, or upgrade ESO. Review Argo's diff before any manual
+sync; the initial Helm-installed resources may be `OutOfSync` until adoption.
+Server-side apply is configured for a later manual sync to handle large CRDs
+without the client-side last-applied annotation size limit. Do not use Replace,
+Force, or pruning to resolve adoption differences, and never delete ESO CRDs.
+
+After the first manual sync, use Argo as the sole routine writer of the chart
+resources; Helm is then only the rendering engine, not the release manager.
+The old Helm release record remains but no longer reflects Argo changes. Do not
+alternate Helm upgrades/rollbacks and Argo syncs. The Application has no deletion
+finalizer; remove it **without cascading** if stopping tracking. Never choose a
+cascading deletion for this shared operator unless deliberately uninstalling it.
+
+On **2026-10-18**, the Application resolved the pinned chart and Git values with
+no comparison errors and reported **Healthy / OutOfSync**. Comparing Argo's
+rendered chart with the installed Helm manifest found only the added tracking
+annotations. No sync ran; ESO Deployment generations, Pod UIDs/restart counts,
+and the Argo/Cloudflare credential Secret UIDs and contents were unchanged.
+The subsequent explicitly requested CLI sync succeeded with all **39** resources
+**Synced / Healthy**, without pruning or forcing replacements. ESO Deployment
+specs, Pod UIDs/restart counts, protected Secret UIDs/data, and CRD UIDs were
+unchanged. Argo now manages the operator chart; do not upgrade it with Helm.
+
+References: [OCI digest sources](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/oci/)
+and [Git-hosted Helm values](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/multiple_sources/).
+
+## Vault integrations Application
+
+`applications/vault-integrations.yaml` tracks the existing integration separately
+from the ESO operator chart. Its recursive directory source has an explicit
+eight-file allowlist: `vault-auth.yaml` and `secret-store.yaml` in
+`external-secrets/`, `argocd/`, and `cert-manager/`, plus the Argo OIDC and
+Cloudflare ExternalSecrets. It does not copy or move those files.
+
+These files define **19** resources: the demo namespace, three dedicated service
+accounts, shared TokenReview role and bindings, scoped TokenRequest grants,
+three SecretStores, and two ExternalSecrets. All resource namespaces remain
+explicit; the Application's default namespace is `vault-secrets`. The allowlist
+excludes generated Kubernetes Secrets, SOPS backups, the optional dummy example,
+Helm values, and application/operator workloads. Vault policies, auth roles,
+and source values remain managed outside Argo through the Vault CLI.
+
+```sh
+mise exec -- kubectl --context lab-kubeadm apply --server-side --field-manager=lab-apps \
+  -f kubernetes/argocd/applications/vault-integrations.yaml
+mise exec -- argocd app get vault-integrations --hard-refresh --argocd-context lab-argocd-sso
+```
+
+Registration does not sync or change the existing resources. Automatic sync,
+self-healing, pruning, and the deletion finalizer are off. Review the diff before
+an explicitly requested manual sync. After adoption, change the selected manifests
+in Git and use manual Argo sync instead of alternating routine `kubectl apply`
+and Argo writes. Emergency SOPS fallback can still remove the affected
+ExternalSecret without Argo automatically recreating it; restore Vault's intended
+value before manually syncing again. Never prune the namespace or authentication
+resources as a troubleshooting step. Remove this Application without cascading
+if stopping tracking.
+
+Argo CD 3.5.5's bundled health checks map `Ready=True` to **Healthy** and
+`Ready=False` to **Degraded** for both SecretStore and ExternalSecret. Git sync
+status tracks the mappings, not the value/history in Vault. ESO remains the sole
+writer of target Secret data. Both real ExternalSecrets omit the target template,
+so ESO inherits their labels and annotations, including Argo's tracking ID. The
+OIDC discovery label is set on its ExternalSecret and inherited onto its Secret.
+The copied tracking ID refers to the ExternalSecret, not the generated Secret:
+Argo shows both generated Secrets at the top level without comparing their data,
+affecting sync status, or marking them for pruning. The `Orphan`/`Retain` settings
+and absence of owner references are unchanged. Do not add Secret manifests or
+self-referencing tracking IDs merely for visibility.
+
+When removing the old OIDC target template after SSA adoption, check field
+ownership: the original `lab-apps` manager can still share it with Argo. The
+one-time handoff used an identity-only server-side apply from `lab-apps` after
+confirming Argo owned the unchanged spec; a server dry run verified that the
+handoff changed no configuration and Argo could then remove the template. Do not
+force field conflicts or replace the Secret to complete this metadata change.
+
+On **2026-10-18**, registration reported **Healthy / OutOfSync** with no comparison
+errors. Argo rendered exactly the 19 allowlisted resources. No sync ran, and
+the existing integration specs/RBAC, protected credential/TLS Secrets, and
+ESO/Argo/cert-manager Pod UIDs/restart counts were unchanged. All three stores
+and both ExternalSecrets remained ready; the operator Application stayed
+**Synced / Healthy**.
+
+See [directory allowlists](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/directory/)
+and [resource health](https://argo-cd.readthedocs.io/en/release-3.5/operator-manual/health/),
+plus [copied tracking annotations](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/resource_tracking/#non-self-referencing-annotations).
 
 ## 3. Verify and log in
 

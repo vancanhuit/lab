@@ -164,6 +164,12 @@ authentication against the existing Vault LXC. The demo role reads only
 for its Cloudflare credential (step 2), and Argo CD has its own exact-key SSO
 credential role (step 4). The dummy-data example is optional and
 is not left running.
+Once Argo CD is available, the [ESO Application](argocd/README.md#external-secrets-operator-application)
+tracks the existing operator with the same chart digest and Git-hosted values.
+Registration does not sync or adopt it; automatic sync and pruning remain off.
+The separate [Vault integrations Application](argocd/README.md#vault-integrations-application)
+tracks authentication resources and the Argo/Cloudflare ExternalSecrets, never
+their generated Secret values or encrypted backups.
 
 ## Verify
 

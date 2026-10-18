@@ -1,0 +1,23 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault-integrations
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/vancanhuit/lab.git
+    targetRevision: main
+    path: kubernetes
+    directory:
+      recurse: true
+      include: "{external-secrets/vault-auth.yaml,external-secrets/secret-store.yaml,\
+        argocd/vault-auth.yaml,argocd/secret-store.yaml,argocd/gitea-oidc-external-secret.yaml,\
+        cert-manager/vault-auth.yaml,cert-manager/secret-store.yaml,cert-manager/cloudflare-external-secret.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault-secrets
+  # Keep credential recovery under operator control; never auto-sync or prune.
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

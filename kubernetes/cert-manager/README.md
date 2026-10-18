@@ -18,6 +18,11 @@ Run from the repository root. Install cert-manager using the
 (steps 1–2). You do not need the demo ExternalSecret. Use an authorized non-root
 Vault administrator SSO session and the configured SOPS age identity.
 
+The [Vault integrations Application](../argocd/README.md#vault-integrations-application)
+tracks these Kubernetes manifests. The commands below remain bootstrap/recovery
+procedures; after adoption, use Git/manual Argo sync for routine manifest changes.
+Vault values and the encrypted backup remain operator-managed.
+
 ### 1. Import the backup once
 
 First confirm the SOPS backup contains the intended current token. On an

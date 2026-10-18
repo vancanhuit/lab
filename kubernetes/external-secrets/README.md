@@ -2,8 +2,11 @@
 
 External Secrets Operator (ESO) **2.13.0** connects `lab-kubeadm` to the existing
 Vault LXC at **https://vault.lab.canhdinh.com**. It does not deploy Vault inside
-Kubernetes or change the existing Gitea SSO configuration. Helm owns the operator;
-the files here own its demo namespace-scoped integration. Ansible owns neither.
+Kubernetes or change the existing Gitea SSO configuration. Helm bootstraps the
+operator; the [Argo CD Application](../argocd/README.md#external-secrets-operator-application)
+tracks the same chart and values with manual sync only. The separate
+[Vault integrations Application](../argocd/README.md#vault-integrations-application)
+tracks the existing authentication and secret-mapping manifests. Ansible owns neither.
 [cert-manager](../cert-manager/README.md) has a separate SecretStore, service
 account binding, and exact-key Vault role for its Cloudflare credential.
 [Argo CD](../argocd/vault-secrets.md) has its own equivalent integration for the
@@ -48,6 +51,8 @@ the authorized Vault prefix. A namespace is the workload trust boundary.
 
 Run from the repository root with `lab-kubeadm` access. The official OCI chart
 is pinned by version and digest. CRDs are retained on uninstall.
+This is the bootstrap/manual-Helm path. After a deliberate first Argo sync,
+update the chart through Argo instead; do not run both reconcilers for it.
 
 ```sh
 mise exec -- helm --kube-context lab-kubeadm upgrade --install external-secrets \
@@ -61,6 +66,14 @@ mise exec -- kubectl --context lab-kubeadm apply --server-side --field-manager=l
 This creates the integration namespace `vault-secrets`, its dedicated service
 account, TokenReview grant, and ESO's scoped TokenRequest grant. Do not
 recursively apply this directory: the optional example needs a source secret.
+To track the running operator without changing it, apply the
+[ESO Application](../argocd/README.md#external-secrets-operator-application).
+Use the separate [Vault integrations Application](../argocd/README.md#vault-integrations-application)
+for the authentication resources, stores, and real credential mappings. Its
+allowlist excludes this directory's optional dummy example. The commands below
+remain bootstrap/recovery procedures; after adoption, use Git/manual Argo sync
+for routine changes to its selected Kubernetes manifests. Vault CLI steps remain
+operator-managed.
 
 ## 2. Configure Vault Kubernetes authentication
 
@@ -185,8 +198,10 @@ of their login JWT: removing a Kubernetes credential does not revoke previously
 issued Vault tokens, which must be revoked separately or expire.
 
 Before upgrades, back up ESO resources and **encrypt** any Secret backups. If an
-upgrade fails, inspect Helm status and retry or roll back to the previous known
-revision with its matching values. Do not delete CRDs to fix reconciliation.
+upgrade fails before Argo adoption, inspect Helm status and retry or roll back to
+the previous known revision with its matching values. After adoption, revert
+the chart digest/values in Git and manually sync Argo instead; the Helm release
+history does not track Argo changes. Do not delete CRDs to fix reconciliation.
 To remove this integration deliberately, stop its ExternalSecrets first and
 decide whether their target Secrets should be retained before deleting owners.
 Then remove the dedicated SecretStore/RBAC, Vault role, and policy only after

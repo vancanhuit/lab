@@ -7,9 +7,12 @@ Client IDs, PKCE, scopes, and Argo RBAC in `values.yaml` are unchanged, as are t
 registered callback URLs.
 
 `gitea-oidc.sops.yaml` remains an encrypted **backup**, not an active second writer.
-The existing `$argocd-gitea-oidc:client-secret` reference is preserved. ESO's target
-template explicitly retains `app.kubernetes.io/part-of: argocd`, which Argo needs
-to discover this external Secret. No secret value enters Helm release history.
+The existing `$argocd-gitea-oidc:client-secret` reference is preserved. The
+ExternalSecret has label `app.kubernetes.io/part-of: argocd`, which ESO inherits
+onto the target Secret so Argo can discover the credential. Like Cloudflare's
+mapping, it deliberately has no target template: ESO also inherits Argo's
+tracking annotation, making the generated Secret visible without putting its
+data under Argo management. No secret value enters Helm release history.
 
 ## Setup or recovery
 
@@ -18,6 +21,11 @@ Run from the repository root after creating namespace `argocd` in
 [ESO and the shared Vault Kubernetes auth mount](../external-secrets/README.md)
 (steps 1–2); the demo ExternalSecret is not required. Use a non-root Vault
 administrator SSO session and the configured SOPS age identity.
+
+The [Vault integrations Application](README.md#vault-integrations-application)
+tracks these Kubernetes manifests. The commands below remain bootstrap/recovery
+procedures; after adoption, use Git/manual Argo sync for routine manifest changes.
+Vault values and the encrypted backup remain operator-managed.
 
 ### 1. Import the encrypted backup once
 
