@@ -6,9 +6,9 @@ Gateway API CRDs, edge labels, node firewalls, and HAProxy.
 
 Run commands from the repository root. `mise install` provides Helm 4 and a
 cluster-matched `kubectl`. You need the `lab-kubeadm` kubeconfig context, access
-to the private API, and the configured SOPS age identity for credential recovery
-and the Argo CD OIDC Secret. Cloudflare's active source is Vault through ESO;
-its encrypted SOPS copy is retained as a backup.
+to the private API, and the configured SOPS age identity for credential recovery.
+Cloudflare and Argo CD OIDC credentials are sourced from Vault through ESO;
+their encrypted SOPS copies are retained as backups.
 The [Kubernetes guide](../docs/kubernetes.md) covers infrastructure and access.
 
 ## 1. Install or update cert-manager
@@ -150,8 +150,8 @@ Do not delete either application's Certificates, Secrets, or workloads.
 
 ## 4. Install Argo CD
 
-Follow [Argo CD deployment](argocd/README.md) for the encrypted Gitea OIDC
-credential, pinned Helm command, HTTP redirect, private DNS record, and SSO login at
+Follow [Argo CD deployment](argocd/README.md) for the Vault-sourced Gitea OIDC
+credential and retained SOPS backup, pinned Helm command, HTTP redirect, private DNS record, and SSO login at
 `https://argocd.lab.canhdinh.com/`. The chart owns its HTTPS HTTPRoute; the shared
 Gateway and certificates remain plain manifests.
 
@@ -161,7 +161,8 @@ Follow [External Secrets Operator](external-secrets/README.md) for the pinned
 Helm release, namespace-scoped Vault SecretStore, and short-lived Kubernetes
 authentication against the existing Vault LXC. The demo role reads only
 `secret/kubernetes/vault-secrets/*`; cert-manager uses a separate exact-key role
-for its Cloudflare credential (step 2). The dummy-data example is optional and
+for its Cloudflare credential (step 2), and Argo CD has its own exact-key SSO
+credential role (step 4). The dummy-data example is optional and
 is not left running.
 
 ## Verify

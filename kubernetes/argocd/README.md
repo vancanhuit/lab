@@ -65,17 +65,18 @@ same shared Gateway; their listener names and certificates are unchanged.
 ## 2. Install or update Argo CD
 
 The [Gitea OAuth applications](#gitea-sso) must exist before using these values.
-Create the namespace on a fresh cluster, then decrypt the credential only into
-`kubectl` stdin. Use Bash with `pipefail`; do not use `tee`, shell tracing, or
-Secret diffs:
+Create the namespace on a fresh cluster:
 
 ```bash
 set -euo pipefail
 kubectl --context lab-kubeadm create namespace argocd --dry-run=client -o yaml |
   kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps -f -
-mise exec -- sops --decrypt kubernetes/argocd/gitea-oidc.sops.yaml |
-  kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps -f -
 ```
+
+Then follow the [Vault credential setup](vault-secrets.md) to import the retained
+SOPS backup once and configure the dedicated ESO role, SecretStore, and
+ExternalSecret. Wait for the ExternalSecret to be ready before installing Argo.
+Do not routinely apply `gitea-oidc.sops.yaml`; it is now a backup, not a second writer.
 
 ```sh
 helm --kube-context lab-kubeadm upgrade --install argocd \
@@ -89,7 +90,7 @@ kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-ap
 Helm owns the Argo CD workloads, RBAC, CRDs, and HTTPS HTTPRoute to
 `argocd-server:80` (UI/REST) or `argocd-server:8080` (RPC).
 `redirect.yaml` redirects HTTP to HTTPS. The SSO credential is a separate
-SOPS-managed Secret, not a Helm value or part of Helm release history.
+Vault-sourced, ESO-managed Secret, not a Helm value or part of Helm release history.
 Retained CRDs do not make uninstall harmless: back up Argo CD resources and Secrets before upgrades,
 and never delete an Application casually because its finalizer may delete the
 workloads it manages.
@@ -217,10 +218,13 @@ or through the user-scoped `/api/v1/user/applications/oauth2` endpoint.
 | Argo CD CLI (ID 9) | Public | `http://localhost:8085/auth/callback` |
 
 Keep user consent enabled. The public CLI client uses a separate `cliClientID`
-and no client secret. The confidential web client secret is in
-`gitea-oidc.sops.yaml`, referenced as `$argocd-gitea-oidc:client-secret`. Its
+and no client secret. The confidential web client secret is in Vault KV v2 at
+`secret/kubernetes/argocd/gitea-oidc`, property `client-secret`. ESO maintains
+Secret `argocd-gitea-oidc`, referenced as `$argocd-gitea-oidc:client-secret`. Its
 `app.kubernetes.io/part-of: argocd` label lets Argo CD resolve the external Secret.
 Client IDs are public and live in `values.yaml`.
+The unchanged `gitea-oidc.sops.yaml` remains an encrypted backup. See
+[Vault setup and emergency fallback](vault-secrets.md).
 
 The instance-level migration required new registrations because Gitea does not
 provide an ownership-transfer operation. The original user-owned registrations
@@ -229,7 +233,7 @@ Do not restore the old client IDs from Git without also restoring their provider
 registrations and matching encrypted credential.
 
 If rebuilding Gitea without its database, recreate both applications, update the
-client IDs and encrypted credential, and rerun the controller-local tests before
+client IDs, Vault source, and encrypted backup, and rerun the controller-local tests before
 deployment. Replacing these registrations invalidates their previous grants.
 Do not recreate them during routine Helm upgrades.
 
@@ -239,17 +243,20 @@ default. No repository or write scopes, or group claims, are requested.
 If scopes change, users may need to revoke the previous authorization in Gitea
 and consent again.
 
-To rotate the web client secret, regenerate it in the existing Gitea application,
-under Site Administration, then immediately edit the encrypted Secret in a
-private terminal:
+### Rotate the web client secret
+
+Regenerate it in the existing Gitea application under Site Administration, then
+immediately update the encrypted backup and Vault through the
+[CAS-protected stdin pipeline](vault-secrets.md#rotation), in a private terminal:
 
 ```sh
 mise exec -- sops kubernetes/argocd/gitea-oidc.sops.yaml
 mise run secrets:check
 ```
 
-`data.client-secret` must contain the new value base64-encoded once. Reapply only
-the Secret pipeline from step 2, then restart the Argo API server to reload it:
+`data.client-secret` in SOPS must contain the new value base64-encoded once;
+Vault stores the decoded value. Wait for ESO to synchronize the new credential,
+then restart the Argo API server to reload it:
 
 ```sh
 kubectl --context lab-kubeadm -n argocd rollout restart deployment/argocd-server
@@ -258,6 +265,8 @@ kubectl --context lab-kubeadm -n argocd rollout status deployment/argocd-server 
 
 Do not print the secret or put it in command arguments. Regeneration immediately
 invalidates the old secret, so new web logins can fail until this update finishes.
+Verify a fresh web SSO login afterward; the public CLI client does not test this
+secret. Keep SOPS and Vault aligned, and do not apply the backup while ESO runs.
 
 ### Access policy
 

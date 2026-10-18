@@ -6,14 +6,16 @@ Kubernetes or change the existing Gitea SSO configuration. Helm owns the operato
 the files here own its demo namespace-scoped integration. Ansible owns neither.
 [cert-manager](../cert-manager/README.md) has a separate SecretStore, service
 account binding, and exact-key Vault role for its Cloudflare credential.
+[Argo CD](../argocd/vault-secrets.md) has its own equivalent integration for the
+confidential Gitea web client secret. The roles cannot read each other's keys.
 
 ## Access boundaries
 
 - The Helm release and its three controller Deployments live in `external-secrets`.
 - `vault-secrets/vault` is a **SecretStore**, not a ClusterSecretStore. Only
   ExternalSecrets in `vault-secrets` can reference it.
-- ESO can request short-lived JWTs for `vault-secrets/vault-auth` and
-  `cert-manager/vault-auth` through separate namespace-scoped Roles. The
+- ESO can request short-lived JWTs for `vault-secrets/vault-auth`,
+  `cert-manager/vault-auth`, and `argocd/vault-auth` through separate namespace-scoped Roles. The
   chart's cluster-wide `serviceaccounts/token` permission is disabled; the
   namespaced Role grants this capability for that account name only.
 - Vault's `kubernetes/` auth mount accepts role `eso-vault-secrets` only for that

@@ -328,7 +328,9 @@ The pinned Helm release lives in `external-secrets`; its first SecretStore is
 namespace-scoped in `vault-secrets`. Kubernetes service-account authentication
 uses short-lived JWTs and TokenReview, with a read-only Vault prefix and no
 static Vault or reviewer token. cert-manager's Cloudflare token now uses a
-separate exact-key Vault role; other application credentials remain unchanged.
+separate exact-key Vault role. Argo CD's confidential Gitea web client secret
+also uses its own namespace-scoped identity and exact-key Vault role, with its
+SOPS file retained as a backup. See [Argo credential setup and recovery](../kubernetes/argocd/vault-secrets.md).
 The application guide covers installation, access boundaries, and a disposable
 sync/refresh example. Ansible does not reconcile this application.
 

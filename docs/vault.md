@@ -239,6 +239,12 @@ lives at `secret/kubernetes/cert-manager/cloudflare-api-token`. A separate
 `cert-manager/vault-auth`; the demo role cannot access it. ESO maintains the
 existing Kubernetes Secret, and the original SOPS-encrypted file remains a backup.
 
+[Argo CD's confidential Gitea web client secret](../kubernetes/argocd/vault-secrets.md)
+lives at `secret/kubernetes/argocd/gitea-oidc`. Its separate `eso-argocd` role binds
+only `argocd/vault-auth` and reads that exact data path. ESO preserves the existing
+labeled Kubernetes Secret; SOPS remains an encrypted backup. The public CLI
+client has no client secret, and neither other workload role can read this key.
+
 ## Storage, restarts, and recovery
 
 - Integrated Raft data lives under `/var/lib/vault/raft` with mode `0700` on the
