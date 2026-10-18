@@ -156,6 +156,73 @@ readable. Monitor free disk and audit errors: requests can block or fail if no
 enabled audit device can write successfully. This installation has only one
 audit device; off-host forwarding and disk-space alerting were not added here.
 
+## KV v2 secrets
+
+The versioned key/value secrets engine is enabled at **`secret/`**. Like OIDC
+and audit devices, it is configured through the Vault API, not by Ansible.
+On a fresh instance, after an administrator login, enable it once from the
+repository root:
+
+```sh
+mise exec -- vault secrets enable -path=secret -description="Versioned lab secrets" kv-v2
+mise exec -- vault secrets list -detailed
+```
+
+If `secret/` already exists, confirm its type is `kv` with option `version=2`;
+do not disable it to reapply configuration, because disabling a secrets engine
+deletes its data. The live engine retains the defaults: ten versions per key
+(`max_versions=0` means ten), no automatic version deletion, and optional
+check-and-set (CAS). Use CAS to protect writes from stale updates; it can also
+be required per key. Static KV values do not rotate or expire automatically.
+
+### Disposable CLI exercise
+
+Run this with the administrator SSO session. All values are deliberately fake;
+do not put real credentials in command arguments or display them in recorded
+output. For real writes, supply JSON through stdin using `vault kv put
+-mount=secret <path> -` from a protected source.
+
+The exercise creates a unique key with create-only CAS, then removes all of its
+versions and metadata on exit. Destructive commands below target only that key.
+
+```bash
+mise exec -- bash <<'SH'
+set -euo pipefail
+demo="demo/cli-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+vault kv put -mount=secret -cas=0 "$demo" username=demo password=dummy-v1
+trap 'vault kv metadata delete -mount=secret "$demo" >/dev/null' EXIT
+vault kv metadata put -mount=secret -cas-required=true "$demo"
+vault kv get -mount=secret "$demo"
+vault kv list -mount=secret demo
+vault kv put -mount=secret -cas=1 "$demo" username=demo password=dummy-v2
+vault kv patch -mount=secret -method=patch -cas=2 "$demo" password=dummy-v3
+vault kv get -mount=secret -version=1 "$demo"
+vault kv metadata get -mount=secret "$demo"
+vault kv rollback -mount=secret -version=1 "$demo"
+vault kv delete -mount=secret "$demo"
+vault kv undelete -mount=secret -versions=4 "$demo"
+vault kv get -mount=secret "$demo"
+vault kv destroy -mount=secret -versions=2 "$demo"
+vault kv metadata get -mount=secret "$demo"
+SH
+```
+
+`put` replaces the complete value; `patch` preserves unspecified fields. Each
+successful write creates a version. Rollback copies an older value into a new
+version (v4 here), rather than deleting history. Soft deletion is reversible
+with `undelete`; `destroy` permanently removes selected version data, and
+`metadata delete` permanently removes every version and the key's metadata.
+Neither destructive operation removes earlier copies from existing backups.
+
+On **2026-10-18**, live CLI checks passed for create/read/list, replacement and
+partial updates, metadata and historical reads, stale/missing CAS rejection,
+rollback, latest/specific-version soft deletion and recovery, permanent version
+destruction, and full-key cleanup. A temporary `login`-role SSO token received
+HTTP `403` for KV data, listing, metadata, and deletion/recovery operations;
+administrator access remained intact. Test keys and histories were removed,
+the temporary token was revoked, and the cached administrator login was preserved.
+No production credentials or workload policies were added.
+
 ## Storage, restarts, and recovery
 
 - Integrated Raft data lives under `/var/lib/vault/raft` with mode `0700` on the
@@ -239,4 +306,5 @@ is installed; recheck uncompressed UI transfers when upgrading Vault.
 - [TCP listener and TLS reload](https://developer.hashicorp.com/vault/docs/configuration/listener/tcp)
 - [Initialization](https://developer.hashicorp.com/vault/docs/commands/operator/init)
 - [File audit device and rotation](https://developer.hashicorp.com/vault/docs/audit/file)
+- [KV v2 API, versioning, CAS, and deletion](https://developer.hashicorp.com/vault/api-docs/secret/kv/kv-v2)
 - [Raft snapshot operations](https://developer.hashicorp.com/vault/docs/commands/operator/raft#snapshot)
