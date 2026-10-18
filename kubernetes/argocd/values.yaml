@@ -1,0 +1,48 @@
+global:
+  domain: argocd.lab.canhdinh.com
+
+configs:
+  params:
+    # Envoy terminates HTTPS; the backend stays on its internal ClusterIP.
+    server.insecure: true
+
+server:
+  service:
+    servicePortHttp2: 8080
+    servicePortHttp2AppProtocol: kubernetes.io/h2c
+  httproute:
+    # The built-in route fixes every backend to port 80; RPC needs HTTP/2.
+    enabled: false
+
+extraObjects:
+  - apiVersion: gateway.networking.k8s.io/v1
+    kind: HTTPRoute
+    metadata:
+      name: argocd-server
+      namespace: argocd
+    spec:
+      parentRefs:
+        - name: hubble-ui
+          namespace: kube-system
+          sectionName: argocd-https
+      hostnames:
+        - argocd.lab.canhdinh.com
+      rules:
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+              headers:
+                - name: Content-Type
+                  type: RegularExpression
+                  value: ^application/grpc.*$
+          backendRefs:
+            - name: argocd-server
+              port: 8080
+        - matches:
+            - path:
+                type: PathPrefix
+                value: /
+          backendRefs:
+            - name: argocd-server
+              port: 80

@@ -91,6 +91,7 @@
               - kubernetes_cilium.envoy.securityContext.capabilities.envoy == ['NET_ADMIN', 'SYS_ADMIN', 'NET_BIND_SERVICE']
               - kubernetes_cilium.gatewayAPI.enabled
               - kubernetes_cilium.gatewayAPI.enableProxyProtocol
+              - kubernetes_cilium.gatewayAPI.enableAppProtocol
               - kubernetes_cilium.gatewayAPI.useRemoteAddress
               - kubernetes_cilium.gatewayAPI.xffNumTrustedHops == 0
               - kubernetes_cilium.gatewayAPI.gatewayClass.create == 'true'

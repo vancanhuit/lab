@@ -83,25 +83,41 @@ The `data.api-token` value is base64-encoded, as required by a Kubernetes Secret
 Keep plaintext tokens out of command arguments, shell history, and Git.
 See [Cloudflare permissions and renewal](../docs/kubernetes.md#certificates-and-renewal).
 
-## 3. Apply the Hubble UI certificate, then its Gateway
+## 3. Apply frontend certificates and the shared Gateway
 
-Wait for the certificate before exposing the HTTPS listener on a new cluster:
+The Gateway is shared by Hubble UI and Argo CD. Wait for both certificates before
+exposing their HTTPS listeners on a new cluster:
 
 ```sh
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
-  -f kubernetes/hubble-ui/certificate.yaml
-kubectl --context lab-kubeadm -n kube-system wait certificate/hubble-ui \
+  -f kubernetes/hubble-ui/certificate.yaml \
+  -f kubernetes/argocd/certificate.yaml
+kubectl --context lab-kubeadm -n kube-system wait certificate/hubble-ui certificate/argocd \
   --for=condition=Ready --timeout=600s
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
-  -f kubernetes/hubble-ui/gateway.yaml
+  -f kubernetes/gateway/gateway.yaml \
+  -f kubernetes/hubble-ui/routes.yaml
 kubectl --context lab-kubeadm -n kube-system wait gateway/hubble-ui \
   --for=condition=Programmed --timeout=180s
 ```
 
-For later routing changes, edit `hubble-ui/gateway.yaml` and rerun only its apply
-command. Helm is needed only for cert-manager updates, and Ansible only for
-infrastructure changes. Never recursively apply this whole directory: it contains
-Helm values and an encrypted Secret, and installation order matters.
+The shared Gateway retains the live name `kube-system/hubble-ui` and its original
+Hubble listener names. Its Argo listeners accept routes only from namespace
+`argocd`. This avoids competing host-network Gateways on ports 80/443; do not
+delete the live Gateway when moving from the former `hubble-ui/gateway.yaml` file.
+
+For later Hubble routing changes, edit `hubble-ui/routes.yaml` and apply that
+file only. Listener changes belong in `gateway/gateway.yaml`. Helm manages
+cert-manager and Argo CD; Ansible manages infrastructure only. Never recursively
+apply this directory: it contains Helm values and an encrypted Secret, and
+installation order matters.
+
+## 4. Install Argo CD
+
+Follow [Argo CD deployment](argocd/README.md) for the pinned Helm command, HTTP
+redirect, private DNS record, and secure initial login at
+`https://argocd.lab.canhdinh.com/`. The chart owns its HTTPS HTTPRoute; the shared
+Gateway and certificates remain plain manifests.
 
 ## Verify
 
@@ -117,9 +133,11 @@ For host firewall, HAProxy backend, route, and HTTPS checks, optionally run
 It is read-only and is no longer part of infrastructure deployment.
 
 Local contract tests run with `mise run ansible:test`. They render the pinned
-Helm chart (requiring registry access) and validate plain manifests and encrypted
-Secret references without contacting a cluster or decrypting credentials.
+cert-manager and Argo CD Helm charts (requiring registry access) and validate plain
+manifests and encrypted Secret references without contacting a cluster or
+decrypting credentials.
 
 Do not delete the ACME account or TLS Secrets to retry issuance. Correct DNS or
 credentials and allow reconciliation. To undo a routing change, restore the
-previous `gateway.yaml` revision and apply it; do not delete cert-manager.
+previous route manifest or Helm values revision and reapply it; do not delete
+cert-manager or the shared Gateway.

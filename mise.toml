@@ -13,6 +13,7 @@ uv = { version = "0.13.1", depends = ["python"] }
 gh = "2.102.0"
 helm = "4.3.1"
 kubectl = "1.36.5"
+argocd = "3.5.5"
 "pipx:ansible-lint" = { version = "26.10.1", depends = ["python", "uv"] }
 "pipx:ansible" = { version = "14.5.0", depends = ["python", "uv"] }
 "pipx:ansible-core" = { version = "2.21.5", depends = ["python", "uv"] }

@@ -182,6 +182,7 @@
         that:
           - kubernetes_cilium_settings['enable-gateway-api'] == 'true'
           - kubernetes_cilium_settings['enable-gateway-api-proxy-protocol'] == 'true'
+          - kubernetes_cilium_settings['enable-gateway-api-app-protocol'] == 'true'
           - kubernetes_cilium_settings['gateway-api-hostnetwork-enabled'] == 'true'
           - kubernetes_cilium_settings['gateway-api-hostnetwork-nodelabelselector'] == 'node-role.kubernetes.io/edge='
           - kubernetes_cilium_settings['enable-envoy-config'] == 'true'

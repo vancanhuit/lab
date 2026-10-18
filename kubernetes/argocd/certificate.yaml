@@ -1,0 +1,17 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: argocd
+  namespace: kube-system
+spec:
+  secretName: argocd-tls
+  dnsNames:
+    - argocd.lab.canhdinh.com
+  issuerRef:
+    name: letsencrypt-cloudflare
+    kind: ClusterIssuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always

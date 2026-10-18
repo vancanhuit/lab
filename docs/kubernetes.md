@@ -141,8 +141,10 @@ policies prevent unsafe CRD upgrades; they do not have an `Established` conditio
 Experimental API fields are not installed.
 
 Cilium enables `gatewayAPI.enabled` and `gatewayAPI.hostNetwork.enabled` and
-creates the `cilium` GatewayClass (`io.cilium/gateway-controller`). Configuration
-changes automatically roll out both agents and operators, so the operator detects
+creates the `cilium` GatewayClass (`io.cilium/gateway-controller`). It also
+enables `gatewayAPI.enableAppProtocol` so Service ports can select HTTP/2
+backends, including Argo CD's RPC port, without changing browser traffic.
+Configuration changes automatically roll out both agents and operators, so the operator detects
 the CRDs at startup. Standalone Envoy retains its existing capabilities and gains
 `NET_BIND_SERVICE`, allowing listeners on ports such as 80 and 443.
 
@@ -160,9 +162,11 @@ labels after worker joins. Cilium agents and standalone Envoy remain deployed
 cluster-wide for CNI and L7 network policies; only Gateway sockets are edge-only.
 
 Host-network listeners bind all node interfaces. Ports 80 and 443 are reserved
-for the `kube-system/hubble-ui` Gateway. Do not create a second Gateway using the
-same ports. `TCPRoute` and `UDPRoute` CRDs are installed by the standard
-bundle, but Cilium does not expose those routes directly through host networking;
+for the shared `kube-system/hubble-ui` Gateway, defined in
+`kubernetes/gateway/gateway.yaml`. Its original Hubble listener names are retained;
+the manifests add separate Argo CD listeners restricted to namespace `argocd`.
+Do not create a second Gateway using the same ports. `TCPRoute` and `UDPRoute`
+CRDs are installed by the standard bundle, but Cilium does not expose those routes directly through host networking;
 their generated Services use NodePorts instead.
 
 Cilium's Gateway API chart also confines socket load balancing to the host
@@ -268,7 +272,7 @@ Do not delete the ACME account Secret or TLS Secret to retry issuance: doing so
 can consume CA rate limits. Fix DNS or credentials and allow the existing request
 to reconcile. To stop UI exposure without deleting certificate state, stop HAProxy
 and remove the two Hubble UI HTTPRoutes; reapplying
-`kubernetes/hubble-ui/gateway.yaml` restores them.
+`kubernetes/hubble-ui/routes.yaml` restores them.
 
 ### Verified deployment
 
@@ -294,6 +298,19 @@ All three controller Deployments, the issuer, Certificate, and Gateway were read
 afterward; Hubble UI returned trusted HTTPS `200` and an HTTP `301` redirect.
 Future updates use the regular Helm command without `--take-ownership` in the
 [application guide](../kubernetes/README.md#1-install-or-update-cert-manager).
+
+## Argo CD
+
+Argo CD deployment files are also available at
+[`kubernetes/argocd/`](../kubernetes/argocd/README.md), targeting
+`https://argocd.lab.canhdinh.com/` through the same HAProxy and edge Envoy path.
+They use a pinned Helm chart and an explicit Certificate, without a new
+LoadBalancer, Ingress controller, or host-network port allocation. The deployment
+was verified on **2026-10-18**, including trusted HTTPS, HTTP redirection, login
+enforcement, and authenticated CLI operations using gRPC-Web. Browser traffic uses
+an HTTP/1 backend; RPC traffic uses a separate HTTP/2 Service port. The
+[application guide](../kubernetes/argocd/README.md) includes installation and login
+commands. DNS changes are not automated by these manifests.
 
 ## Observe flows with Hubble
 

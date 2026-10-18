@@ -10,10 +10,10 @@
     issuer: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/cert-manager/issuer.yaml') | from_yaml }}"
     secret: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/cert-manager/cloudflare-api-token.sops.yaml') | from_yaml }}"
     certificate: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/hubble-ui/certificate.yaml') | from_yaml }}"
-    routes: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/hubble-ui/gateway.yaml') | from_yaml_all | list }}"
-    gateway: "{{ routes[0] }}"
-    redirect: "{{ routes[1] }}"
-    route: "{{ routes[2] }}"
+    routes: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/hubble-ui/routes.yaml') | from_yaml_all | list }}"
+    gateway: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/gateway/gateway.yaml') | from_yaml }}"
+    redirect: "{{ routes[0] }}"
+    route: "{{ routes[1] }}"
   tasks:
     - name: Render the official cert-manager Helm chart with and without lab DNS settings
       ansible.builtin.command:
@@ -69,14 +69,91 @@
       ansible.builtin.assert:
         that:
           - gateway.spec.gatewayClassName == 'cilium'
-          - gateway.spec.listeners | map(attribute='port') | list == [80, 443]
-          - gateway.spec.listeners | map(attribute='hostname') | unique | list == certificate.spec.dnsNames
+          - gateway.metadata.name == 'hubble-ui'
+          - gateway.spec.listeners[:2] | map(attribute='port') | list == [80, 443]
+          - gateway.spec.listeners[:2] | map(attribute='hostname') | unique | list == certificate.spec.dnsNames
           - gateway.spec.listeners[1].tls.mode == 'Terminate'
           - gateway.spec.listeners[1].tls.certificateRefs[0].name == certificate.spec.secretName
-          - gateway.spec.listeners | map(attribute='allowedRoutes.namespaces.from') | list == ['Same', 'Same']
+          - gateway.spec.listeners[:2] | map(attribute='allowedRoutes.namespaces.from') | list == ['Same', 'Same']
           - redirect.spec.parentRefs[0] == {'name':'hubble-ui','sectionName':'http'}
           - redirect.spec.rules[0].filters[0].requestRedirect == {'scheme':'https','statusCode':301}
           - route.spec.parentRefs[0] == {'name':'hubble-ui','sectionName':'https'}
           - route.spec.hostnames == redirect.spec.hostnames == certificate.spec.dnsNames
           - route.spec.rules[0].backendRefs == [{'name':'hubble-ui','port':80}]
           - gateway.metadata.namespace == redirect.metadata.namespace == route.metadata.namespace == certificate.metadata.namespace == 'kube-system'
+
+    - name: Render the pinned Argo CD chart without cluster access
+      ansible.builtin.command:
+        argv:
+          - helm
+          - template
+          - argocd
+          - oci://ghcr.io/argoproj/argo-helm/argo-cd@sha256:89429c1de7a63860df9092464d97e6ad34c263c834b457a379dc9f866c63d612
+          - --version
+          - 10.10.5
+          - --namespace
+          - argocd
+          - --kube-version
+          - 1.36.5
+          - --values
+          - "{{ manifests_dir }}/argocd/values.yaml"
+      register: argocd_render
+      changed_when: false
+
+    - name: Assert Argo CD uses authenticated HTTP behind the existing TLS Gateway
+      ansible.builtin.assert:
+        that:
+          - params.data['server.insecure'] == 'true'
+          - config.data.url == 'https://argocd.lab.canhdinh.com'
+          - config.data['admin.enabled'] == 'true'
+          - config.data.get('users.anonymous.enabled', 'false') == 'false'
+          - service.spec.type == 'ClusterIP'
+          - service.spec.ports | selectattr('port', 'equalto', 80) | list | length == 1
+          - service.spec.ports | selectattr('port', 'equalto', 8080) | map(attribute='appProtocol') | list == ['kubernetes.io/h2c']
+          - route.metadata.namespace == 'argocd'
+          - route.spec.parentRefs == [{'name':'hubble-ui','namespace':'kube-system','sectionName':'argocd-https'}]
+          - route.spec.hostnames == ['argocd.lab.canhdinh.com']
+          - route.spec.rules[0].backendRefs[0].name == service.metadata.name
+          - route.spec.rules[0].backendRefs[0].port == 8080
+          - route.spec.rules[0].matches[0].headers == [{'name':'Content-Type','type':'RegularExpression','value':'^application/grpc.*$'}]
+          - route.spec.rules[1].backendRefs == [{'name':service.metadata.name,'port':80}]
+          - route.spec.rules[1].matches == [{'path':{'type':'PathPrefix','value':'/'}}]
+          - rendered | selectattr('kind', 'equalto', 'HTTPRoute') | list | length == 1
+          - rendered | selectattr('kind', 'equalto', 'Gateway') | list | length == 0
+          - rendered | selectattr('kind', 'equalto', 'Ingress') | list | length == 0
+      vars:
+        rendered: "{{ argocd_render.stdout | from_yaml_all | list }}"
+        config: "{{ rendered | selectattr('kind', 'equalto', 'ConfigMap') | selectattr('metadata.name', 'equalto', 'argocd-cm') | first }}"
+        params: "{{ rendered | selectattr('kind', 'equalto', 'ConfigMap') | selectattr('metadata.name', 'equalto', 'argocd-cmd-params-cm') | first }}"
+        service: "{{ rendered | selectattr('kind', 'equalto', 'Service') | selectattr('metadata.name', 'equalto', 'argocd-server') | first }}"
+        route: "{{ rendered | selectattr('kind', 'equalto', 'HTTPRoute') | first }}"
+
+    - name: Assert shared listeners isolate Argo CD and reference its Gateway-local certificate
+      ansible.builtin.assert:
+        that:
+          - gateway.spec.listeners | length == 4
+          - gateway.spec.listeners | map(attribute='name') | unique | length == 4
+          - listeners | map(attribute='name') | list == ['argocd-http', 'argocd-https']
+          - listeners | map(attribute='hostname') | unique | list == certificate.spec.dnsNames
+          - listeners | map(attribute='port') | list == [80, 443]
+          - listeners | map(attribute='protocol') | list == ['HTTP', 'HTTPS']
+          - listeners | map(attribute='allowedRoutes.namespaces') | unique | list == [namespace_policy]
+          - listeners[1].tls.mode == 'Terminate'
+          - listeners[1].tls.certificateRefs == [{'name':certificate.spec.secretName}]
+          - certificate.metadata.namespace == gateway.metadata.namespace
+          - certificate.spec.dnsNames == ['argocd.lab.canhdinh.com']
+          - certificate.spec.issuerRef == {'name':issuer.metadata.name,'kind':'ClusterIssuer'}
+          - certificate.spec.privateKey == {'algorithm':'ECDSA','size':256,'rotationPolicy':'Always'}
+          - redirect.metadata.namespace == 'argocd'
+          - redirect.spec.parentRefs == [{'name':'hubble-ui','namespace':'kube-system','sectionName':'argocd-http'}]
+          - redirect.spec.hostnames == certificate.spec.dnsNames
+          - redirect.spec.rules[0].filters[0].requestRedirect == {'scheme':'https','statusCode':301}
+      vars:
+        listeners: "{{ gateway.spec.listeners[2:] }}"
+        certificate: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/argocd/certificate.yaml') | from_yaml }}"
+        redirect: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/argocd/redirect.yaml') | from_yaml }}"
+        namespace_policy:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
