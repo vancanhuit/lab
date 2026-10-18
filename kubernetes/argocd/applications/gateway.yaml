@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/vancanhuit/lab.git
+    targetRevision: main
+    path: kubernetes/gateway
+    directory:
+      include: gateway.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  # This shared Gateway serves Argo itself; never auto-sync or prune it.
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

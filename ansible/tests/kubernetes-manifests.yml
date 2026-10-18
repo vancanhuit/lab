@@ -15,6 +15,59 @@
     redirect: "{{ routes[0] }}"
     route: "{{ routes[1] }}"
   tasks:
+    - name: Assert infrastructure Applications require manual sync without cascading deletion
+      ansible.builtin.assert:
+        that:
+          - application.apiVersion == 'argoproj.io/v1alpha1' and application.kind == 'Application'
+          - application.metadata.name == item.name and application.metadata.namespace == 'argocd'
+          - not application.metadata.get('finalizers', [])
+          - application.spec.project == 'default'
+          - application.spec.destination == {'server':'https://kubernetes.default.svc','namespace':item.namespace}
+          - application.spec.syncPolicy == {'syncOptions':['ServerSideApply=true']}
+      vars:
+        application: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/argocd/applications/' ~ item.name ~ '.yaml') | from_yaml }}"
+      loop:
+        - {name: cert-manager, namespace: cert-manager}
+        - {name: gateway, namespace: kube-system}
+        - {name: hubble-ui, namespace: kube-system}
+
+    - name: Assert cert-manager tracks the pinned chart and only the existing issuer from Git
+      ansible.builtin.assert:
+        that:
+          - application.spec.get('source') is none
+          - application.spec.sources | length == 2
+          - chart.repoURL == cert_manager_chart.split('@')[0]
+          - chart.targetRevision == cert_manager_chart.split('@')[1]
+          - chart.path == '.'
+          - "chart.helm == {'releaseName':'cert-manager','valueFiles':['$values/kubernetes/cert-manager/values.yaml']}"
+          - >-
+            application.spec.sources[1] == {'repoURL':'https://github.com/vancanhuit/lab.git',
+            'targetRevision':'main', 'ref':'values', 'path':'kubernetes/cert-manager',
+            'directory':{'include':'issuer.yaml'}}
+          - issuer.kind == 'ClusterIssuer' and issuer.metadata.name == 'letsencrypt-cloudflare'
+          - issuer.metadata.get('namespace') is none
+      vars:
+        application: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/argocd/applications/cert-manager.yaml') | from_yaml }}"
+        chart: "{{ application.spec.sources[0] }}"
+
+    - name: Assert gateway and Hubble Applications allowlist only routing and certificate manifests
+      ansible.builtin.assert:
+        that:
+          - application.spec.get('sources') is none
+          - >-
+            application.spec.source == {'repoURL':'https://github.com/vancanhuit/lab.git',
+            'targetRevision':'main', 'path':'kubernetes/' ~ item.name, 'directory':{'include':item.include}}
+          - gateway.kind == 'Gateway' and gateway.metadata.name == 'lab-gateway'
+          - certificate.kind == 'Certificate' and certificate.metadata.name == 'hubble-ui'
+          - routes | length == 2
+          - routes | map(attribute='kind') | unique | list == ['HTTPRoute']
+          - routes | map(attribute='metadata.name') | list == ['hubble-ui-redirect', 'hubble-ui']
+      vars:
+        application: "{{ lookup('ansible.builtin.file', manifests_dir ~ '/argocd/applications/' ~ item.name ~ '.yaml') | from_yaml }}"
+      loop:
+        - {name: gateway, include: gateway.yaml}
+        - {name: hubble-ui, include: '{certificate.yaml,routes.yaml}'}
+
     - name: Render the official cert-manager Helm chart with and without lab DNS settings
       ansible.builtin.command:
         argv: >-

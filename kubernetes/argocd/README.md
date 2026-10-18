@@ -8,6 +8,10 @@ tracks the External Secrets Operator deployment. [Vault integrations](#vault-int
 tracks its credential mappings and authentication resources. Both Applications
 use public sources without repository credentials.
 
+The [cert-manager, Gateway, and Hubble UI Applications](#cert-manager-gateway-and-hubble-ui-applications)
+track the existing certificate controller, issuer, shared Gateway, and Hubble
+routing/TLS configuration. Cilium retains the Hubble UI and Relay workloads.
+
 `mise install` installs the matching Argo CD CLI 3.5.5. Run commands from the
 repository root after the [cluster and cert-manager setup](../README.md).
 Adding these files to Git does not deploy Argo CD; run the installation commands below.
@@ -46,7 +50,11 @@ while retaining Helm ownership and its existing name.
 Apply both frontend certificates before the complete shared Gateway. The existing
 Hubble certificate resource is reconciled in place, not replaced. If the cluster
 still uses Gateway `hubble-ui`, follow the [one-time rename](../README.md#one-time-rename-from-hubble-ui)
-before applying these commands:
+before using the bootstrap commands below.
+
+These apply commands are for bootstrap/recovery. After adopting the Gateway and
+Hubble configuration into Argo, change those resources through Git and manual
+syncs. Argo CD's own Certificate remains an explicit manifest.
 
 ```sh
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
@@ -212,6 +220,70 @@ Automatic sync and pruning remained off.
 See [directory allowlists](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/directory/)
 and [resource health](https://argo-cd.readthedocs.io/en/release-3.5/operator-manual/health/),
 plus [copied tracking annotations](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/resource_tracking/#non-self-referencing-annotations).
+
+## cert-manager, Gateway, and Hubble UI applications
+
+Register these Applications after the existing services are running. They reuse
+the published manifests and values without moving resources between namespaces:
+
+| Application | Desired resources | Excluded resources |
+| --- | --- | --- |
+| `cert-manager` | Existing v1.21.2 OCI chart/digest and Git-hosted values, plus `cert-manager/issuer.yaml` | Vault authentication, SecretStore, ExternalSecret, SOPS backup, generated Secrets |
+| `gateway` | Only `gateway/gateway.yaml`, defining `kube-system/lab-gateway` | GatewayClass, Gateway API CRDs, generated Envoy resources, Cilium, HAProxy, node firewalls |
+| `hubble-ui` | Only `hubble-ui/certificate.yaml` and `hubble-ui/routes.yaml`: one Certificate and two HTTPRoutes | Hubble UI/Relay Deployments, Services, RBAC, Cilium TLS resources, generated frontend TLS Secret |
+
+The cert-manager Git source supplies both Helm values and the allowlisted issuer.
+Its values path remains relative to the repository root. The two directory
+Applications also use explicit file allowlists. All sources are public; no
+repository credentials are required. Apply the Application manifests explicitly:
+
+```sh
+mise exec -- kubectl --context lab-kubeadm apply --server-side --field-manager=lab-apps \
+  -f kubernetes/argocd/applications/cert-manager.yaml \
+  -f kubernetes/argocd/applications/gateway.yaml \
+  -f kubernetes/argocd/applications/hubble-ui.yaml
+mise exec -- argocd app get cert-manager --hard-refresh --argocd-context lab-argocd-sso
+mise exec -- argocd app get gateway --hard-refresh --argocd-context lab-argocd-sso
+mise exec -- argocd app get hubble-ui --hard-refresh --argocd-context lab-argocd-sso
+```
+
+Registration runs no sync. Automatic sync, self-healing, and pruning are off;
+none of these Applications has a deletion finalizer. Manual sync uses server-side
+apply. Review diffs and chart hooks before adoption, and do not use Force,
+Replace, or pruning to resolve ownership differences. Never delete cert-manager
+CRDs, ACME account Secrets, or TLS Secrets to make an adoption succeed.
+
+After adoption, push selected manifest or values changes to Git and sync through
+Argo. Stop using routine Helm upgrades/rollbacks for cert-manager or direct
+applies for the adopted issuer, Gateway, Hubble Certificate, and routes. The old
+cert-manager Helm release record will not reflect later Argo changes. Keep the
+[Vault mappings](#vault-integrations-application) in their existing Application;
+ESO continues to write the Cloudflare credential.
+
+Ansible/Cilium still manages Hubble UI/Relay and the Gateway infrastructure.
+Argo CD's own Certificate and redirect remain explicit manifests, and its chart
+still owns the HTTPS HTTPRoute. No second Application should claim those resources.
+
+The Gateway serves Argo CD itself. Keep Kubernetes administrator access available
+before changing its listeners, and never replace it merely to fix drift. On a
+fresh cluster, follow the bootstrap order in the [application guide](../README.md):
+ready issuer and certificates before exposing the HTTPS listeners. To stop
+tracking any of these Applications, remove it without cascading.
+
+On 2026-10-18, all three Applications registered as Healthy / OutOfSync with no
+comparison errors or sync operations. Argo's CLI-visible manifests matched all
+46 installed cert-manager chart resources plus the issuer, the single Gateway,
+and the Hubble Certificate/two routes, removing only Argo tracking annotations.
+The selected resources did not overlap either existing Application.
+
+Running Pods and containers predated registration and remained ready. The issuer,
+both frontend Certificates, Gateway, routes, Vault stores, and ExternalSecrets
+were ready. Both real credential Secrets retained their original UIDs and
+SOPS-matching values. Both UIs passed trusted HTTPS and HTTP-redirect checks;
+the ESO and Vault integrations Applications remained Synced / Healthy.
+
+See [Git values sources that also render manifests](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/multiple_sources/)
+and [directory allowlists](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/directory/).
 
 ## 3. Verify and log in
 

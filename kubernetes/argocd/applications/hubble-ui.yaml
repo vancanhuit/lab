@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hubble-ui
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/vancanhuit/lab.git
+    targetRevision: main
+    path: kubernetes/hubble-ui
+    directory:
+      include: "{certificate.yaml,routes.yaml}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  # Own only routing and TLS configuration; Cilium retains UI/Relay workloads.
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: oci://quay.io/jetstack/charts/cert-manager
+      targetRevision: sha256:634dce9c13b56677a2c05e2ab76c312d0be2664022d5dd05815da67e1fd5f610
+      path: .
+      helm:
+        releaseName: cert-manager
+        valueFiles:
+          - $values/kubernetes/cert-manager/values.yaml
+    - repoURL: https://github.com/vancanhuit/lab.git
+      targetRevision: main
+      ref: values
+      path: kubernetes/cert-manager
+      directory:
+        include: issuer.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  # Register without adoption; keep CRDs and existing certificates in place.
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

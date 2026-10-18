@@ -19,8 +19,10 @@ keeps them on uninstall, and preserves the public DNS-over-HTTPS self-checks. Do
 `crds.keep` to `false`: deleting CRDs also deletes their custom resources.
 
 The lab adopted cert-manager into this Helm release on 2026-10-18. Use the
-command below for fresh installations and subsequent updates. Neither needs
-`--take-ownership`.
+command below for fresh installations and updates before Argo adoption. Neither
+needs `--take-ownership`. After the first manual sync of the
+[cert-manager Application](argocd/README.md#cert-manager-gateway-and-hubble-ui-applications),
+use Git and Argo for chart changes instead of Helm upgrades.
 
 ```sh
 helm --kube-context lab-kubeadm upgrade --install cert-manager \
@@ -71,6 +73,8 @@ kubectl --context lab-kubeadm wait clusterissuer/letsencrypt-cloudflare \
 The historical `lab-ansible-apps` field manager is retained for these plain
 resources to preserve ownership across the move. Its name does not run or
 require Ansible. Do not routinely force ownership conflicts.
+After adopting the issuer into the cert-manager Application, use Git and manual
+Argo sync for routine issuer changes; these apply commands remain for bootstrap/recovery.
 
 Do not routinely apply `cloudflare-api-token.sops.yaml`: it is a backup, not a
 second active writer. The integration guide covers [rotation](cert-manager/README.md#rotation-and-backup)
@@ -101,11 +105,12 @@ The shared Gateway is named `kube-system/lab-gateway`. Its original Hubble liste
 names are unchanged; its Argo listeners accept routes only from namespace
 `argocd`. Only this Gateway may own the edge nodes' host-network ports 80/443.
 
-For later Hubble routing changes, edit `hubble-ui/routes.yaml` and apply that
-file only. Listener changes belong in `gateway/gateway.yaml`. Helm manages
-cert-manager and Argo CD; Ansible manages infrastructure only. Never recursively
-apply this directory: it contains Helm values and an encrypted Secret, and
-installation order matters.
+Hubble routing changes belong in `hubble-ui/routes.yaml`; listener changes belong
+in `gateway/gateway.yaml`. Before Argo adoption, apply only the changed manifest.
+After adoption, push the change to Git and manually sync the corresponding
+Application. Ansible retains infrastructure ownership, including Hubble UI/Relay
+workloads. Never recursively apply this directory: it contains Helm values and
+encrypted Secrets, and installation order matters.
 
 ### One-time rename from `hubble-ui`
 
@@ -174,6 +179,14 @@ The separate [Vault integrations Application](argocd/README.md#vault-integration
 manages authentication resources and the Argo/Cloudflare ExternalSecrets.
 ESO manages generated Secret values; SOPS files remain recovery backups.
 
+## 6. Register cert-manager, Gateway, and Hubble UI with Argo CD
+
+Follow the [Application registration guide](argocd/README.md#cert-manager-gateway-and-hubble-ui-applications)
+to add three manual-sync Applications. They select the existing cert-manager
+chart and issuer, shared Gateway, and Hubble Certificate/routes without claiming
+the Cilium-owned Hubble workloads or Vault mappings. Registration runs no sync;
+review diffs before adoption. Automatic sync, pruning, and deletion finalizers stay off.
+
 ## Verify
 
 ```sh
@@ -194,5 +207,6 @@ decrypting credentials.
 
 Do not delete the ACME account or TLS Secrets to retry issuance. Correct DNS or
 credentials and allow reconciliation. To undo a routing change, restore the
-previous route manifest or Helm values revision and reapply it; do not delete
-cert-manager or the shared Gateway.
+previous route manifest or Helm values revision. For adopted resources, revert
+the Git change and manually sync Argo; otherwise use the original apply/Helm
+procedure. Do not delete cert-manager or the shared Gateway.

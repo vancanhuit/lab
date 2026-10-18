@@ -22,6 +22,10 @@ tracks these Kubernetes manifests. Use the commands below for bootstrap or
 recovery. After adoption, edit manifests in Git and sync through Argo. Manage
 Vault values and the encrypted backup separately.
 
+The separate [cert-manager Application](../argocd/README.md#cert-manager-gateway-and-hubble-ui-applications)
+tracks the controller chart and ClusterIssuer. It excludes the Vault integration
+and credential backup, so the two Applications do not claim the same resources.
+
 ### 1. Import the backup once
 
 First confirm the SOPS backup contains the intended current token. On an
