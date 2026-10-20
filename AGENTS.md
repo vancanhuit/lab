@@ -22,7 +22,7 @@
 - Real ExternalSecrets omit `spec.target.template` so ESO inherits labels and Argo's non-self-referencing tracking annotation onto generated Secrets. Keep Argo's required discovery label on the OIDC ExternalSecret; never replace the copied tracking ID with a self-referencing Secret ID or add a Git-managed Secret for visibility.
 - `ansible/roles/*/tests/render-config.yml` are controller-local role contract and template tests. `ansible/verify-inventory-vars.yaml` locally checks that encrypted variables are visible only to their intended inventory hosts.
 - `create-incus-instance.py` is a PEP 723 script run with `uv run create-incus-instance.py --help`; normal execution calls Incus and creates a stopped instance.
-- `docs/diagrams/*.excalidraw` are editable architecture sources; their matching SVG previews are embedded in `docs/kubernetes.md`. Update each source/preview pair together; see `docs/diagrams/README.md` for style and export conventions.
+- `docs/diagrams/*.excalidraw` are editable architecture sources; their matching SVG previews are embedded in `docs/architecture.md`, `docs/kubernetes.md`, and the root README. Update each source/preview pair together; see `docs/diagrams/README.md` for style and export conventions.
 
 ## Verification
 

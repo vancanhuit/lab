@@ -8,6 +8,10 @@ subsequent kubeadm operations.
 
 ## Architecture diagrams
 
+The [whole-lab architecture](architecture.md) connects the cluster to DNS,
+PostgreSQL, S3, Gitea, and Vault. Its [runtime diagram](architecture.md#runtime-and-packet-paths)
+follows kubelet, containerd, Cilium, and cross-node packets.
+
 ![Cluster topology: HAProxy targets the three edge workers; the control plane has no Gateway listener.](diagrams/kubernetes-topology.svg)
 
 [Edit the topology in Excalidraw](diagrams/kubernetes-topology.excalidraw).
