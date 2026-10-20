@@ -36,8 +36,8 @@
         vars: { gitea_runner_expected_version: '4.1.0' }
       - file: verify-gitea-runner.yaml
         name: Check Node.js version
-        stdout: v24.21.0
-        vars: { gitea_runner_expected_node_version: v24.21.0 }
+        stdout: v24.22.0
+        vars: { gitea_runner_expected_node_version: v24.22.0 }
       - file: verify-kuma.yaml
         name: Check Node.js version
         stdout: v24.21.0

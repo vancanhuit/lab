@@ -51,7 +51,7 @@
       ansible.builtin.assert:
         that:
           - gitea_runner_node_major | int == 24
-          - gitea_runner_node_version == '24.21.0'
+          - gitea_runner_node_version == '24.22.0'
           - (gitea_runner_rendered_files.results[0].content | from_yaml).runner.labels == ['debian-amd64:host']
           - (gitea_runner_rendered_files.results[0].content | from_yaml).runner.capacity == 1
           - (gitea_runner_rendered_files.results[0].content | from_yaml).container.require_docker
