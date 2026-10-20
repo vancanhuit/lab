@@ -3,11 +3,11 @@
 cert-manager reads Secret `cert-manager/cloudflare-api-token`, key `api-token`.
 External Secrets Operator (ESO) maintains that Secret from Vault KV v2 path
 `secret/kubernetes/cert-manager/cloudflare-api-token`, property `api-token`.
-The issuer and certificate manifests do not change.
+Keep the issuer's credential reference pointed at this Secret and key.
 
 Keep `cloudflare-api-token.sops.yaml` as an encrypted backup. Do not apply it
-while ESO is reconciling. Ansible/lego's separate inventory credential is
-unchanged; this migration does not rotate or revoke the existing Cloudflare token.
+while ESO is reconciling. Manage Ansible/lego's separate inventory credential
+independently; importing a token into Vault does not rotate or revoke it.
 
 ## Set up or recover the integration
 
@@ -30,8 +30,8 @@ and credential backup, so the two Applications do not claim the same resources.
 
 First confirm the SOPS backup contains the intended current token. On an
 existing cluster, compare it privately with the live Secret before importing;
-never print either value or use `kubectl diff` on the Secret. The initial migration
-compared the values in memory before making changes.
+never print either value or use `kubectl diff` on the Secret. Compare the values
+in memory before making changes.
 
 The pipeline authenticates and decrypts SOPS, decodes Kubernetes' base64 value,
 and writes JSON through stdin. It does not create a plaintext file or put the token
@@ -159,18 +159,15 @@ mise exec -- ansible-playbook -i localhost, tests/kubernetes-manifests.yml
 See [ESO target lifecycle semantics](https://external-secrets.io/latest/api/externalsecret/)
 and the [shared integration's security notes](../external-secrets/README.md#access-boundaries).
 
-### Verified migration
+After setup, recovery, or credential rotation:
 
-On 2026-10-18, the import used create-only CAS. The dedicated SecretStore and
-ExternalSecret reported `Ready=True`, and periodic refresh succeeded. Private
-comparisons confirmed that Vault, SOPS, and Kubernetes contained the same token;
-the encrypted backup was byte-for-byte unchanged.
-
-The existing Cloudflare, ACME account, Hubble, and Argo CD TLS Secrets retained
-their UIDs and contents. The issuer and both Certificates remained ready.
-
-Live checks verified exact-key read-only access, denial of the token to the demo
-role, rejection of cross-namespace role logins, and the scoped TokenRequest grant.
-Temporary login tokens and test resources were removed. The SOPS fallback passed
-a server dry run with the historical field manager. The migration required no
-certificate reissuance or Cloudflare credential rotation or revocation.
+1. Require `Ready=True` on the SecretStore and ExternalSecret, and confirm the
+   periodic refresh time advances.
+2. Privately compare Vault, SOPS, and Kubernetes values. The target Secret should
+   keep its UID when updating an existing installation.
+3. Confirm the issuer and both frontend Certificates remain ready. Preserve the
+   ACME account and TLS Secrets; do not reissue certificates to test the mapping.
+4. Check the exact-key Vault policy and scoped TokenRequest grant. The demo role
+   and other namespaces must not be able to read this credential.
+5. Revoke temporary login tokens and remove test resources. Rehearse emergency
+   fallback with a server dry run before an outage, without displaying Secret data.

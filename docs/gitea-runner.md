@@ -111,4 +111,22 @@ The runner runs one job at a time. It performs its normal workspace cleanup, but
 does not reset the VM after each job. Host jobs can leave files, processes,
 images, and other state behind.
 
-To upgrade, update `gitea_runner_version` and `gitea_runner_checksum` together after reviewing the [runner upgrade guide](https://docs.gitea.com/runner/upgrade/) and release notes. The registration file remains valid across upgrades.
+### Upgrade
+
+1. Review the [runner upgrade guide](https://docs.gitea.com/runner/upgrade/) and
+   release notes, then drain running jobs before changing the runner.
+2. Record any upgrade-specific snapshot or backup paths. Update
+   `gitea_runner_version` and `gitea_runner_checksum` together.
+3. From `ansible/`, run the focused role test:
+
+   ```sh
+   mise exec -- ansible-playbook -i localhost, roles/gitea_runner/tests/render-config.yml
+   ```
+
+   Deploy, verify, and rerun deployment using the
+   [deployment commands](#deploy-and-verify). Require `changed=0` on the repeat run.
+4. Run the [smoke test](#smoke-test). After all checks pass, remove the
+   upgrade-specific snapshots and archives by their recorded names.
+
+The registration file remains valid across upgrades; keep it in place during
+cleanup.

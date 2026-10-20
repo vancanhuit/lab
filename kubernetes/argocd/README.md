@@ -33,7 +33,7 @@ TLS terminates at Envoy using `kube-system/argocd-tls`. The Argo CD API server
 uses HTTP on its internal ClusterIP (`server.insecure: true`); this avoids a
 backend HTTPS redirect loop and leaves login enabled. The Gateway admits
 Argo routes only from the `argocd` namespace. Hubble's listeners remain restricted
-to their original namespace. No cross-namespace Secret grant is needed because
+to `kube-system`. No cross-namespace Secret grant is needed because
 the Certificate and Gateway both live in `kube-system`.
 
 Cilium must have `gatewayAPI.enableAppProtocol: true`, as configured in the
@@ -43,14 +43,12 @@ the Service's HTTP/2 port `8080` (`appProtocol: kubernetes.io/h2c`). Browser and
 REST requests continue to use HTTP/1 on port `80`. One HTTPRoute handles both;
 no overlapping GRPCRoute or new external port is needed. The chart's built-in
 HTTPRoute fixes all backends to port 80, so `extraObjects` supplies this route
-while retaining Helm ownership and its existing name.
+under Helm ownership.
 
 ## 1. Prepare certificates and the shared Gateway
 
-Apply both frontend certificates before the complete shared Gateway. The existing
-Hubble certificate resource is reconciled in place, not replaced. If the cluster
-still uses Gateway `hubble-ui`, follow the [one-time rename](../README.md#one-time-rename-from-hubble-ui)
-before using the bootstrap commands below.
+Apply both frontend certificates before the shared `kube-system/lab-gateway`
+Gateway. Update existing certificate resources in place.
 
 These apply commands are for bootstrap/recovery. After adopting the Gateway and
 Hubble configuration into Argo, change those resources through Git and manual
@@ -69,10 +67,19 @@ kubectl --context lab-kubeadm -n kube-system wait gateway/lab-gateway \
 ```
 
 `certificate.yaml` uses the existing `letsencrypt-cloudflare` ClusterIssuer and
-ECDSA P-256 with automatic key rotation. Hubble and Argo routes reference the
-same shared Gateway; their listener names and certificates are unchanged.
+ECDSA P-256 with automatic key rotation. Hubble and Argo routes select their
+hostname-specific listeners on the shared Gateway.
 
 ## 2. Install or update Argo CD
+
+Before updating an existing release, keep Kubernetes administrator access and a
+working local-admin recovery login available. Back up Argo resources and encrypt
+any Secret backups. Record the deployed Helm revision and its matching Git values
+for rollback:
+
+```sh
+helm --kube-context lab-kubeadm history argocd --namespace argocd
+```
 
 The [Gitea OAuth applications](#gitea-sso) must exist before using these values.
 Create the namespace on a fresh cluster:
@@ -101,9 +108,65 @@ Helm owns the Argo CD workloads, RBAC, CRDs, and HTTPS HTTPRoute to
 `argocd-server:80` (UI/REST) or `argocd-server:8080` (RPC).
 `redirect.yaml` redirects HTTP to HTTPS. The SSO credential is a separate
 Vault-sourced, ESO-managed Secret, not a Helm value or part of Helm release history.
-Retained CRDs do not make uninstall harmless: back up Argo CD resources and Secrets before upgrades,
-and never delete an Application casually because its finalizer may delete the
-workloads it manages.
+Uninstall can remove resources even when CRDs are retained. Back up Argo CD
+resources and Secrets before upgrades. Check an Application's finalizer before
+deleting it: the finalizer may delete the workloads it manages.
+
+## 3. Verify and log in
+
+```sh
+kubectl --context lab-kubeadm -n argocd get pods,services,httproutes
+kubectl --context lab-kubeadm -n argocd describe httproute argocd-server argocd-redirect
+curl --ipv4 --noproxy '*' --fail https://argocd.lab.canhdinh.com/
+```
+
+Require ready Pods, `Accepted=True` and `ResolvedRefs=True` on both routes, trusted
+HTTPS, and HTTP redirection to HTTPS. Anonymous application API requests must
+return `401`. Check Hubble UI as well because both applications share the Gateway.
+
+For normal access, open the UI and choose **Log in via Gitea**, or use the
+[SSO CLI command](#cli-login). Verify the expected subject-based permissions in
+both the web and CLI sessions after an update.
+
+The local `admin` account is the recovery path. On a fresh installation, retrieve
+its generated initial password **only in a private, unrecorded terminal**;
+this command prints a secret:
+
+```sh
+kubectl --context lab-kubeadm -n argocd get secret argocd-initial-admin-secret \
+  -o jsonpath='{.data.password}' | base64 --decode
+```
+
+Rotate the admin password after first login, then delete the initial-password
+Secret. For the pinned CLI, use gRPC-Web on the same host:
+
+```sh
+mise exec -- argocd login argocd.lab.canhdinh.com --grpc-web --skip-test-tls \
+  --username admin --name lab-argocd
+mise exec -- argocd account get-user-info --argocd-context lab-argocd
+mise exec -- argocd app list --argocd-context lab-argocd
+mise exec -- argocd proj list --argocd-context lab-argocd
+mise exec -- argocd cluster list --argocd-context lab-argocd
+```
+
+Enter the password at the hidden prompt, not with `--password` or a shell-history
+literal. `--skip-test-tls` skips the CLI's initial TLS-detection probe, which can
+hang behind this Gateway. Certificate verification remains enabled. Do not add
+`--insecure` or `--plaintext`. The saved CLI context enables gRPC-Web for later
+commands. Keep `~/.config/argocd/config` at mode `0600` because it stores a session
+token. Log in again when the session expires or is invalidated.
+
+An unused in-cluster target reports `Unknown` until an Application uses it;
+check actual application health before diagnosing a connectivity failure.
+
+Keep the HAProxy lab/Tailscale allowlist and Tailscale ACLs in place. Argo CD has
+cluster-wide permissions; restrict AppProjects before allowing untrusted
+repositories or users to deploy applications. Only the client-to-Gateway leg is
+TLS-encrypted; the Gateway-to-server leg uses the trusted cluster network.
+
+After a version upgrade passes these checks, remove its temporary encrypted
+resource backups and staging files by their recorded paths. Keep the SOPS
+credential backups and Helm release records used by ongoing operations.
 
 ## External Secrets Operator application
 
@@ -137,16 +200,10 @@ record. Do not alternate Helm upgrades/rollbacks and Argo syncs. The Application
 has no deletion finalizer; remove it without cascading to stop tracking. Choose
 cascading deletion only when deliberately uninstalling this shared operator.
 
-On 2026-10-18, registration reported Healthy / OutOfSync with no comparison
-errors. Argo's rendered chart matched the installed Helm manifest except for
-tracking annotations. Registration ran no sync and preserved ESO Deployment
-generations, Pod UIDs/restart counts, and Argo/Cloudflare credential Secret UIDs
-and contents.
-
-The requested CLI sync then synchronized all 39 resources, and the Application
-reported Synced / Healthy. It used neither pruning nor forced replacements.
-ESO Deployment specs, Pod UIDs/restart counts, protected Secret UIDs/data, and
-CRD UIDs were unchanged.
+After registration, require Healthy status and no comparison errors. Review any
+OutOfSync resources before adoption. After an intended manual sync, require
+Synced / Healthy and ready ESO Deployments. Check that credential Secrets and
+CRDs retain their identities; do not sync merely to verify registration.
 
 References: [OCI digest sources](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/oci/)
 and [Git-hosted Helm values](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/multiple_sources/).
@@ -156,8 +213,7 @@ and [Git-hosted Helm values](https://argo-cd.readthedocs.io/en/release-3.5/user-
 `applications/vault-integrations.yaml` tracks the integration separately from
 the ESO operator chart. Its recursive directory source selects eight existing
 files: `vault-auth.yaml` and `secret-store.yaml` in `external-secrets/`, `argocd/`,
-and `cert-manager/`, plus the Argo OIDC and Cloudflare ExternalSecrets. The files
-stay in their current locations.
+and `cert-manager/`, plus the Argo OIDC and Cloudflare ExternalSecrets.
 
 The files define 19 resources: the demo namespace, three dedicated service
 accounts, the shared TokenReview role and bindings, scoped TokenRequest grants,
@@ -197,25 +253,11 @@ data, affecting sync status, or marking it for pruning. Both mappings keep
 `Orphan`/`Retain`, and their Secrets have no owner references. Do not add Secret
 manifests or self-referencing tracking IDs to make generated Secrets visible.
 
-If the old OIDC target template remains after SSA adoption, check field ownership.
-The original `lab-apps` manager may still share ownership with Argo. The lab
-released that ownership with an identity-only server-side apply from `lab-apps`,
-after confirming Argo owned the unchanged spec. A server dry run confirmed the
-handoff changed no configuration and allowed Argo to remove the template.
-Do not force field conflicts or replace the Secret for this metadata change.
-
-On 2026-10-18, registration reported Healthy / OutOfSync with no comparison
-errors and rendered exactly the 19 allowlisted resources. Registration ran no
-sync and preserved integration specs/RBAC, protected credential/TLS Secrets,
-and ESO/Argo/cert-manager Pod UIDs/restart counts. All three stores and both
-ExternalSecrets stayed ready; the operator Application remained Synced / Healthy.
-
-After the metadata fix was pushed in commit `7a32d79`, a Git-based sync succeeded
-and both Applications reported Synced / Healthy. Argo displayed the 19 desired
-resources plus both generated credential Secrets. The Secrets retained their
-original UIDs and SOPS-matching values; all three stores and both mappings were
-ready. No ESO, Argo, or cert-manager workload restarted or was replaced.
-Automatic sync and pruning remained off.
+After registration, check that Argo selects exactly the 19 allowlisted resources
+and reports no comparison errors. After an intended sync, require Synced / Healthy,
+three ready SecretStores, and two ready ExternalSecrets. Confirm the generated
+credential Secrets are visible, retain their UIDs, and privately match Vault.
+Automatic sync and pruning must remain off.
 
 See [directory allowlists](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/directory/)
 and [resource health](https://argo-cd.readthedocs.io/en/release-3.5/operator-manual/health/),
@@ -223,8 +265,8 @@ plus [copied tracking annotations](https://argo-cd.readthedocs.io/en/release-3.5
 
 ## cert-manager, Gateway, and Hubble UI applications
 
-Register these Applications after the existing services are running. They reuse
-the published manifests and values without moving resources between namespaces:
+Register these Applications after the services are running. Each Application
+selects the resources listed below:
 
 | Application | Desired resources | Excluded resources |
 | --- | --- | --- |
@@ -247,10 +289,10 @@ mise exec -- argocd app get gateway --hard-refresh --argocd-context lab-argocd-s
 mise exec -- argocd app get hubble-ui --hard-refresh --argocd-context lab-argocd-sso
 ```
 
-Gateway API manifests spell out the API-defaulted reference groups/kinds, route
-matches, and backend weight. Omitting them produced persistent OutOfSync status
-after successful SSA syncs, even though the CLI diff was empty. Keep those defaults
-explicit instead of hiding route/listener differences with ignore rules.
+Keep API-defaulted reference groups/kinds, route matches, and backend weight
+explicit in Gateway API manifests. If OutOfSync persists after an SSA sync with
+an empty CLI diff, check those defaults. Do not hide route or listener differences
+with ignore rules.
 
 Registration runs no sync. Automatic sync, self-healing, and pruning are off;
 none of these Applications has a deletion finalizer. Manual sync uses server-side
@@ -275,121 +317,15 @@ fresh cluster, follow the bootstrap order in the [application guide](../README.m
 ready issuer and certificates before exposing the HTTPS listeners. To stop
 tracking any of these Applications, remove it without cascading.
 
-On 2026-10-18, all three Applications registered as Healthy / OutOfSync with no
-comparison errors or sync operations. Argo's CLI-visible manifests matched all
-46 installed cert-manager chart resources plus the issuer, the single Gateway,
-and the Hubble Certificate/two routes, removing only Argo tracking annotations.
-The selected resources did not overlap either existing Application.
-
-Running Pods and containers predated registration and remained ready. The issuer,
+After registration, require Healthy status and no comparison errors. Review
+selected resources against the ownership table before syncing. Check the issuer,
 both frontend Certificates, Gateway, routes, Vault stores, and ExternalSecrets
-were ready. Both real credential Secrets retained their original UIDs and
-SOPS-matching values. Both UIs passed trusted HTTPS and HTTP-redirect checks;
-the ESO and Vault integrations Applications remained Synced / Healthy.
+are ready. Both UIs must pass trusted HTTPS and HTTP-redirect checks, and the
+ESO and Vault integrations Applications must remain healthy. Registration alone
+must not restart workloads or replace credentials.
 
 See [Git values sources that also render manifests](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/multiple_sources/)
 and [directory allowlists](https://argo-cd.readthedocs.io/en/release-3.5/user-guide/directory/).
-
-## 3. Verify and log in
-
-```sh
-kubectl --context lab-kubeadm -n argocd get pods,services,httproutes
-kubectl --context lab-kubeadm -n argocd describe httproute argocd-server argocd-redirect
-curl --ipv4 --noproxy '*' --fail https://argocd.lab.canhdinh.com/
-```
-
-Both routes should report `Accepted=True` and `ResolvedRefs=True`. HTTPS should
-validate without `--insecure`; HTTP should redirect to HTTPS.
-
-For normal access, open the UI and choose **Log in via Gitea**, or use the
-[SSO CLI command](#cli-login). The local `admin` account remains enabled for
-recovery during the SSO rollout. Retrieve its generated initial password
-**only in a private, unrecorded terminal**; this command prints a secret:
-
-```sh
-kubectl --context lab-kubeadm -n argocd get secret argocd-initial-admin-secret \
-  -o jsonpath='{.data.password}' | base64 --decode
-```
-
-Rotate the admin password after first login, then delete the initial-password
-Secret. For the pinned CLI, use gRPC-Web on the same host:
-
-```sh
-mise exec -- argocd login argocd.lab.canhdinh.com --grpc-web --skip-test-tls \
-  --username admin --name lab-argocd
-mise exec -- argocd account get-user-info --argocd-context lab-argocd
-mise exec -- argocd app list --argocd-context lab-argocd
-mise exec -- argocd proj list --argocd-context lab-argocd
-mise exec -- argocd cluster list --argocd-context lab-argocd
-```
-
-Enter the password at the hidden prompt, not with `--password` or a shell-history
-literal. `--skip-test-tls` skips the CLI's initial TLS-detection probe, which can
-hang behind this Gateway. Certificate verification remains enabled. Do
-not add `--insecure` or `--plaintext`. The saved CLI context enables gRPC-Web for
-subsequent commands, and `~/.config/argocd/config` must remain mode `0600` because
-it stores a session token. Rotate the password and log in again when the session
-expires or is invalidated.
-
-Keep the HAProxy lab/Tailscale allowlist and Tailscale ACLs in place. Argo CD receives
-powerful cluster-wide permissions; restrict AppProjects before allowing untrusted
-repositories or users to deploy applications. Only the client-to-Gateway leg is
-TLS-encrypted; the Gateway-to-server leg uses the trusted cluster network.
-
-## Verified deployment
-
-On 2026-10-18, the lab deployed chart 10.10.5 / Argo CD v3.5.5, release
-`argocd` revision 2. Cilium stayed on 1.20.3, revision 6, with backend
-`appProtocol` support enabled; agent and operator rollouts completed.
-
-HTTPS returned `200` with a trusted certificate, HTTP redirected with `301`, and
-anonymous application API requests returned `401`. All Gateway listeners and
-routes were accepted with resolved references. Hubble UI remained reachable;
-its Gateway identity, original listeners, routes, certificate identity, and TLS
-Secret contents were preserved. The existing Argo route identity and application
-credential Secrets were also preserved during the protocol fix; Helm release
-history was updated normally.
-
-The matching CLI logged in as `admin` under context `lab-argocd`, without logging
-the password or session token. User info, applications, projects, clusters,
-repositories, ApplicationSets, and an authorization check succeeded. No GitOps
-Applications, repositories, or test workloads were created. The in-cluster target
-reports `Unknown` until an application uses it, because unused clusters are not
-monitored; this is not a connectivity failure.
-
-Later on 2026-10-18, the shared Gateway was replaced under the neutral name
-`kube-system/lab-gateway`, and Argo CD was upgraded to Helm revision 3 to
-update its route parent. All four route identities, both Certificate identities
-and specs, and application/TLS Secret identities and contents were preserved.
-Gateway listener settings and Cilium configuration were unchanged. Both UIs,
-HTTP redirects, login enforcement, and authenticated Argo CLI operations passed
-after the rename.
-
-Later that day, Helm revision 4 enabled direct Gitea OIDC and removed the
-unused Dex deployment. The login page offered **Log in via Gitea**; web and CLI
-login initiation both requested PKCE S256, the registered callbacks, and the
-restricted scopes. Live RBAC checks granted subject `2` admin and other subjects
-read-only. Anonymous API access still returned `401`; trusted HTTPS, redirects,
-the existing local-admin CLI session, all nodes/workloads, and all four routes
-passed. The Gateway, Hubble routes, both Certificates/TLS Secrets, and existing
-Argo credential identities and contents were preserved. Temporary bootstrap
-tokens were removed. The operator subsequently confirmed that browser SSO works.
-The operator then logged in with the CLI; `lab-argocd-sso` reported
-`vancanhuit@gmail.com`, issuer `https://gitea.lab.canhdinh.com`, and permission to
-sync `default/*`. The local Argo admin password has not been rotated.
-
-Helm revision 5 subsequently switched to instance-wide Gitea OAuth
-applications 8 and 9, created through Site Administration using
-`gitea-admin` credentials. Real web and CLI SSO passed with that account, and
-Argo correctly allowed reads but denied sync for its subject `1`. The `2` admin
-binding and other RBAC settings were unchanged. The old user-owned clients
-6 and 7, their grants, and the temporary verification grants were removed.
-Existing sessions issued to the old client IDs must log in again. The operator
-completed post-migration CLI SSO; `get-user-info` confirmed `vancanhuit@gmail.com`
-with the Gitea issuer, and the sync authorization check returned `yes`.
-The Gateway, certificates, TLS Secrets, and other application credentials were
-preserved; the external OIDC Secret retained its identity while its credential
-rotated.
 
 ## Gitea SSO
 
@@ -418,14 +354,8 @@ and no client secret. The confidential web client secret is in Vault KV v2 at
 Secret `argocd-gitea-oidc`, referenced as `$argocd-gitea-oidc:client-secret`. Its
 `app.kubernetes.io/part-of: argocd` label lets Argo CD resolve the external Secret.
 Client IDs are public and live in `values.yaml`.
-The unchanged `gitea-oidc.sops.yaml` remains an encrypted backup. See
+Keep `gitea-oidc.sops.yaml` as an encrypted backup. See
 [Vault setup and emergency fallback](vault-secrets.md).
-
-The instance-level migration required new registrations because Gitea does not
-provide an ownership-transfer operation. The original user-owned registrations
-were removed after the replacements passed real web and CLI login checks.
-Do not restore the old client IDs from Git without also restoring their provider
-registrations and matching encrypted credential.
 
 If rebuilding Gitea without its database, recreate both applications, update the
 client IDs, Vault source, and encrypted backup, and rerun the controller-local tests before
@@ -500,9 +430,8 @@ URI. Both client IDs are accepted as token audiences; no missing-audience or TLS
 bypass is enabled. The existing `lab-argocd` password context is kept separate.
 The CLI configuration contains tokens and must remain mode `0600`.
 
-After the instance-level migration, rerun the login command above to replace the
-old `lab-argocd-sso` token. Its issuer and user are unchanged, but its audience
-must be the new CLI client ID.
+After replacing a CLI registration, rerun the login command to refresh
+`lab-argocd-sso`. Confirm its audience matches the configured CLI client ID.
 
 Gitea does not advertise an OIDC logout endpoint. Logging out of Argo CD does not
 log the browser out of Gitea; end that session in Gitea separately when using a
@@ -510,28 +439,23 @@ shared workstation.
 
 ### Rollback
 
-The pre-SSO Helm release is revision 3. If the SSO change blocks access, use
-the Kubernetes administrator context rather than relying on SSO:
+If an upgrade or SSO change blocks access, use the Kubernetes administrator
+context and the protected local-admin login. Inspect Helm history and select
+the known-good revision recorded before the change. Confirm its client IDs and
+callbacks still match Gitea before restoring it. Replace the placeholder below
+with that revision:
 
 ```sh
-helm --kube-context lab-kubeadm rollback argocd 3 --namespace argocd --wait --timeout 5m
+revision='<known-good-revision>'
+helm --kube-context lab-kubeadm rollback argocd "$revision" --namespace argocd --wait --timeout 5m
 ```
 
-This restores the pre-SSO configuration and the unused Dex deployment without
-changing the Gateway or application data. Leave the external Secret and Gitea
-registrations in place while investigating. Restore repository values from the
-pre-SSO commit before another upgrade, or it will re-enable SSO. The encrypted
-pre-change backup is under `~/.local/state/lab/backups/before-argocd-gitea-sso-*.json.age`;
-it was decrypt-verified, not restore-tested. Do not apply an entire backup over
-newer Application resources or Secrets.
-
-Do not roll back only to revision 4 after the instance-level migration: it
-references deleted user-owned clients, and Helm does not restore the external
-OIDC Secret. The migration's encrypted backup is
-`~/.local/state/lab/backups/before-argocd-instance-oidc-*.json.age`, containing the
-old registration/grant records, live Argo resources, and matching credential.
-It was decrypt-verified, not restore-tested. Prefer revision 3's local-admin
-recovery path unless deliberately restoring the entire former OIDC integration.
+Restore the matching repository values before another Helm upgrade. Helm does
+not restore the external OIDC Secret or Gitea registrations; recover those through
+the [Vault credential runbook](vault-secrets.md) if they changed. Do not select a
+revision that references deleted provider clients, or apply an entire resource
+backup over newer Applications or Secrets. Recheck HTTPS, routes, web SSO, CLI
+SSO, and subject-based permissions before returning to normal use.
 
 ## References
 

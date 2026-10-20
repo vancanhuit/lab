@@ -43,7 +43,11 @@ configured age identity. See the [deployment guide](docs/deployment.md).
 
 ## Documentation
 
-Start with [Getting started](docs/getting-started.md), then follow the deployment guide. Run commands from the repository root unless a page says otherwise.
+Start with [Getting started](docs/getting-started.md), then follow the deployment
+runbook. Run commands from the repository root unless a page says otherwise.
+Service runbooks cover setup, verification, upgrades, and recovery. Remove
+upgrade-specific backups after all upgrade checks pass; see the
+[backup cleanup policy](docs/backups-and-postgresql.md#backup-coverage).
 
 | Guide | Contents |
 | --- | --- |
@@ -58,6 +62,6 @@ Start with [Getting started](docs/getting-started.md), then follow the deploymen
 | [Gitea operations](docs/gitea.md) | Initial access, object storage, migration rollback, and upgrades |
 | [Gitea Actions runner](docs/gitea-runner.md) | Dedicated VM provisioning, deployment, workflows, and upgrades |
 | [Kubernetes](docs/kubernetes.md) | Kubeadm, Cilium, Hubble UI, HAProxy Gateway API, and cert-manager DNS-01 |
-| [Kubernetes applications](kubernetes/README.md) | Direct Helm and kubectl deployment, encrypted Secrets, and cert-manager adoption |
+| [Kubernetes applications](kubernetes/README.md) | Helm and kubectl deployment, Vault credentials, and Argo resource ownership |
 | [Argo CD](kubernetes/argocd/README.md) | Pinned Helm deployment, shared HTTPS Gateway, DNS, and initial login |
 | [Backups and PostgreSQL](docs/backups-and-postgresql.md) | Backup coverage, health checks, and point-in-time restore |

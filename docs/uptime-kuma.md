@@ -193,10 +193,16 @@ sudo systemctl start uptime-kuma-backup.service
 sudo journalctl -u uptime-kuma-backup.service -n 50 --no-pager
 ```
 
+Record the archive filename from the backup logs. Also record the pre-activation
+backup created during deployment so upgrade cleanup can target only those files.
+
 Update `uptime_kuma_version` and `uptime_kuma_release_commit` in the Kuma role defaults. Update the supported-version assertions in `roles/uptime_kuma/tasks/validate.yaml`, the expected versions in `verify-kuma.yaml`, and the role test expectations in `roles/uptime_kuma/tests/render-config.yml`. Then run the role test and deployment:
 
 ```sh
 cd ansible
+mise exec -- ansible-playbook -i localhost, roles/uptime_kuma/tests/render-config.yml
+ansible-playbook kuma.yaml
+ansible-playbook verify-kuma.yaml
 ansible-playbook kuma.yaml
 ```
 
@@ -225,6 +231,12 @@ sudo systemctl start uptime-kuma.service
 ```
 
 Replace `<previous-commit-sha>` with the actual commit hash. If the database schema migration is incompatible, restore the pre-upgrade SQLite backup from `/var/backups/uptime-kuma/` using the restore procedure.
+
+After verification passes, test the UI, monitor checks, and a Brevo notification,
+then require the repeat deployment to report `changed=0`. Remove the manual and
+pre-activation archives recorded for this upgrade by their exact paths. Keep
+scheduled database backups under the normal 14-backup retention policy; do not
+clear the backup directory or remove the retained application release.
 
 ## Troubleshooting
 

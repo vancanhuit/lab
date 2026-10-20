@@ -198,8 +198,8 @@ incus start gitea
 ```
 
 The volume is named `gitea-data` and attached as device `data`. For an existing
-deployment, [migrate the data](gitea.md#local-data-volume) before mounting over
-`/var/lib/gitea`.
+deployment, inspect the [data volume](gitea.md#local-data-volume) before changing
+attachments. Do not mount a new empty volume over existing repositories.
 
 Create the Gitea Actions runner VM with DHCP and a dedicated 100 GiB block volume for Docker:
 

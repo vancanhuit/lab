@@ -8,13 +8,13 @@ The services are reachable only through the homelab network and Tailscale, but t
 
 The role uses the [ACME DNS-01 challenge](https://letsencrypt.org/docs/challenge-types/#dns-01-challenge) through the [lego Cloudflare provider](https://go-acme.github.io/lego/dns/cloudflare/). Let's Encrypt validates control of each hostname by querying a temporary public TXT record at `_acme-challenge.<hostname>`.
 
-DNS-01 validates hostname control through public DNS without connecting to the
-service. The service needs no public IP address, public A/AAAA record, inbound
-port, or reverse proxy. Tailscale split DNS can continue resolving
+DNS-01 validation does not connect to the service, so the service needs no public
+IP address, public A/AAAA record, inbound port, or reverse proxy. Tailscale split
+DNS can continue resolving
 `*.lab.canhdinh.com` to private addresses while Cloudflare publishes only the
 ACME challenge records required for issuance.
 
-The role currently accepts explicit hostnames only and rejects wildcard entries. Every publicly trusted certificate is submitted to [Certificate Transparency logs](https://letsencrypt.org/docs/ct-logs/), so names such as `dns.lab.canhdinh.com`, `postgres.lab.canhdinh.com`, and `gitea.lab.canhdinh.com` are publicly discoverable and must not be considered secret.
+The role accepts explicit hostnames only and rejects wildcard entries. Every publicly trusted certificate is submitted to [Certificate Transparency logs](https://letsencrypt.org/docs/ct-logs/), so names such as `dns.lab.canhdinh.com`, `postgres.lab.canhdinh.com`, and `gitea.lab.canhdinh.com` are publicly discoverable and must not be considered secret.
 
 ## Role inputs and files
 

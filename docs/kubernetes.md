@@ -11,9 +11,9 @@ subsequent kubeadm operations.
 ![Cluster topology: HAProxy targets the three edge workers; the control plane has no Gateway listener.](diagrams/kubernetes-topology.svg)
 
 [Edit the topology in Excalidraw](diagrams/kubernetes-topology.excalidraw).
-The [traffic diagram](#traffic-and-client-identity) and
-[certificate diagram](#certificates-and-renewal) below cover the request and
-renewal paths. Sources and SVG previews are versioned together in
+See the [traffic diagram](#traffic-and-client-identity) for request routing and
+the [certificate diagram](#certificates-and-renewal) for renewal. Sources and SVG
+previews are versioned together in
 [`docs/diagrams/`](diagrams/README.md); no hosted diagram link is required.
 
 | Node | DNS hostname | Initial IPv4 address |
@@ -44,7 +44,7 @@ including runc and the standard CNI plugins, come from official upstream release
 not distribution packages. This avoids a package dependency replacing the manually
 installed CNI plugins. Manage their security updates explicitly.
 
-- Pod CIDR: **`10.244.0.0/16`**, with a `/24` per node allocated by Kubernetes.
+- Pod CIDR: `10.244.0.0/16`, with a `/24` per node allocated by Kubernetes.
 - Service CIDR: `10.96.0.0/12`.
 - Cilium IPAM: `kubernetes`, using each Node's PodCIDR.
 - Envoy: standalone `cilium-envoy` DaemonSet (`envoy.enabled: true`), not embedded
@@ -58,10 +58,10 @@ installed CNI plugins. Manage their security updates explicitly.
 
 All nodes need outbound HTTPS and working DNS to download binaries and images.
 Allow TCP 6443 to the control plane, TCP 10250 between nodes, UDP 8472 for VXLAN,
-TCP 4240 and ICMP between nodes for Cilium health checks. Keep etcd TCP 2379–2380
+TCP 4240 and ICMP between nodes for Cilium health checks. Keep etcd TCP 2379 to 2380
 restricted to the control plane. Do not expose the API or kubelet publicly.
 Allow TCP 4244 from Hubble Relay to each node for the mTLS-protected Hubble API.
-If using NodePort Services, permit only the needed ports in TCP/UDP 30000–32767.
+If using NodePort Services, permit only the needed ports in TCP/UDP 30000 to 32767.
 
 ## Deploy and verify
 
@@ -76,15 +76,16 @@ mise exec -- ansible-playbook kubernetes.yaml
 The repeat deployment should report `changed=0`. The playbook never resets a
 cluster or reruns a worker join when `/etc/kubernetes/kubelet.conf` already exists.
 It refuses an implicit Kubernetes version change or adoption of a different
-installation. A partial failed initialization needs investigation, not an
-automatic `kubeadm reset`, because reset can destroy cluster state.
+installation. Investigate a partial failed initialization; do not run an
+automatic `kubeadm reset`, which can destroy cluster state.
 
 Worker join commands are generated only for unjoined workers. Their tokens expire
 after 15 minutes, are hidden from Ansible output, and are revoked after the join stage.
 No bootstrap token or kubeconfig is committed to the repository. Kubernetes
 nodes are outside the inventory's `lab` group and do not inherit its Cloudflare
-credential. cert-manager's separate credential is an encrypted Kubernetes Secret
-under `kubernetes/cert-manager/`; no Ansible inventory host owns it.
+credential. cert-manager's separate credential is a Kubernetes Secret
+maintained by ESO from Vault, with an encrypted backup under
+`kubernetes/cert-manager/`; no Ansible inventory host owns it.
 
 The administrator kubeconfig is installed with mode `0600` at
 `/home/admin/.kube/config` on the control plane. Access without copying credentials:
@@ -95,9 +96,9 @@ ssh admin@k8s-control-plane.lab.canhdinh.com 'kubectl get pods -A -o wide'
 ssh admin@k8s-control-plane.lab.canhdinh.com 'cilium status --wait'
 ```
 
-This control host also has an explicitly imported `lab-kubeadm` context in
-`~/.kube/config` (mode `0600`); use `kubectl --context lab-kubeadm get nodes`.
-The playbook does not copy kubeconfigs to controllers automatically.
+For local administration, configure the `lab-kubeadm` context in `~/.kube/config`
+with mode `0600`, then use `kubectl --context lab-kubeadm get nodes`. The playbook
+does not copy kubeconfigs to controllers automatically.
 
 Verification checks all four nodes, control-plane membership, CRI health, binary
 versions, systemd cgroups, cgroup v2, CoreDNS, absence of the kube-proxy DaemonSet
@@ -117,12 +118,12 @@ cilium connectivity test --hubble-server "$relay_ip:80" \
 cilium connectivity test --cleanup
 ```
 
-The dataplane check passed 8 tests / 183 actions, and the strict Hubble L7 check
-passed 1 test / 18 actions. The full 135-test suite was not completed.
-Strict Pod-to-Service flow matching timed out: the matcher expected a TCP SYN
-addressed to the Service IP, while Hubble recorded the socket-LB pre-translation
-event and the backend Pod's TCP SYN. Service requests themselves succeeded.
-Do not disable socket load balancing merely to satisfy this flow expectation.
+Require the selected connectivity tests to pass and run the cleanup command
+afterward. If strict Pod-to-Service flow matching times out, compare the expected
+Service-IP SYN with Hubble's socket-LB pre-translation event and backend Pod SYN.
+Check whether the Service request itself succeeds before treating the mismatch
+as a dataplane failure. Do not disable socket load balancing solely to satisfy
+the flow matcher.
 
 Controller-local template and network-overlap tests:
 
@@ -152,8 +153,8 @@ The base `kubernetes.yaml` playbook enables the controller, Hubble UI, and Proxy
 Protocol support, but does not create application listeners. The
 `kubernetes-gateway.yaml` entrypoint adds HAProxy configuration. The certificate,
 Gateway, and routes are applied separately from `kubernetes/` using `kubectl`.
-HTTP, HTTPS, gRPC, and TLS listeners
-bind directly on the node network rather than relying on a LoadBalancer Service.
+HTTP, HTTPS, gRPC, and TLS listeners bind directly on the node network without
+a LoadBalancer Service.
 Only the three workers with the `edge` role host the Hubble UI listeners;
 the control plane does not. The Cilium Helm selector is
 `gatewayAPI.hostNetwork.nodes.matchLabels: {node-role.kubernetes.io/edge: ''}`.
@@ -163,20 +164,14 @@ cluster-wide for CNI and L7 network policies; only Gateway sockets are edge-only
 
 Host-network listeners bind all node interfaces. Ports 80 and 443 are reserved
 for the shared `kube-system/lab-gateway` Gateway, defined in
-`kubernetes/gateway/gateway.yaml`. Its original Hubble listener names are retained;
-the manifests add separate Argo CD listeners restricted to namespace `argocd`.
+`kubernetes/gateway/gateway.yaml`. Hubble listeners are restricted to namespace
+`kube-system`; Argo CD listeners are restricted to namespace `argocd`.
 Do not create a second Gateway using the same ports. `TCPRoute` and `UDPRoute`
 CRDs are installed by the standard bundle, but Cilium does not expose those routes directly through host networking;
 their generated Services use NodePorts instead.
 
-The shared Gateway was renamed from `hubble-ui` to `lab-gateway` on **2026-10-18**.
-This replaced the Gateway and its generated resources, not application routes,
-Certificates, or TLS Secrets. Both applications and authenticated Argo CLI access
-passed verification afterward. See the [one-time migration procedure](../kubernetes/README.md#one-time-rename-from-hubble-ui)
-for clusters still using the old name.
-
 Cilium's Gateway API chart also confines socket load balancing to the host
-namespace. The earlier connectivity results above predate this configuration.
+namespace.
 `verify-kubernetes-gateway.yaml` additionally checks real Hubble UI HTTPS traffic,
 certificate validation, HTTP redirection, routes, and the node firewall.
 
@@ -193,14 +188,13 @@ The entrypoint reconciles the cluster and HAProxy only. The repeat run should
 report `changed=0` on all five hosts. Then follow
 [`kubernetes/README.md`](../kubernetes/README.md) from the repository root to
 install cert-manager with Helm and apply its DNS-01 issuer, the Hubble UI
-certificate, and Gateway routes with `kubectl`. It includes the one-time adoption
-step for the existing static-manifest cert-manager installation. Application
-updates no longer require any Ansible playbook.
+certificate, and Gateway routes with `kubectl`. Application
+updates use their Helm, manifest, or Argo workflow.
 
 After the applications are ready, optionally run
 `mise exec -- ansible-playbook verify-kubernetes-gateway.yaml` from `ansible/`
 for the read-only end-to-end checks.
-Open **https://hubble-ui.lab.canhdinh.com/** from the lab or Tailscale network.
+Open https://hubble-ui.lab.canhdinh.com/ from the lab or Tailscale network.
 The existing private CNAME points to `k8s-gateway-api.lab.canhdinh.com`; the playbook
 does not modify the UI DNS record. HTTP redirects to HTTPS.
 
@@ -252,18 +246,17 @@ Cloudflare needs `Zone:DNS:Edit` and `Zone:Zone:Read` on the `canhdinh.com` zone
 The active credential is in Vault KV v2 at
 `secret/kubernetes/cert-manager/cloudflare-api-token`, property `api-token`.
 ESO maintains the existing `cert-manager/cloudflare-api-token` Secret using a
-dedicated namespaced identity and exact-key read-only Vault policy. The unchanged
-`kubernetes/cert-manager/cloudflare-api-token.sops.yaml` remains an encrypted
-backup, not an active second writer. See [migration, rotation, and emergency
-fallback](../kubernetes/cert-manager/README.md). The initial credential still
-reuses the existing lab token; Ansible/lego's inventory configuration is unchanged.
-A separate zone-scoped token would reduce shared rotation and revocation impact.
+dedicated namespaced identity and exact-key read-only Vault policy. The
+`kubernetes/cert-manager/cloudflare-api-token.sops.yaml` file is an encrypted
+backup, not an active second writer. See [setup, rotation, and emergency
+fallback](../kubernetes/cert-manager/README.md). Coordinate rotation and revocation
+with Ansible/lego when sharing a lab token. Use a separate zone-scoped token to
+reduce that shared impact.
 
-The pod network's port-53 queries to public resolvers returned empty TXT answers
-even though external queries could see the Cloudflare challenge. cert-manager
-therefore uses `--dns01-recursive-nameservers-only` with Cloudflare's public
+Use `--dns01-recursive-nameservers-only` with Cloudflare's public
 DNS-over-HTTPS endpoints at `https://1.1.1.1/dns-query` and
-`https://1.0.0.1/dns-query`. Outbound HTTPS must remain allowed for Cloudflare,
+`https://1.0.0.1/dns-query` for cert-manager's self-checks. This avoids empty TXT
+responses from the pod network's port-53 DNS path. Allow outbound HTTPS for Cloudflare,
 Let's Encrypt, and DoH. The internal application CNAME does not require
 `cnameStrategy: Follow`; that setting is for delegating `_acme-challenge` records.
 
@@ -282,40 +275,31 @@ to reconcile. To stop UI exposure without deleting certificate state, stop HAPro
 and remove the two Hubble UI HTTPRoutes; reapplying
 `kubernetes/hubble-ui/routes.yaml` restores them.
 
-### Verified deployment
+### Verify Gateway access
 
-Before the application extraction, the complete Ansible deployment rerun reported
-`changed=0` on the control plane, all three
-workers, HAProxy, and the local verification host. Both listener checks pass on
-all three edge nodes; no Gateway socket is present on the control plane.
-HTTPS certificate validation, HTTP redirection, and Hubble UI's live flow display
-were checked. The UI reported all four Hubble nodes connected.
+After infrastructure or routing changes:
 
-A temporary HTTP echo backend verified that Envoy forwarded the actual Tailscale
-client address, not HAProxy's address. Injecting a forged `X-Forwarded-For` value
-did not replace `X-Envoy-External-Address`. Direct untrusted HTTPS connections to
-each node were blocked. The temporary Pod, Service, and HTTPRoute were removed.
-
-On **2026-10-18**, cert-manager was adopted in place into the official Helm chart
-at v1.21.2, release `cert-manager` in namespace `cert-manager`, revision 1. An
-age-encrypted resource backup was created and decrypt-verified before adoption.
-All 46 existing chart resources retained their UIDs, as did the issuer and
-certificate resources. The Cloudflare token, ACME account, Hubble TLS Secret,
-and Cilium's synced TLS Secret retained both their identities and contents.
-All three controller Deployments, the issuer, Certificate, and Gateway were ready
-afterward; Hubble UI returned trusted HTTPS `200` and an HTTP `301` redirect.
-Future updates use the regular Helm command without `--take-ownership` in the
-[application guide](../kubernetes/README.md#1-install-or-update-cert-manager).
+1. Run `verify-kubernetes-gateway.yaml` from `ansible/`. Require listener checks
+   to pass on all three edge nodes and no Gateway listener on the control plane.
+2. Require the cert-manager Deployments, issuer, Certificates, and Gateway to be
+   ready. Check trusted HTTPS `200` and an HTTP `301` redirect for Hubble UI.
+3. Open Hubble UI and confirm live flows and connections to all four nodes.
+4. For client-address changes, use a temporary HTTP echo backend to check that
+   Envoy forwards the Tailscale client address. A forged `X-Forwarded-For` must
+   not replace `X-Envoy-External-Address`; direct untrusted node connections must
+   be blocked. Remove the temporary Pod, Service, and HTTPRoute afterward.
+5. Rerun infrastructure deployment only if infrastructure changed, and require
+   `changed=0`. Use the [application guide](../kubernetes/README.md#1-install-or-update-cert-manager)
+   for the correct application update workflow.
 
 ## Argo CD
 
-Argo CD deployment files are also available at
-[`kubernetes/argocd/`](../kubernetes/argocd/README.md), targeting
+Deploy Argo CD from [`kubernetes/argocd/`](../kubernetes/argocd/README.md) at
 `https://argocd.lab.canhdinh.com/` through the same HAProxy and edge Envoy path.
-They use a pinned Helm chart and an explicit Certificate, without a new
-LoadBalancer, Ingress controller, or host-network port allocation. The deployment
-was verified on **2026-10-18**, including trusted HTTPS, HTTP redirection, login
-enforcement, and authenticated CLI operations using gRPC-Web. Browser traffic uses
+It uses a pinned Helm chart and an explicit Certificate, without a new
+LoadBalancer, Ingress controller, or host-network port allocation. Check trusted
+HTTPS, HTTP redirection, login enforcement, and authenticated CLI operations
+using gRPC-Web after changes. Browser traffic uses
 an HTTP/1 backend; RPC traffic uses a separate HTTP/2 Service port. The
 [application guide](../kubernetes/argocd/README.md) includes installation and login
 commands. DNS changes are not automated by these manifests.
@@ -355,8 +339,8 @@ Gateway above. Relay remains internal-only; public access is not enabled.
 
 ## Limits
 
-This is not an HA cluster: losing the control plane makes the Kubernetes API and
-scheduling unavailable. There is no etcd backup automation, storage provisioner,
+The cluster is not highly available. Losing the control plane makes the
+Kubernetes API and scheduling unavailable. There is no etcd backup automation, storage provisioner,
 Ingress controller, Kubernetes LoadBalancer IP allocator, or monitoring stack in
 this deployment. Add backups before storing important cluster state. Incus root
 disks hold `/var/lib/etcd` and `/var/lib/containerd`.
@@ -365,6 +349,9 @@ Secrets live in etcd; protect access to them and include them in encrypted backu
 
 Changing version pins is not a rolling-upgrade procedure. Follow the upstream
 kubeadm and Cilium upgrade guides, back up etcd, and drain workers as appropriate.
+Keep upgrade backups until node readiness, connectivity, Gateway access, and
+application checks pass. Remove the upgrade-specific etcd and resource backups
+after accepting the upgrade; routine backups have separate retention.
 
 ## References
 

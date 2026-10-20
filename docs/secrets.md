@@ -20,12 +20,12 @@ The secret-management configuration consists of:
   - [`ansible/host_vars/s3/secrets.sops.yaml`](../ansible/host_vars/s3/secrets.sops.yaml), containing secrets owned by the `s3` host: `seaweedfs_s3_access_key`, `seaweedfs_s3_secret_key`, `seaweedfs_gitea_access_key`, `seaweedfs_gitea_secret_key`, `seaweedfs_harbor_access_key`, `seaweedfs_harbor_secret_key`, `seaweedfs_ui_username`, `seaweedfs_ui_password`, `seaweedfs_ui_password_hash`. See [SeaweedFS UI credentials](seaweedfs.md#credentials) for retrieval and rotation.
 - `ansible/ansible.cfg`, which enables the [`community.sops.sops` vars plugin](https://docs.ansible.com/projects/ansible/latest/collections/community/sops/sops_vars.html).
 - `ansible/requirements.yaml`, which pins the `community.sops` Ansible collection.
-- [`kubernetes/cert-manager/cloudflare-api-token.sops.yaml`](../kubernetes/cert-manager/cloudflare-api-token.sops.yaml), the retained encrypted backup of cert-manager's Cloudflare credential. Vault is the active source; ESO maintains the Kubernetes Secret. It is not loaded into Ansible inventory. See [migration, rotation, and SOPS fallback](../kubernetes/cert-manager/README.md); do not routinely apply this backup alongside ESO.
+- [`kubernetes/cert-manager/cloudflare-api-token.sops.yaml`](../kubernetes/cert-manager/cloudflare-api-token.sops.yaml), the retained encrypted backup of cert-manager's Cloudflare credential. Vault is the active source; ESO maintains the Kubernetes Secret. It is not loaded into Ansible inventory. See [setup, rotation, and SOPS fallback](../kubernetes/cert-manager/README.md); do not routinely apply this backup alongside ESO.
 - [`kubernetes/argocd/gitea-oidc.sops.yaml`](../kubernetes/argocd/gitea-oidc.sops.yaml), the retained encrypted backup of Argo CD's confidential Gitea web client secret. Vault is the active source and ESO maintains the labeled Kubernetes Secret. The public CLI client has no secret. See [setup, rotation, and SOPS fallback](../kubernetes/argocd/vault-secrets.md).
 
 [`secrets/vault/bootstrap.sops.json`](../secrets/vault/bootstrap.sops.json) contains the encrypted Vault initialization download, including the unseal shares and initial root token. Ansible never loads it. `mise run secrets:check` authenticates it along with inventory and Kubernetes secrets.
 
-Edit the bootstrap file with `mise exec -- sops secrets/vault/bootstrap.sops.json` in a private terminal. Keep a separate protected recovery copy; anyone who can decrypt this one file has all of its shares and its root token. The original plaintext download remains outside the repository with mode `0600`; remove it privately after confirming your recovery copies.
+Edit the bootstrap file with `mise exec -- sops secrets/vault/bootstrap.sops.json` in a private terminal. Keep a separate protected recovery copy; anyone who can decrypt this one file has all of its shares and its root token. Keep plaintext initialization downloads outside the repository with mode `0600`, then remove them privately after confirming your recovery copies.
 
 [`secrets/vault/oidc.sops.json`](../secrets/vault/oidc.sops.json) contains the separate
 Gitea OIDC client configuration and confidential client secret. It is never loaded
@@ -109,7 +109,7 @@ mise exec -- sops kubernetes/cert-manager/cloudflare-api-token.sops.yaml
 Kubernetes `data` values must be base64-encoded before SOPS encryption. Keep
 metadata readable, and decrypt only into documented stdin pipelines. For the
 Cloudflare and Argo CD backups, update Vault as described in their integration
-guides; editing SOPS alone no longer rotates those live credentials.
+guides; editing SOPS alone does not rotate those live credentials.
 
 Inspect decrypted values only when necessary:
 

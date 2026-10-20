@@ -18,9 +18,8 @@ pinned to v1.21.2 and its OCI digest. `cert-manager/values.yaml` enables CRDs,
 keeps them on uninstall, and preserves the public DNS-over-HTTPS self-checks. Do not change
 `crds.keep` to `false`: deleting CRDs also deletes their custom resources.
 
-The lab adopted cert-manager into this Helm release on 2026-10-18. Use the
-command below for fresh installations and updates before Argo adoption. Neither
-needs `--take-ownership`. After the first manual sync of the
+Use the command below for fresh installations and updates before Argo adoption.
+After the first manual sync of the
 [cert-manager Application](argocd/README.md#cert-manager-gateway-and-hubble-ui-applications),
 use Git and Argo for chart changes instead of Helm upgrades.
 
@@ -32,28 +31,6 @@ helm --kube-context lab-kubeadm upgrade --install cert-manager \
   --values kubernetes/cert-manager/values.yaml \
   --server-side=false --wait --timeout 5m
 ```
-
-### Adopt the existing static-manifest installation once
-
-For a cluster still running cert-manager from static manifests rather than a Helm
-release, adopt it once. Before switching, back up etcd or take an **encrypted** backup of cert-manager
-resources and Secrets. Confirm there is no cert-manager Helm release with
-`helm --kube-context lab-kubeadm list --namespace cert-manager`.
-Helm 4 lists all release states by default; it no longer accepts `--all`.
-If another release owns it, stop and investigate rather than taking it over.
-
-Run the same install command above with **`--take-ownership` added once**. This
-adopts the existing controller resources at the same version, without deleting
-CRDs, Certificates, the ACME account Secret, or TLS Secrets. The controller Pods
-may roll during adoption. Client-side Helm patching (`--server-side=false`)
-avoids conflicts with fields previously managed through Ansible's server-side
-apply. Omit `--take-ownership` on subsequent upgrades.
-
-Do not uninstall/reinstall or add cleanup/automatic rollback flags to the initial
-adoption. If it fails, inspect `helm status` and controller events and retry after
-fixing the problem; deleting adopted resources is not a safe rollback.
-Old `/etc/kubernetes/apps/` files on the control plane are inert and are no longer
-reconciled. Do not apply those stale copies or use them to delete live resources.
 
 ## 2. Apply the Cloudflare credential and issuer
 
@@ -70,9 +47,9 @@ kubectl --context lab-kubeadm wait clusterissuer/letsencrypt-cloudflare \
   --for=condition=Ready --timeout=180s
 ```
 
-The historical `lab-ansible-apps` field manager is retained for these plain
-resources to preserve ownership across the move. Its name does not run or
-require Ansible. Do not routinely force ownership conflicts.
+Keep the existing `lab-ansible-apps` field manager for these plain resources to
+preserve ownership. The field manager's name does not run or require Ansible.
+Do not routinely force ownership conflicts.
 After adopting the issuer into the cert-manager Application, use Git and manual
 Argo sync for routine issuer changes; these apply commands remain for bootstrap/recovery.
 
@@ -85,8 +62,7 @@ See [Cloudflare permissions and renewal](../docs/kubernetes.md#certificates-and-
 ## 3. Apply frontend certificates and the shared Gateway
 
 The Gateway is shared by Hubble UI and Argo CD. Wait for both certificates before
-exposing their HTTPS listeners on a new cluster. If Gateway `hubble-ui` still
-exists, complete the [one-time rename](#one-time-rename-from-hubble-ui) first:
+exposing their HTTPS listeners on a new cluster:
 
 ```sh
 kubectl --context lab-kubeadm apply --server-side --field-manager=lab-ansible-apps \
@@ -101,9 +77,9 @@ kubectl --context lab-kubeadm -n kube-system wait gateway/lab-gateway \
   --for=condition=Programmed --timeout=180s
 ```
 
-The shared Gateway is named `kube-system/lab-gateway`. Its original Hubble listener
-names are unchanged; its Argo listeners accept routes only from namespace
-`argocd`. Only this Gateway may own the edge nodes' host-network ports 80/443.
+The shared Gateway is named `kube-system/lab-gateway`. Hubble listeners accept
+routes from `kube-system`; Argo listeners accept routes from `argocd`. Only this
+Gateway may own the edge nodes' host-network ports 80/443.
 
 Hubble routing changes belong in `hubble-ui/routes.yaml`; listener changes belong
 in `gateway/gateway.yaml`. Before Argo adoption, apply only the changed manifest.
@@ -111,46 +87,6 @@ After adoption, push the change to Git and manually sync the corresponding
 Application. Ansible retains infrastructure ownership, including Hubble UI/Relay
 workloads. Never recursively apply this directory: it contains Helm values and
 encrypted Secrets, and installation order matters.
-
-### One-time rename from `hubble-ui`
-
-The lab completed this migration on 2026-10-18; its live Gateway is now
-`kube-system/lab-gateway`. The procedure below is only for clusters still using
-the old name.
-
-Kubernetes cannot rename a Gateway in place. Replacing `kube-system/hubble-ui`
-with `kube-system/lab-gateway` briefly interrupts **both Hubble UI and Argo CD**.
-Do not apply the new Gateway alongside the old one: their host-network listeners
-would compete for ports 80/443. New clusters do not need this migration.
-
-Before starting, save the existing Gateway and all four HTTPRoutes, record the
-current Argo Helm revision, and keep the previous Helm values for rollback. Do
-not include Secret data in plaintext backups; leave Certificates and TLS Secrets
-in place. Render/test the new Helm values before the interruption.
-
-1. Delete only the old Gateway and wait for its generated resources to be removed:
-
-   ```sh
-   kubectl --context lab-kubeadm -n kube-system delete gateway hubble-ui \
-     --cascade=foreground --wait=true --timeout=180s
-   kubectl --context lab-kubeadm -n kube-system get ciliumenvoyconfig,service,endpointslice \
-     --selector=gateway.networking.k8s.io/gateway-name=hubble-ui
-   ```
-
-   The second command must report no resources.
-
-2. Confirm ports 80/443 are released on all edge nodes, then run the apply/wait
-   commands above to create `lab-gateway` and update the Hubble routes.
-3. Run the [Argo Helm upgrade and redirect apply](argocd/README.md#2-install-or-update-argo-cd).
-   Use Helm for its owned `argocd-server` route; do not patch it out of band.
-4. Verify all four routes have `Accepted=True` and `ResolvedRefs=True` for
-   `lab-gateway` at their current generation. Check both applications' HTTPS,
-   HTTP redirects, and authenticated Argo CLI access.
-
-If migration fails, remove `lab-gateway` and wait for its generated resources and
-edge sockets to disappear **before** restoring the saved old Gateway and plain
-routes. Roll Argo back to the recorded Helm revision to restore its owned route.
-Do not delete either application's Certificates, Secrets, or workloads.
 
 ## 4. Install Argo CD
 
@@ -160,24 +96,19 @@ the HTTP redirect, private DNS record, and SSO login at
 `https://argocd.lab.canhdinh.com/`. The chart owns its HTTPS HTTPRoute; manage the
 shared Gateway and certificates as plain manifests.
 
-## 5. Connect External Secrets Operator to Vault
+## 5. Register ESO and Vault integrations with Argo CD
 
-Follow [External Secrets Operator](external-secrets/README.md) for Helm bootstrap,
-the namespace-scoped Vault SecretStore, and short-lived Kubernetes authentication
-against the existing Vault LXC. The demo role reads only
-`secret/kubernetes/vault-secrets/*`; cert-manager uses a separate exact-key role
-for its Cloudflare credential (step 2), and Argo CD has its own exact-key SSO
-credential role (step 4). The dummy-data example is optional; remove it after testing.
-
-Once Argo CD is available, register the [ESO Application](argocd/README.md#external-secrets-operator-application)
+With ESO and the credential integrations ready from steps 2 and 4, register the
+[ESO Application](argocd/README.md#external-secrets-operator-application)
 with the same chart digest and Git-hosted values. Registration leaves the running
 operator unchanged. After the first manual sync, use Argo for chart changes;
-do not alternate it with Helm upgrades. The lab completed adoption on 2026-10-18.
-Automatic sync and pruning remain off.
+do not alternate it with Helm upgrades. Automatic sync and pruning remain off.
 
 The separate [Vault integrations Application](argocd/README.md#vault-integrations-application)
 manages authentication resources and the Argo/Cloudflare ExternalSecrets.
 ESO manages generated Secret values; SOPS files remain recovery backups.
+Use the [ESO runbook](external-secrets/README.md) when adding another namespace
+or testing the optional dummy-data example.
 
 ## 6. Register cert-manager, Gateway, and Hubble UI with Argo CD
 
@@ -198,7 +129,7 @@ curl --ipv4 --noproxy '*' --fail https://hubble-ui.lab.canhdinh.com/
 
 For host firewall, HAProxy backend, route, and HTTPS checks, optionally run
 `mise exec -- ansible-playbook verify-kubernetes-gateway.yaml` from `ansible/`.
-It is read-only and is no longer part of infrastructure deployment.
+It is read-only and runs separately from infrastructure deployment.
 
 Local contract tests run with `mise run ansible:test`. They render the pinned
 cert-manager, Argo CD, and External Secrets Helm charts (requiring registry access) and validate plain
@@ -210,3 +141,8 @@ credentials and allow reconciliation. To undo a routing change, restore the
 previous route manifest or Helm values revision. For adopted resources, revert
 the Git change and manually sync Argo; otherwise use the original apply/Helm
 procedure. Do not delete cert-manager or the shared Gateway.
+
+After a service version upgrade passes readiness, application access, and its
+deployment workflow's verification checks, remove the upgrade-specific encrypted
+resource backups and staging files by their recorded paths. Preserve SOPS
+credential backups, ACME/TLS Secrets, Helm release records, and routine backups.

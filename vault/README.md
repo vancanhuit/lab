@@ -1,7 +1,7 @@
 # Configure Vault SSO with Gitea
 
 Vault uses the instance-wide confidential **Vault** OAuth application in Gitea
-(application ID **10**, client ID `9cb3a557-d895-4186-abff-f2d2d7a77422`). Manage it
+(application ID 10, client ID `9cb3a557-d895-4186-abff-f2d2d7a77422`). Manage it
 under [Gitea Site Administration](https://gitea.lab.canhdinh.com/-/admin/applications),
 not personal settings. Consent remains enabled.
 
@@ -18,9 +18,9 @@ does not load operator credentials or reconcile authentication.
 
 Both roles use the verified `email` claim as the Vault entity alias and require
 `email_verified=true`. They request `openid email public-only`; Vault adds `openid`
-automatically. Email is also copied to token and alias metadata. New tokens display
-`oidc-<email>` rather than `oidc-<subject>`; Vault adds the `oidc-` prefix. Existing
-tokens keep their previous display name until a fresh login.
+automatically. Email is also copied to token and alias metadata. Tokens display
+`oidc-<email>`; Vault adds the `oidc-` prefix. Log in again after identity changes
+to refresh the token's display name and metadata.
 
 Administrative access still requires `sub=2`, independently of the email address.
 No username, email address alone, Gitea administrator flag, organization, or team
@@ -34,7 +34,7 @@ its canonical entity ID and mount accessor. Do not merge identities just because
 their emails match. An address reassigned in Gitea can inherit the old Vault entity;
 keep entity/group policies empty unless that lifecycle is managed explicitly.
 
-The limited role does **not** inherit Vault's `default` policy, access shared
+The limited role does not inherit Vault's `default` policy, access shared
 secrets or cubbyhole, create tokens, or manage policies, auth methods, or identities.
 Email-confirmed Gitea registrations can sign in but receive no shared data access.
 The UI may show an empty dashboard or permission-denied messages for unavailable
@@ -52,7 +52,7 @@ enter `admin` in **Role** for administrator access, and complete Gitea consent.
 Leave the role blank, or enter `login`, for sign-in-only access.
 
 For the CLI, run from the repository root on the workstation with your browser
-and local port **8250** free:
+and local port 8250 free:
 
 ```sh
 mise exec -- vault login -method=oidc -no-print role=admin
@@ -86,7 +86,7 @@ These exact callback URIs must be registered in both Gitea and the two Vault rol
 - `https://vault.lab.canhdinh.com/ui/vault/auth/oidc/oidc/callback`
 - `http://localhost:8250/oidc/callback`
 
-With an authorized Vault administrator token, enable the auth mount **once** on a
+With an authorized Vault administrator token, enable the auth mount once on a
 fresh initialized server. Skip this command if `vault auth list` already shows
 `oidc/`; never disable an existing mount just to reapply configuration.
 
@@ -133,24 +133,21 @@ mise exec -- ansible-playbook -i localhost, tests/vault-oidc.yml
 mise exec -- ansible-lint tests/vault-oidc.yml
 ```
 
-On **2026-10-18**, real browser administrator login and CLI administrator login
-passed. The CLI token contained `gitea-admin` and email metadata. A real
-`gitea-admin` account login received only `gitea-login`; shared secrets, cubbyhole,
-token creation, and administration were denied. Its attempt to select `admin`
-was rejected by `bound_subject` (Vault 2.2.0 reports HTTP `500` with a subject
-validation error for this case). Temporary browser, CLI, and API test tokens were revoked.
-Initial verification retained the root token helper and encrypted bootstrap credentials.
+After applying or changing SSO:
 
-The same day, the roles switched to verified-email identities. Existing numeric
-OIDC aliases were renamed to their recorded email addresses, preserving their
-alias and canonical entity IDs. Fresh administrator and limited-role logins
-reported `oidc-vancanhuit@gmail.com` and `oidc-gitea-admin@canhdinh.com`, respectively.
-Limited-role secret/admin denials and the administrator subject restriction still
-passed. No secret data or policies were moved; temporary test tokens were revoked.
-
-A subsequent CLI SSO login cached `oidc-vancanhuit@gmail.com` with `gitea-admin`
-in `~/.vault-token` (mode `0600`), replacing the cached root login. The initial
-root token remains available in the encrypted bootstrap backup and was not revoked.
+1. Sign in through the browser and CLI as the account with subject `2`, selecting
+   `admin`. Confirm the CLI display name is `oidc-vancanhuit@gmail.com`, the token
+   includes `gitea-admin`, and the administration capability check succeeds.
+2. In a separate session, sign in as a non-administrator account with `login`.
+   For the `gitea-admin` Gitea account, expect display name
+   `oidc-gitea-admin@canhdinh.com` and policy `gitea-login`. Shared secrets,
+   cubbyhole, token creation, and administration must be denied.
+3. Attempt to select `admin` with that limited account. Expect rejection by
+   `bound_subject`. Vault 2.2.0 reports HTTP `500` with a subject-validation error
+   for this case; do not treat that response as a successful login.
+4. Revoke temporary test tokens and restore the administrator CLI login. Keep
+   `~/.vault-token` at mode `0600`. Follow the [initialization runbook](../docs/vault.md#initialize-and-unseal-privately)
+   to revoke the initial root token after non-root access and recovery are ready.
 
 ## References
 

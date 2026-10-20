@@ -80,7 +80,7 @@ Nginx serves the application endpoints on HTTPS port 443. Port 80 redirects only
 UI hostnames to HTTPS and rejects other hosts. SeaweedFS master, volume, filer,
 and S3 listeners bind to loopback.
 
-The role creates the `homelab-gitea` and `homelab-harbor` buckets with their respective application owners before Gitea or Harbor is deployed. Existing buckets are left unchanged, including the Gitea bucket migrated from Backblaze.
+The role creates the `homelab-gitea` and `homelab-harbor` buckets with their respective application owners before Gitea or Harbor is deployed. Existing buckets are left unchanged.
 
 The [Master, Filer, and Volume web UIs](seaweedfs.md) use separate HTTPS hostnames
 with CNAME records pointing to `s3.lab.canhdinh.com`. Nginx requires the shared
@@ -97,7 +97,7 @@ directory on the root filesystem does not satisfy the guard.
 
 ## 4. Deploy Harbor
 
-Harbor 2.15.2 runs on Docker Engine and Docker Compose installed from
+Harbor 2.15.3 runs on Docker Engine and Docker Compose installed from
 [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/).
 The playbook creates the `harbor` PostgreSQL role and database, along with the
 `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity. It deploys Harbor
@@ -125,7 +125,7 @@ Gitea depends on PostgreSQL and SeaweedFS from the previous stages. The Gitea pl
 
 Provision the dedicated `pool1/gitea-data` filesystem volume at `/var/lib/gitea`
 using the [Incus instructions](incus.md#create-incus-instances) before deployment.
-For existing data, follow the [migration procedure](gitea.md#local-data-volume).
+For an existing volume, follow the [storage recovery checks](gitea.md#local-data-volume).
 The role checks the mount before changing the Gitea host, including in check mode;
 systemd also refuses to start Gitea without it. Restore the Incus attachment if
 the guard fails. Repositories and generated state belong on this volume, outside
@@ -220,9 +220,8 @@ mise exec -- ansible-playbook kubernetes-gateway.yaml
 
 This includes the base Kubernetes playbook and HAProxy, but no applications.
 Next, follow [Kubernetes applications](../kubernetes/README.md) from the repository
-root: Helm installs cert-manager, then `kubectl` applies the encrypted Cloudflare
-Secret, issuer, certificate, and Gateway routes in order. Existing static-manifest
-installations need the documented one-time Helm adoption step. Application changes
+root: install cert-manager and ESO, configure the Vault-sourced Cloudflare
+credential, then apply the issuer, certificates, and Gateway routes in order. Application changes
 do not require rerunning Ansible. Once ready, optionally run
 `mise exec -- ansible-playbook verify-kubernetes-gateway.yaml` from `ansible/`.
 

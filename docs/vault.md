@@ -1,9 +1,10 @@
 # Deploy and operate HashiCorp Vault
 
-Deploy and operate a single-node Vault **systemd service in the Debian 13 Linux
-container (LXC)** at [vault.lab.canhdinh.com](https://vault.lab.canhdinh.com/), not
-in Kubernetes. The Ansible role pins Vault **2.2.0** for amd64 and verifies its
-release archive against the committed SHA-256 digest. Vault runs as the unprivileged `vault` account, with only
+Vault runs as a single-node systemd service in a Debian 13 Linux container (LXC)
+at [vault.lab.canhdinh.com](https://vault.lab.canhdinh.com/), outside Kubernetes.
+The Ansible role pins Vault 2.2.0 for amd64 and verifies its release archive
+against the committed SHA-256 digest. Vault runs as the unprivileged `vault`
+account, with only
 `CAP_NET_BIND_SERVICE` to serve TLS directly on port 443. There is no reverse
 proxy, HTTP listener, development mode, or external database.
 The Vault-specific systemd drop-in preserves `NoNewPrivileges=true` despite
@@ -29,23 +30,18 @@ reseal Vault. The certificate key is root-owned, readable by group `vault` only.
 The verification playbook checks the binary, service, renewal timer, trusted
 HTTPS, UI, Raft storage type, listener boundaries, log rotation configuration,
 and protected file permissions. Health HTTP `501` means uninitialized, `503`
-means sealed, and `200` means initialized and unsealed. These are distinct
-operational states, not permission to ignore arbitrary HTTP failures.
+means sealed, and `200` means initialized and unsealed. Treat other HTTP failures
+as errors.
 
-### Verified installation
-
-On **2026-10-18**, Vault 2.2.0 was installed on the existing LXC at
-`10.205.234.111`. Live verification passed with `changed=0`, and a repeat
-deployment also reported `changed=0`. The service was enabled and running as
-`vault` with effective `NoNewPrivileges=yes`. Trusted HTTPS, a complete
-compressed UI transfer, the renewal timer, protected paths, and logrotate
-configuration passed. A real browser reached the Raft initialization screen.
-The instance remained **uninitialized and sealed**; no bootstrap keys or tokens
-were generated, and no audit device or data backup was created.
+After deployment, require `vault.service` and the renewal timer to be active.
+Confirm Vault runs as `vault` with effective `NoNewPrivileges=yes`, and check
+trusted HTTPS, the UI, protected paths, and logrotate configuration. A fresh
+installation should show the Raft initialization screen. Continue with private
+initialization only if Vault reports that it is uninitialized.
 
 ## Control-node CLI
 
-`mise.toml` pins the matching Vault CLI **2.2.0** and sets
+`mise.toml` pins the matching Vault CLI 2.2.0 and sets
 `VAULT_ADDR=https://vault.lab.canhdinh.com` within this repository. From the
 repository root:
 
@@ -65,24 +61,21 @@ default token helper caches it in `~/.vault-token`; keep that file mode `0600`
 and do not copy it into the repository. Avoid unfiltered `vault token lookup`
 output in recorded sessions because it includes credentials.
 
-On **2026-10-18**, after operator initialization and unsealing, the control-node
-CLI authenticated with the SOPS-stored root token without displaying it.
-Status showed initialized, unsealed, active Vault 2.2.0 with Raft storage.
-Authenticated peer inspection confirmed one voter/leader, node `vault`, with
-equal committed/applied indexes. [Gitea OIDC SSO](../vault/README.md) now provides non-root administrator
-login for subject `2` and sign-in-only access for other Gitea accounts. Identities
-use verified email addresses, independently of the administrator subject check.
-The CLI now caches the non-root SSO login as `oidc-vancanhuit@gmail.com` with the
-`gitea-admin` policy, replacing the cached root login. The initial root token
-remains in the encrypted bootstrap backup and has not been revoked.
+Use [Gitea OIDC SSO](../vault/README.md) for routine administration. Subject `2`
+has administrator access; other Gitea accounts receive sign-in-only access.
+Identities use verified email addresses independently of the subject check.
+After login, confirm the CLI display name is `oidc-vancanhuit@gmail.com` and its
+policy is `gitea-admin` using the SSO runbook's filtered token checks. Revoke the
+initial root token after non-root administration and recovery access are ready.
 
 ## Initialize and unseal privately
 
-The live lab is already initialized and unsealed. The initialization steps below
-apply only to a fresh instance; never reinitialize an existing data directory.
+Check `vault status` before proceeding. Initialize only when `Initialized` is
+`false`. If Vault is initialized but sealed, skip initialization and unseal it
+with the existing shares. Never reinitialize an existing data directory.
 
-Installation **does not initialize Vault**, generate keys, or save a root token.
-On a fresh instance, initialize promptly using the HTTPS UI, or run the following in
+Installation does not initialize Vault, generate keys, or save a root token.
+On a fresh instance, initialize promptly using the HTTPS UI, or run this command in
 a **private, unrecorded terminal** on the LXC. The initialization command prints
 unseal keys and a root token; do not paste its output into chat, logs, or Git.
 In the UI, choose **Create a new Raft cluster**, not **Join an existing Raft
@@ -97,8 +90,8 @@ Keep the five Shamir unseal shares in independent protected custody, with at
 least three available for recovery. Store the initial root token separately.
 Do not keep these only inside this Vault, on its LXC, or in this repository.
 Losing the threshold of shares makes the encrypted data unrecoverable even with
-a storage backup. The UI also offers initialization if using a password manager
-is more convenient than terminal output.
+a storage backup. Use the UI if saving the credentials in a password manager
+is more convenient than handling terminal output.
 
 The initialization download is backed up as
 [`secrets/vault/bootstrap.sops.json`](../secrets/vault/bootstrap.sops.json), with
@@ -124,44 +117,49 @@ Before storing real secrets, enable auditing, configure a least-privilege auth
 method and policies, verify non-root administrative access, then revoke the
 initial root token. The server deployment creates no users, auth methods,
 policies, or secrets engines; configure [Gitea SSO](../vault/README.md) separately
-after initialization. The live instance already has this auth configuration.
+after initialization. Check the existing auth configuration before applying it.
 
 ## Audit logging
 
 The role prepares a protected log directory and logrotate configuration; audit
 devices are configured separately through the Vault API, not by Ansible. From
-the repository root, after an administrator login, enable the device once:
+the repository root, after an administrator login, inspect existing devices:
+
+```sh
+mise exec -- vault audit list -detailed
+```
+
+If `file/` is absent, enable it once:
 
 ```sh
 mise exec -- vault audit enable file file_path=/var/log/vault/audit.log mode=0600 log_raw=false
 mise exec -- vault audit list -detailed
 ```
 
-The live `file/` audit device was enabled on **2026-10-18** using the non-root
-Gitea SSO administrator session. It writes JSON request/response events to
+Verify that `file/` writes JSON request/response events to
 `/var/log/vault/audit.log`, owned by `vault:vault` with mode `0600`, inside the
-mode `0700` log directory. Sensitive values retain Vault's default HMAC protection;
-do not enable `log_raw`. Audit configuration persists in Vault storage and does
-not need to be enabled again after unsealing.
+mode `0700` log directory. Keep Vault's default HMAC protection for sensitive
+values; do not enable `log_raw`. Audit configuration persists in Vault storage
+and does not need to be enabled again after unsealing.
 
 Logs rotate daily (or at 100 MiB when logrotate next runs), retain 14 rotations,
-and reopen on SIGHUP. A forced rotation verified that a fresh authenticated
-request and its response reached the new log, with token values HMAC-protected.
-The logrotate timer was active and enabled, and Vault's PID remained unchanged;
-no restart or reseal was needed.
+and reopen on SIGHUP. Check that the logrotate timer is active and enabled. After
+rotation, make an authenticated request and confirm its request/response events
+reach the new log with token values HMAC-protected. Rotation should leave Vault's
+PID unchanged and require no restart or unseal.
 
-These are local logs, not off-host audit retention, and Raft snapshots do not
-include them. Treat audit logs as sensitive: paths and some metadata remain
+Audit logs stay on the host and are not included in Raft snapshots.
+Treat them as sensitive: paths and some metadata remain
 readable. Monitor free disk and audit errors: requests can block or fail if no
 enabled audit device can write successfully. This installation has only one
-audit device; off-host forwarding and disk-space alerting were not added here.
+audit device, with no off-host forwarding or disk-space alerting.
 
 ## KV v2 secrets
 
-The versioned key/value secrets engine is enabled at **`secret/`**. Like OIDC
-and audit devices, it is configured through the Vault API, not by Ansible.
-On a fresh instance, after an administrator login, enable it once from the
-repository root:
+Use the versioned key/value secrets engine at `secret/`. Like OIDC and audit
+devices, it is configured through the Vault API, not by Ansible. Check
+`vault secrets list -detailed` first. If the mount is absent, enable it once
+from the repository root after an administrator login:
 
 ```sh
 mise exec -- vault secrets enable -path=secret -description="Versioned lab secrets" kv-v2
@@ -170,7 +168,7 @@ mise exec -- vault secrets list -detailed
 
 If `secret/` already exists, confirm its type is `kv` with option `version=2`;
 do not disable it to reapply configuration, because disabling a secrets engine
-deletes its data. The live engine retains the defaults: ten versions per key
+deletes its data. The engine uses the defaults: ten versions per key
 (`max_versions=0` means ten), no automatic version deletion, and optional
 check-and-set (CAS). Use CAS to protect writes from stale updates; it can also
 be required per key. Static KV values do not rotate or expire automatically.
@@ -209,20 +207,16 @@ SH
 
 `put` replaces the complete value; `patch` preserves unspecified fields. Each
 successful write creates a version. Rollback copies an older value into a new
-version (v4 here), rather than deleting history. Soft deletion is reversible
+version (v4 here) and preserves history. Soft deletion is reversible
 with `undelete`; `destroy` permanently removes selected version data, and
 `metadata delete` permanently removes every version and the key's metadata.
 Neither destructive operation removes earlier copies from existing backups.
 
-On **2026-10-18**, live CLI checks passed for create/read/list, replacement and
-partial updates, metadata and historical reads, stale/missing CAS rejection,
-rollback, latest/specific-version soft deletion and recovery, permanent version
-destruction, and full-key cleanup. A temporary `login`-role SSO token received
-HTTP `403` for KV data, listing, metadata, and deletion/recovery operations;
-administrator access remained intact. Test keys and histories were removed,
-the temporary token was revoked, and the cached administrator login was preserved.
-That initial KV exercise added no production credentials or workload policies;
-the later Cloudflare integration below uses a real credential.
+The exercise should finish successfully and remove its temporary key and all
+versions. If a command fails, inspect its error before continuing; do not remove
+CAS to bypass a conflict. The `login` SSO role must receive HTTP `403` for shared
+KV data, listing, metadata, and deletion/recovery operations. Use the
+[SSO verification steps](../vault/README.md#verification) to check that boundary.
 
 ### Kubernetes consumption
 
@@ -251,7 +245,7 @@ client has no client secret, and neither other workload role can read this key.
   persistent LXC root filesystem. It survives service/container restarts, but
   not container deletion or loss of the Incus storage pool. There is no separate
   data volume or automatic backup job.
-- This is **one node**, not a highly available cluster. The Raft cluster listener
+- This single-node cluster is not highly available. The Raft cluster listener
   is restricted to `127.0.0.1:8201`; only HTTPS on port 443 is exposed.
 - The seal is Shamir; there is **no auto-unseal**. After a service/container
   restart or a configuration/binary upgrade, an operator must unseal it again.
@@ -276,7 +270,7 @@ mise exec -- vault operator raft snapshot save "$snapshot"
 mise exec -- vault operator raft snapshot inspect "$snapshot"
 ```
 
-Copy snapshots to protected **off-host** storage, separately from the unseal
+Copy snapshots to protected off-host storage, separately from the unseal
 shares, and test recovery before relying on them. Snapshots contain encrypted
 Vault data but are still sensitive. They do not back up TLS/ACME state,
 configuration, or audit logs. Do not copy the live Raft database as a backup.
@@ -288,8 +282,8 @@ temporary root token for `vault operator raft snapshot restore -force vault.snap
 using the **original** shares belonging to the snapshot, then authenticate using
 credentials from the restored Vault. Restore acceptance is asynchronous; wait
 for the post-unseal completion messages in the server logs before resuming use.
-Consult the snapshot restore documentation before executing; no restore has
-been tested by this installation.
+Consult the snapshot restore documentation before executing, and rehearse the
+restore on an isolated recovery instance before relying on a snapshot.
 
 For upgrades, take a verified off-host snapshot, read the release-specific
 upgrade notes, update the version and checksum together with their contract
@@ -297,6 +291,12 @@ tests, run local checks, then deploy and unseal. Do not blindly downgrade the
 binary against a newer Raft database. Rollback requires the matching pre-upgrade
 snapshot and its original unseal shares on an isolated recovery instance; never
 delete `/var/lib/vault` or `/var/lib/lego` as a repair step.
+
+After the upgraded instance is unsealed, require service verification, SSO,
+secret reads, and audit logging to pass. Rerun deployment and require `changed=0`.
+Then remove the upgrade-specific Raft snapshot and temporary off-host copies by
+their recorded paths. Keep routine snapshots, unseal shares, the bootstrap
+recovery file, and TLS/ACME state under their own retention rules.
 
 ## Troubleshooting
 
@@ -314,8 +314,8 @@ lego's renewal logs without printing `/etc/lego/cloudflare.env` or private keys.
 
 Vault 2.2.0 has an upstream UI response-length bug when compression is not
 negotiated: Content Security Policy (CSP) nonce injection changes the HTML body
-without updating its length. Normal browsers offer gzip/zstd; the tested browser
-loaded successfully. For a complete UI transfer check, use
+without updating its length. Use a browser that offers gzip/zstd. For a complete
+UI transfer check, use
 `curl --compressed --fail https://vault.lab.canhdinh.com/ui/`.
 This does not affect JSON API endpoints. No custom binary or proxy workaround
 is installed; recheck uncompressed UI transfers when upgrading Vault.

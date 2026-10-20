@@ -3,8 +3,8 @@
 External Secrets Operator (ESO) maintains Secret `argocd/argocd-gitea-oidc`, key
 `client-secret`, from Vault KV v2 path `secret/kubernetes/argocd/gitea-oidc`.
 The credential belongs to Gitea's confidential web client; the public CLI client
-has no secret. Client IDs, PKCE, scopes, Argo RBAC in `values.yaml`, and registered
-callback URLs are unchanged.
+has no secret. Manage client IDs, PKCE, scopes, Argo RBAC in `values.yaml`, and
+registered callback URLs through the [SSO runbook](README.md#gitea-sso).
 
 Keep `gitea-oidc.sops.yaml` as an encrypted backup; ESO is the active writer.
 Argo still uses `$argocd-gitea-oidc:client-secret`. ESO copies the ExternalSecret's
@@ -74,7 +74,7 @@ Synchronization runs every minute. `creationPolicy: Orphan` updates the existing
 Secret in place, creates it if absent, and leaves it when the ExternalSecret is
 deleted. `deletionPolicy: Retain` also retains it if the Vault source disappears.
 During Vault outages, existing SSO uses the last synchronized credential while
-refresh stops. Copying the same value during migration requires no Argo restart.
+refresh stops. Copying an unchanged value into this mapping requires no Argo restart.
 Do not recursively apply the directory: it also contains Helm values and backups.
 
 ## Rotation
@@ -132,23 +132,12 @@ JWTs, cookies, or tokens. Local contracts run from `ansible/` with
 `mise exec -- ansible-playbook -i localhost, tests/external-secrets.yml` and
 `mise exec -- ansible-playbook -i localhost, tests/kubernetes-manifests.yml`.
 
-### Verified migration
+Require `Ready=True` on the SecretStore and ExternalSecret and an advancing
+refresh time. The target Secret must retain its discovery label and have no
+owner reference. Updating an existing installation should preserve its UID.
 
-On 2026-10-18, the import used create-only CAS. The dedicated SecretStore and
-ExternalSecret reported `Ready=True`, and periodic refresh succeeded. Private
-comparisons confirmed matching Vault, Kubernetes, and SOPS values; the encrypted
-backup was byte-for-byte unchanged.
-
-The OIDC Secret kept its UID and discovery label without an owner reference.
-Argo's other protected credentials, Cloudflare/ACME and TLS Secrets, SSO/RBAC
-ConfigMaps, and Pod identities and restart counts were unchanged.
-
-A fresh web SSO login as `vancanhuit@gmail.com` with the Gitea issuer verified
-the confidential web client. The existing CLI SSO session remained valid.
-Live policy checks confirmed exact-key read-only access, no default policy,
-isolation from the demo and cert-manager roles, and rejection of all
-cross-namespace role assumptions.
-
-Temporary Vault tokens and test Secrets were removed. The emergency SOPS fallback
-passed a server dry run with the historical field manager. The migration required
-no provider credential rotation, Argo restart, or Helm upgrade.
+Verify that `eso-argocd` has exact-key read-only access and no default policy.
+The demo and cert-manager roles must not read this key, and cross-namespace role
+logins must fail. Remove temporary test Secrets and revoke test tokens afterward.
+Rehearse emergency fallback with a server dry run before an outage, without
+displaying Secret data.

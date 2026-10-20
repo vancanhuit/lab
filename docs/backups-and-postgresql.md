@@ -25,29 +25,22 @@ Expected quota: `20GiB`; expected source: `pool1/custom/default_postgres-data`.
 Instance snapshots do not include this custom volume. Coordinate any data-volume
 restore with the matching PostgreSQL configuration and pgBackRest recovery state.
 
-### Migration and recovery
+### Recover the data volume
 
-During the migration on 2026-09-19, the cluster and pgBackRest backup timers and
-services were stopped and runtime-masked before copying `/var/lib/postgresql`
-with `cp -a` to the staged volume at `/mnt/postgres-data`. PostgreSQL reported a clean shutdown.
-The copy passed a byte-for-byte comparison, metadata checks, and offline
-`pg_checksums --check` with zero bad checksums before the mount was switched.
+If the mount guard fails, keep PostgreSQL stopped and repair device `data` so it
+attaches `pool1/postgres-data` at `/var/lib/postgresql`. Use the storage checks
+above to verify its source and quota before starting the cluster.
 
-The original, stopped cluster at `/var/lib/postgresql.root-disk-backup` was removed
-on 2026-09-19 after verifying the data-volume mount, PostgreSQL, pgBackRest, and
-application health. The pgBackRest repository was preserved.
+If data needs recovery, pause the backup jobs and stop PostgreSQL. Inspect
+tablespaces and `pg_wal` for external paths before restoring a consistent stopped
+copy or using the [pgBackRest restore procedure](#postgresql-point-in-time-restore).
+Preserve the pgBackRest repository. Check the restored files and run offline
+`pg_checksums --check`; require zero bad checksums before startup. Restore any
+paused timers after recovery.
 
-For future migrations, remove the migration-time copy only after accepting the
-migration. It becomes stale once PostgreSQL resumes writes. If startup fails,
-try repairing the `data` attachment first. After writes resume, a storage rollback
-needs a fresh copy of the current cluster taken while it is stopped, or a
-coordinated pgBackRest restore. Do not use the stale migration-time copy. Keep a
-mount at `/var/lib/postgresql` during recovery.
-
-For another migration, first inspect tablespaces and `pg_wal` for external paths,
-check pgBackRest, then pause backup jobs and stop PostgreSQL before copying.
-Verify the stopped copy and mount before unmasking and starting the cluster and
-backup timers. Run `ansible-playbook verify-postgres.yaml` from `ansible/` afterward.
+Run `ansible-playbook verify-postgres.yaml` from `ansible/` and check Gitea and
+Harbor afterward. Keep the data mount present throughout recovery. Never restore
+a stale copy over newer writes or start PostgreSQL on an empty root-disk directory.
 
 ## Backup and health checks
 
@@ -64,15 +57,23 @@ sudo -u postgres pgbackrest --stanza=main check
 | Data | Coverage |
 | --- | --- |
 | PostgreSQL relational data | Cluster data and WAL use the separate 20 GiB `pool1/postgres-data` volume; pgBackRest backups remain on the container root disk at `/var/lib/pgbackrest`; no off-host replication |
-| Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; an encrypted off-host point-in-time copy is retained for the [2026-10-07 upgrade](gitea.md#gitea-2810-upgrade-2026-10-07); no scheduled off-host backup; the former Backblaze copy is not continuously updated |
-| Harbor registry blobs | SeaweedFS stores blobs in `homelab-harbor` on the dedicated 500 GiB ZFS volume; an encrypted off-host point-in-time copy is retained for the [2026-10-07 upgrade](harbor.md#harbor-2153-upgrade-2026-10-07); no scheduled off-host backup |
-| Harbor local state | The [2026-10-07 upgrade backup](harbor.md#harbor-2153-upgrade-2026-10-07) includes Valkey state, Trivy databases, configuration, and TLS/ACME state; the VM snapshot additionally preserves Docker images and logs; no scheduled off-host backup |
-| Gitea repositories and generated state | `/var/lib/gitea` uses the separate 20 GiB `pool1/gitea-data` custom volume; instance snapshots do not include it; a custom-volume snapshot and encrypted off-host copy are retained for the [2026-10-07 upgrade](gitea.md#gitea-2810-upgrade-2026-10-07); no scheduled off-host backup |
+| Gitea object storage | SeaweedFS stores LFS objects, avatars, attachments, archives, packages, and Actions data on the dedicated 500 GiB ZFS volume; no scheduled off-host backup |
+| Harbor registry blobs | SeaweedFS stores blobs in `homelab-harbor` on the dedicated 500 GiB ZFS volume; no scheduled off-host backup |
+| Harbor local state | Valkey state, Trivy databases, configuration, TLS/ACME state, Docker images, and logs reside on the VM; no scheduled off-host backup |
+| Gitea repositories and generated state | `/var/lib/gitea` uses the separate 20 GiB `pool1/gitea-data` custom volume; instance snapshots do not include it; no scheduled off-host backup |
 | Uptime Kuma SQLite state | Validated gzip backups under `/var/backups/uptime-kuma/`; newest 14 retained by count; no off-host replication |
-| Vault secrets and audit logs | Raft data on the LXC root filesystem at `/var/lib/vault/raft`; local audit rotation is prepared but must be enabled after initialization; no automatic snapshots or off-host backup; follow [Vault snapshot and key custody guidance](vault.md#storage-restarts-and-recovery) before storing real secrets |
+| Vault secrets and audit logs | Raft data on the LXC root filesystem at `/var/lib/vault/raft`; verify file auditing is enabled and local log rotation is active; no automatic snapshots or off-host backup; follow [Vault snapshot and key custody guidance](vault.md#storage-restarts-and-recovery) before storing real secrets |
 
 > [!WARNING]
-> The latest Gitea upgrade archive covers 2026-10-07 10:50:55 UTC; the Harbor upgrade archive covers 2026-10-07 11:06:45 UTC. Newer writes have no scheduled off-host protection. Routine PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. Add scheduled off-host protection before retiring rollback copies.
+> Gitea and Harbor have no scheduled off-host protection. Routine PostgreSQL and Uptime Kuma backups also do not survive loss of their hosts or storage. Temporary upgrade rollback sets are not a disaster-recovery backup policy.
+
+Create a rollback set before changing a service version. Keep it through
+deployment, health checks, application smoke tests, and the idempotence rerun.
+Once all checks succeed, remove the upgrade-specific snapshots, archives, and
+staging files by their exact recorded names. Follow the [Gitea](gitea.md#clean-up-upgrade-backups)
+or [Harbor](harbor.md#clean-up-upgrade-backups) cleanup commands. Scheduled backups,
+routine snapshots, and Vault initialization credentials have separate retention
+requirements.
 
 ## PostgreSQL point-in-time restore
 

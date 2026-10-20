@@ -36,7 +36,7 @@ repository's age recipient in `ansible/host_vars/s3/secrets.sops.yaml`:
 - `seaweedfs_ui_password`: recoverable login password
 - `seaweedfs_ui_password_hash`: bcrypt hash with cost 12
 
-Credentials were generated once; deployment never generates or rotates them.
+Deployment reads the stored credentials; it never generates or rotates them.
 Ansible copies only the username and hash to `/etc/nginx/seaweedfs.htpasswd`, owned by
 `root:www-data` with mode `0640`. Secret-bearing Ansible tasks suppress logging.
 

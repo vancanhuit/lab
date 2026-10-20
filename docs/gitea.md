@@ -10,7 +10,8 @@ Gitea also provides [Argo CD SSO](../kubernetes/argocd/README.md#gitea-sso).
 The two OAuth applications are instance-wide and managed under Site Administration
 at `https://gitea.lab.canhdinh.com/-/admin/applications`. They are not owned by
 `gitea-admin` or another user. The web client secret is stored separately as a
-SOPS-encrypted Kubernetes Secret, not in Gitea inventory.
+Vault-sourced Kubernetes Secret, with a SOPS-encrypted recovery backup outside
+Gitea inventory.
 Argo CD grants `vancanhuit` (OIDC subject `2`) admin and other authenticated
 Gitea accounts read-only access. Email-confirmed registration therefore also
 allows new accounts to read Argo CD resources.
@@ -50,77 +51,27 @@ container root disk. PostgreSQL and S3 data remain on their respective services.
 Both the deployment role and systemd require this mount before starting Gitea.
 Instance snapshots do not include custom volumes; back up this volume separately.
 
-### Migrate an existing root-disk deployment
-
-Run Incus commands from the administrator workstation against `homelab-server`.
-This procedure requires a running `gitea` container and a maintenance window.
-For a new container, use the [provisioning command](incus.md#create-incus-instances).
-Do not repeat this migration after the volume is attached at `/var/lib/gitea`.
-
-1. Create the volume and attach it at a staging path:
-
-   ```sh
-   incus storage volume create homelab-server:pool1 gitea-data size=20GiB
-   incus config device add homelab-server:gitea data disk \
-     pool=pool1 source=gitea-data path=/mnt/gitea-data
-   ```
-
-2. Stop Gitea, prevent automatic restarts during the copy, and verify the data.
-   Stop if any command fails; leave Gitea stopped until the copy is verified.
-
-   ```sh
-   incus exec homelab-server:gitea -- sh -eu -c '
-     mountpoint --quiet /mnt/gitea-data
-     test ! -e /var/lib/gitea.root-disk-backup
-     systemctl mask --runtime --now gitea.service
-     test "$(systemctl is-active gitea.service)" = inactive
-     cp -a /var/lib/gitea/. /mnt/gitea-data/
-     diff -qr --no-dereference /var/lib/gitea /mnt/gitea-data
-     sync
-     mv /var/lib/gitea /var/lib/gitea.root-disk-backup
-     mkdir /var/lib/gitea
-   '
-   ```
-
-3. Switch the mount and verify it before allowing Gitea to start:
-
-   ```sh
-   incus config device set homelab-server:gitea data path=/var/lib/gitea
-   incus exec homelab-server:gitea -- sh -eu -c '
-     mountpoint --quiet /var/lib/gitea
-     diff -qr --no-dereference /var/lib/gitea.root-disk-backup /var/lib/gitea
-     findmnt -M /var/lib/gitea
-     systemctl unmask --runtime gitea.service
-   '
-   ```
-
-4. From `ansible/`, deploy the mount guards and verify service health:
-
-   ```sh
-   mise exec -- ansible-playbook gitea.yaml --limit gitea
-   mise exec -- ansible-playbook verify-gitea.yaml
-   mise exec -- ansible-playbook gitea.yaml --limit gitea
-   ```
-
-   The final deployment should report `changed=0`. Confirm the source is
-   `pool1/custom/default_gitea-data` with `findmnt -M /var/lib/gitea` inside the
-   container, and confirm the quota with
-   `incus storage volume get homelab-server:pool1 gitea-data size`.
-
-The migration on 2026-09-19 temporarily retained
-`/var/lib/gitea.root-disk-backup` for rollback. That copy was removed the same day
-after verifying the data-volume mount and application health. For future
-migrations, remove the copy only after accepting the migration; it becomes stale
-as soon as Gitea resumes writing.
-
 ### Recovery
 
-Before cutover, the root-disk source is intact: fix the staging copy or unmask and
-start Gitea against the original directory. After cutover, prefer repairing the
-`data` device attachment and keeping the current volume. If switching storage
-again, stop and runtime-mask Gitea, copy and verify its latest data first, and
-provide a mount at `/var/lib/gitea` before restarting. Do not restore the stale
-root-disk copy over newer data or bypass the mount guards.
+If the mount guard fails, keep Gitea stopped and inspect the volume from the
+administrator workstation:
+
+```sh
+incus config device show homelab-server:gitea
+incus storage volume get homelab-server:pool1 gitea-data size
+incus exec homelab-server:gitea -- findmnt -M /var/lib/gitea
+```
+
+Require device `data` to attach `pool1/gitea-data` at `/var/lib/gitea`, with quota
+`20GiB` and mount source `pool1/custom/default_gitea-data`. Repair the attachment
+before restarting. If the volume's contents need recovery, stop and runtime-mask
+Gitea, restore a consistent backup, and verify it before unmasking. Coordinate
+repository recovery with the matching PostgreSQL database and object bucket.
+Do not bypass the mount guards or overwrite newer data with an older copy.
+
+Run `mise exec -- ansible-playbook verify-gitea.yaml` from `ansible/` after
+recovery. Use the [provisioning command](incus.md#create-incus-instances) only
+when creating a new container and data volume.
 
 ## Object storage
 
@@ -137,8 +88,6 @@ server-side authorization policy.
 
 Run `ansible-playbook verify-gitea.yaml` after storage configuration changes. Do not inspect `/etc/gitea/app.ini` in shared or recorded terminals because it contains object-storage credentials.
 
-The migration from Backblaze to SeaweedFS was manually verified on 2026-09-12. A comparison performed while writes were frozen found two matching objects totaling 4,887 bytes and no content differences. Confirm the former Backblaze bucket still exists and remains suitable before treating it as a rollback source.
-
 Changing storage providers requires data migration as well as configuration deployment:
 
 1. Copy the existing bucket to the destination while Gitea remains online.
@@ -148,7 +97,11 @@ Changing storage providers requires data migration as well as configuration depl
 5. Run `ansible-playbook verify-gitea.yaml` and test existing object-backed content through Gitea.
 6. Retain the source bucket for a rollback period.
 
-To roll back during that period, stop Gitea and sync the final SeaweedFS delta back to Backblaze. Verify the object count, byte total, and contents before changing the inventory. Restore `gitea_s3_endpoint` to `s3.us-west-004.backblazeb2.com`, `gitea_s3_region` to `us-west-004`, and `gitea_s3_bucket_lookup_type` to `auto`. Then run `ansible-playbook gitea.yaml --limit gitea` and `ansible-playbook verify-gitea.yaml`. Do not switch the endpoint before the reverse sync passes.
+To roll back a storage-provider change, stop Gitea and copy any new objects back
+to the retained source bucket. Verify object counts, byte totals, and contents
+before restoring the recorded `gitea_s3_*` inventory values. Then run
+`ansible-playbook gitea.yaml --limit gitea` and `ansible-playbook verify-gitea.yaml`
+from `ansible/`. Do not switch the endpoint before the reverse copy passes.
 
 ## Upgrade procedure
 
@@ -175,6 +128,9 @@ object bucket, configuration, TLS/ACME state, and the old binary. An instance
 snapshot alone does not cover the custom volume or external services. Verify an
 encrypted off-host copy and rehearse database migration and restore against a
 separate database before deploying. See [Backup coverage](backups-and-postgresql.md#backup-coverage).
+Name the rollback set `pre<version>-YYYYMMDDTHHMMSSZ` using the target version
+and UTC timestamp. Record its instance snapshot, custom-volume snapshot, host
+archive, and workstation archive paths for rollback and cleanup.
 
 Update `gitea_version`, the supported-version assertion in
 `roles/gitea/tasks/validate.yaml`, the expected version in `verify-gitea.yaml`, and
@@ -202,92 +158,56 @@ only the `gitea` database: a whole-cluster PostgreSQL rollback would also rewind
 Harbor. An old binary cannot use a database migrated to a newer release. A
 rollback to the backup discards writes accepted after the backup timestamp.
 
-### Gitea 28.0.0 upgrade, 2026-09-30
+### Verify an upgrade
 
-Gitea was upgraded from 1.27.3 to [28.0.0](https://blog.gitea.com/release-of-28.0.0/), which
-drops the historical `1.` version prefix. The signed amd64 release was verified
-against the existing trusted release key. Debian 13's installed Git 2.47.3 meets
-the new Git 2.25 minimum.
+Before accepting the upgrade:
 
-The configuration explicitly preserves Actions run records with
-`RUN_RETENTION_DAYS = 0`; logs and artifacts retain their separate retention
-policies. The obsolete `[server] DOMAIN` setting was removed; `ROOT_URL` and
-email-confirmed registration remain explicit. There were no mirrors, webhooks,
-external login providers, or custom egress lists to migrate. Gitea still serves
-HTTPS directly, and a signed-in WebSocket connection to `/-/ws` succeeded.
+1. Require the explicit database consistency, repository hooks, and storage
+   checks in `verify-gitea.yaml` to complete. Do not rely on `doctor --default`
+   selecting those checks.
+2. Test HTTPS clone, fetch, push, and pull-request merge with a temporary
+   repository. Check a signed-in WebSocket connection to `/-/ws`.
+3. Test LFS, package, and release attachment uploads and fresh downloads. Compare
+   existing object hashes with the backup manifest.
+4. Run the [runner smoke test](gitea-runner.md#smoke-test), including Docker access
+   and the Harbor proxy. Open both existing and new Actions logs in the browser.
+5. Confirm the runner and certificate renewal timer are active. Require
+   redeployment to report `changed=0`.
+6. Remove temporary repositories, packages, and access tokens. Complete the
+   upgrade-backup cleanup below after all checks pass.
 
-`doctor --default` selected zero checks, so verification now explicitly runs
-database consistency, repository hooks, and storage checks and requires all
-three to complete.
+Preserve `RUN_RETENTION_DAYS = 0` for Actions run records; logs and artifacts use
+their own retention policies. Keep `ROOT_URL` and email-confirmed registration
+explicit.
 
-The pre-upgrade rollback set is named `pre28-20260930T133943Z`:
+## Clean up upgrade backups
 
-| Component | Location |
-| --- | --- |
-| Gitea root snapshot, no expiry | `homelab-server:gitea/pre28-20260930T133943Z` |
-| Gitea custom-volume snapshot, no expiry | `homelab-server:pool1/gitea-data/pre28-20260930T133943Z` |
-| Encrypted off-host archive on the administrator workstation | `~/.local/state/homelab-backups/gitea/pre28-20260930T133943Z.tar.age` |
-| Matching encrypted archive on the Gitea host | `/var/backups/gitea/pre28-20260930T133943Z.tar.age` |
+Keep the upgrade rollback set while deployment or verification is incomplete.
+After every post-upgrade check passes, remove that set's instance snapshot,
+custom-volume snapshot, encrypted archives, and temporary backup staging.
+Deleting the set ends the pre-upgrade rollback option; routine backups follow
+their own retention policy.
 
-Archive SHA-256:
-`56bf697723779e9b7c2cf7f420deec003fc1b019165c8a7e09a8417f144efd39`.
-It is encrypted to the repository's SOPS age recipient and authenticated
-decryption was verified. The archive contains `gitea-db.dump`,
-`gitea-data.tar.gz`, `gitea-config.tar.gz`, baseline counts, file checksums, and
-all eight bucket objects (18,395 bytes). `objects.json` maps each object key to
-its numbered payload under `objects/` and records its SHA-256, metadata, and tags.
-Decrypt only into a protected directory outside this repository.
+From the administrator workstation, list the snapshots and select the exact
+set recorded for the completed upgrade:
 
-The schema migration rehearsal used an isolated database and a copy of the local
-working directory, with outbound application integrations disabled and local
-storage selected. Migration from 343 to 356 took 2.6 seconds. Restoring the native
-dump returned schema 343 and the original counts (two users, one repository, six runs, six tasks);
-Gitea 1.27.3 accepted the restored database. The rehearsal database and directory
-were removed afterward.
+```sh
+incus info homelab-server:gitea
+incus storage volume info homelab-server:pool1 gitea-data
+```
 
-Production verification passed for HTTPS clone/fetch/push, pull-request merge,
-LFS upload and fresh download, generic package upload/download, release
-attachment upload/download, all eight pre-upgrade object hashes, and rendering
-both pre-upgrade and new Actions logs in the browser.
-[Actions smoke run #7](https://gitea.lab.canhdinh.com/vancanhuit/actions-runner-smoke-test/actions/runs/7)
-succeeded with Runner 4.0.0, builtin checkout, Docker access, and the Harbor
-Docker Hub proxy. Temporary repositories, package versions, and access tokens
-were removed. Gitea and runner verification passed, and the second deployment
-reported `changed=0`.
+In Bash, replace the placeholder with that set's name. Stop if any deletion fails:
 
-Plaintext backup staging was removed after the encrypted copies were verified.
+```bash
+set -euo pipefail
+backup_set='<exact-upgrade-backup-set>'
+[[ "$backup_set" =~ ^pre[0-9]+(\.[0-9]+)*-[0-9]{8}T[0-9]{6}Z$ ]]
+incus snapshot delete homelab-server:gitea "$backup_set"
+incus storage volume snapshot delete homelab-server:pool1 gitea-data "$backup_set"
+incus exec homelab-server:gitea -- rm -- "/var/backups/gitea/$backup_set.tar.age"
+rm -- "$HOME/.local/state/homelab-backups/gitea/$backup_set.tar.age"
+```
 
-Retain the rollback set through several days of normal operation and a
-successful backup cycle. This one-time upgrade backup provides no scheduled
-off-host protection.
-
-### Gitea 28.1.0 upgrade, 2026-10-07
-
-Gitea was upgraded from 28.0.0 to [28.1.0](https://blog.gitea.com/release-of-28.1.0/).
-The amd64 binary passed signature verification with the existing release key.
-The database migration rehearsal advanced schema 356 to 358 in 1.88 seconds;
-restoring the native dump returned the original schema and counts, and Gitea
-28.0.0 accepted the restored database.
-
-The rollback set is `pre28.1-20261007T105055Z`:
-
-- Root snapshot: `homelab-server:gitea/pre28.1-20261007T105055Z` (no expiry).
-- Data-volume snapshot: `homelab-server:pool1/gitea-data/pre28.1-20261007T105055Z` (no expiry).
-- Encrypted off-host archive: `~/.local/state/homelab-backups/gitea/pre28.1-20261007T105055Z.tar.age`.
-- Matching host archive: `/var/backups/gitea/pre28.1-20261007T105055Z.tar.age`.
-
-Archive SHA-256:
-`373320ea013367394d72cfc6626c039cb4f5f69060fc132b3f201edb56cdb098`.
-Authenticated decryption and archived file hashes were verified. The archive
-contains the database, repositories, configuration, TLS/ACME state, old binary,
-and all 10 bucket objects (23,400 bytes). Plaintext backup staging was removed.
-
-Role tests, syntax checks, lint, Gitea doctor checks, HTTPS Git clone/push/fetch,
-pull-request merge, LFS, packages, and release attachment round trips passed.
-All pre-upgrade objects retained their SHA-256 hashes. The runner verification
-passed with Runner 4.1.0, and [smoke run #8, attempt 2](https://gitea.lab.canhdinh.com/vancanhuit/actions-runner-smoke-test/actions/runs/8)
-succeeded. The existing workflow lacks a `workflow_dispatch` trigger, so it was
-rerun through the runs API. Temporary test resources and tokens were removed.
-The runner and certificate renewal timer are active; redeployment reported
-`changed=0`. Retain this rollback set until normal operation and a subsequent
-backup cycle are confirmed.
+Remove any additional staging files by their exact recorded paths. List the
+snapshots and archive directories again to confirm the selected set is absent.
+Do not delete the live `gitea-data` volume, object bucket, or scheduled snapshots.

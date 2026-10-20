@@ -55,9 +55,9 @@ the authorized Vault prefix. A namespace is the workload trust boundary.
 
 Run from the repository root with `lab-kubeadm` access. The official OCI chart
 is pinned by version and digest, and Helm retains CRDs on uninstall. Use this
-Helm procedure only before Argo adoption. The lab adopted ESO into Argo on
-2026-10-18; make subsequent chart changes through Git and manual Argo syncs.
-Do not alternate Helm upgrades and Argo syncs.
+Helm procedure only before Argo adoption. For an Argo-managed installation,
+change the chart through Git and manual Argo syncs. Do not alternate Helm
+upgrades and Argo syncs.
 
 ```sh
 mise exec -- helm --kube-context lab-kubeadm upgrade --install external-secrets \
@@ -215,30 +215,22 @@ decide whether their target Secrets should be retained before deleting owners.
 Then remove the dedicated SecretStore/RBAC, Vault role, and policy only after
 confirming no consumers depend on them. Never disable the shared KV mount.
 
-### Verified deployment
+After setup or an upgrade:
 
-On 2026-10-18, Helm installed release `external-secrets`, revision 1,
-chart/app 2.13.0. All three Deployments were ready, and SecretStore
-`vault-secrets/vault` reported `Ready=True`. A dummy two-field Vault secret
-synced into an owned Kubernetes Secret; the normal one-minute refresh propagated
-a new Vault version without replacing the target Secret's UID.
-
-Direct Kubernetes login verified the ten-minute TTL, absence of the default
-policy, and read-only KV prefix. Vault denied writes, other prefixes,
-metadata/list access, administration, token creation, and cubbyhole access.
-It rejected wrong service accounts and Vault audiences. A JWT bound to a deleted
-test Secret failed after approximately ten seconds of TokenReview propagation;
-do not rely on instantaneous credential revocation.
-
-Cleanup removed the example ExternalSecret and owned Secret, dummy Vault keys
-and all versions, and token-bound test Secrets. Temporary Vault login tokens
-were revoked. The operator, RBAC, namespace, Vault auth/policy/role, and
-SecretStore stayed configured; the example was not left running.
-
-At that point, the CLI had a refreshed non-root administrator SSO session.
-This initial deployment migrated no existing application credentials and did
-not restart or reseal Vault. The later credential migrations and Argo adoption
-are recorded in the linked application guides.
+1. Require all three controller Deployments to be ready and
+   `vault-secrets/vault` to report `Ready=True`.
+2. Use the optional dummy-data example to verify initial synchronization and
+   one-minute refresh. Updating the Vault value should preserve the target
+   Secret's UID.
+3. Check the ten-minute token TTL, absence of the default policy, and read-only
+   KV prefix. Wrong service accounts and audiences must be rejected. Allow
+   TokenReview caches to converge when testing token revocation.
+4. Remove the example ExternalSecret, its owned Secret, dummy Vault versions,
+   and token-bound test resources. Revoke temporary Vault tokens and restore
+   the administrator CLI login.
+5. Verify cert-manager and Argo credential refresh and application access. After
+   a successful version upgrade, remove its temporary encrypted resource backups
+   and staging files by their exact recorded paths.
 
 ## References
 

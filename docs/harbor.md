@@ -73,52 +73,63 @@ Run `ansible-playbook verify-harbor.yaml` after configuration changes. Do not pr
 
 Do not change `harbor_version` as a routine package bump. Follow the upgrade guide for the target release. The [Harbor 2.15 upgrade guide](https://goharbor.io/docs/2.15.0/administration/upgrade/) supports migration from 2.12 or later. Before an upgrade:
 
-1. Stop writes to Harbor.
-2. Take and validate a consistent PostgreSQL backup.
+1. Drain Actions jobs and pause the runner and certificate renewal before stopping
+   writes to Harbor.
+2. Take and validate a consistent backup of the `harbor` PostgreSQL database.
+   Rehearse the target release's schema migration and database restore in an
+   isolated database.
 3. Back up or snapshot the `homelab-harbor` SeaweedFS bucket.
-4. Preserve `/opt/harbor/harbor.yml`, `/var/lib/harbor`, `/etc/harbor`, and `/var/lib/lego` for rollback.
+4. Preserve `/opt/harbor/harbor.yml`, `/var/lib/harbor`, `/etc/harbor`, and `/var/lib/lego` for rollback. Verify an encrypted off-host copy. Name the set `pre<version>-YYYYMMDDTHHMMSSZ` with the target version and UTC timestamp, and record all snapshot and archive paths.
 5. Update the pinned installer version and checksum together. Also update the supported-version assertion in `roles/harbor/tasks/validate.yaml` and the expected version in `verify-harbor.yaml`. The template's `_version` and its test expectation identify the configuration schema (`2.15.0`), not the patch release; change them only when the upstream schema changes.
 6. Migrate the configuration as required by Harbor, run the role test, deploy, and run `ansible-playbook verify-harbor.yaml`.
 
 Harbor core performs database schema migration when the new release starts. Do not proceed without a rollback point for both PostgreSQL metadata and SeaweedFS registry blobs; neither copy is a complete Harbor backup by itself.
 
-The [Harbor 2.15.2 release](https://github.com/goharbor/harbor/releases/tag/v2.15.2) upgrades the bundled PostgreSQL database from version 15 to 18. That migration does not apply here because Harbor uses the separately managed PostgreSQL 18 service.
+Harbor uses the separately managed PostgreSQL 18 service. Apply its upgrade
+procedure separately from any bundled-database instructions in Harbor's guide.
+Keep the private-network webhook restriction enabled in core and jobservice.
 
-### Harbor 2.15.3 upgrade, 2026-10-07
+### Verify an upgrade
 
-Harbor was upgraded from 2.15.2 to [2.15.3](https://github.com/goharbor/harbor/releases/tag/v2.15.3).
-The installer SHA-256 matches the release asset digest. No webhook or replication
-policies were configured. The new private-network webhook restriction remains
-enabled in both core and jobservice.
+1. Run `ansible-playbook verify-harbor.yaml` from `ansible/` for API health,
+   PostgreSQL TLS, and scanner checks.
+2. Test an authenticated image push, pull, and run. Scan the artifact with Trivy
+   and test a Docker Hub proxy pull/run from the runner account.
+3. Compare existing bucket objects with the backup hashes. Remove temporary
+   smoke-test resources after the checks pass.
+4. Resume the runner and renewal timer, then rerun deployment and require
+   `changed=0`.
+5. Complete the upgrade-backup cleanup below after every verification step passes.
 
-The configuration schema marker was corrected from `2.15.2` to `2.15.0`, allowing
-the official migration tool to recognize the existing schema. A native database
-dump was restored into an isolated database, its baseline counts verified, and
-the three upstream column-type migrations tested there before deployment.
-Production advanced from schema 180 to 181 with `dirty=false`.
+### Rollback
 
-The rollback set is `pre2.15.3-20261007T110645Z`:
+Pause the runner and renewal timer, stop Harbor, and restore the matching VM
+snapshot, `harbor` database, and bucket contents before starting the backed-up
+version. Restore only Harbor's database; restoring the shared PostgreSQL cluster
+would also rewind Gitea. Restore the matching configuration and TLS/ACME state.
+If the snapshot contains a stopped Compose project, start it explicitly and
+remove maintenance masks from the renewal units. Restoring a backup discards
+writes accepted since its timestamp.
 
-- Harbor VM snapshot, no expiry: `homelab-server:harbor/pre2.15.3-20261007T110645Z`.
-- Encrypted off-host archive: `~/.local/state/homelab-backups/harbor/pre2.15.3-20261007T110645Z.tar.age`.
-- Archive SHA-256: `c39242fa2e502890cc63a812dc2bfb00a6fc9377bdb3d9375b59ce414b0a8d62`.
+## Clean up upgrade backups
 
-With Harbor stopped and the Actions runner paused, the archive captured the
-native `harbor` database dump, `/opt/harbor`, `/var/lib/harbor`, `/etc/harbor`,
-`/etc/lego`, `/var/lib/lego`, and all 73 registry bucket objects (68,909,583 bytes),
-including object hashes, metadata, and tags. Authenticated decryption and archived
-file hashes were verified. Plaintext staging was removed after verification.
+Keep the rollback set until deployment, artifact tests, and the `changed=0`
+rerun succeed. Then remove the upgrade-specific VM snapshot, encrypted archive,
+and temporary backup staging. This ends the pre-upgrade rollback option; keep
+routine backups under their own retention policy.
 
-Role tests, syntax checks, lint, API health, PostgreSQL TLS, and scanner checks
-passed. Authenticated push/pull/run, an actual Trivy artifact scan, and a Docker
-Hub proxy pull/run from the runner account succeeded. All pre-upgrade bucket
-objects retained their SHA-256 hashes. Temporary smoke resources were removed,
-the runner and renewal timer resumed, and redeployment reported `changed=0`.
+From the administrator workstation, run `incus info homelab-server:harbor` and
+select the exact snapshot recorded for the completed upgrade. In Bash, replace
+the placeholder with that set's name and stop if any deletion fails:
 
-For rollback, pause the runner and renewal timer, stop Harbor, and restore the
-matching VM snapshot, `harbor` database, and bucket contents before starting
-2.15.2. Restore only Harbor's database, not the PostgreSQL cluster shared with
-Gitea. The snapshot was taken after `docker compose down`; start the restored
-Compose project explicitly and unmask the renewal units afterward. Restoring
-the backup discards writes accepted since its timestamp. Retain this set until
-normal operation and a later backup cycle are confirmed.
+```bash
+set -euo pipefail
+backup_set='<exact-upgrade-backup-set>'
+[[ "$backup_set" =~ ^pre[0-9]+(\.[0-9]+)*-[0-9]{8}T[0-9]{6}Z$ ]]
+incus snapshot delete homelab-server:harbor "$backup_set"
+rm -- "$HOME/.local/state/homelab-backups/harbor/$backup_set.tar.age"
+```
+
+Remove any host-side copy and staging files by their exact recorded paths. List
+the snapshots and archive directories again to confirm the set is absent. Do
+not delete Harbor's live state, registry bucket, or scheduled snapshots.
