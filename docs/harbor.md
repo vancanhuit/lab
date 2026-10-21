@@ -23,7 +23,7 @@ Assign users the narrowest suitable project role. See Harbor's [user and project
 
 Harbor connects to `postgres.lab.canhdinh.com` with `ssl_mode: verify-full`.
 The PostgreSQL server must present its lego-managed Let's Encrypt certificate
-before Harbor starts. Harbor 2.15.3 uses [pgx](https://github.com/goharbor/harbor/blob/v2.15.3/src/common/dao/pgsql.go)
+before Harbor starts. Harbor 2.15.4 uses [pgx](https://github.com/goharbor/harbor/blob/v2.15.4/src/common/dao/pgsql.go)
 for database connections and migrations; its [TLS implementation](https://github.com/jackc/pgx/blob/v5.11.0/pgconn/config.go)
 verifies the certificate chain and hostname using system trust when no custom CA
 is configured. The Harbor core image provides its CA bundle at
@@ -88,6 +88,14 @@ Harbor core performs database schema migration when the new release starts. Do n
 Harbor uses the separately managed PostgreSQL 18 service. Apply its upgrade
 procedure separately from any bundled-database instructions in Harbor's guide.
 Keep the private-network webhook restriction enabled in core and jobservice.
+
+The [2.15.4 release](https://github.com/goharbor/harbor/releases/tag/v2.15.4)
+enables private-network webhook access and the legacy signer-pull exemption by
+default. The managed configuration explicitly sets
+`network.allow_private_network_access: false` and
+`content_trust.legacy_signer_pull_enabled: false` to preserve 2.15.3's stricter
+behavior. The verification playbook checks both restrictions in the running
+containers.
 
 ### Verify an upgrade
 

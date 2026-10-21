@@ -78,7 +78,34 @@
     - name: Assert Harbor version
       ansible.builtin.assert:
         that:
-          - harbor_system_info.json.harbor_version is match('^v2\.15\.3(?:-|$)')
+          - harbor_system_info.json.harbor_version is match('^v2\.15\.4(?:-|$)')
+
+    - name: Verify Harbor private-network webhook restriction
+      ansible.builtin.command:
+        expand_argument_vars: false
+        argv:
+          - docker
+          - exec
+          - "{{ item }}"
+          - /bin/sh
+          - -c
+          - test "$HARBOR_ALLOW_PRIVATE_NETWORK_ACCESS" = false
+      loop:
+        - harbor-core
+        - harbor-jobservice
+      changed_when: false
+
+    - name: Verify Harbor legacy signer-pull exemption is disabled
+      ansible.builtin.command:
+        expand_argument_vars: false
+        argv:
+          - docker
+          - exec
+          - harbor-core
+          - /bin/sh
+          - -c
+          - test "$CONTENT_TRUST_LEGACY_SIGNER_PULL_ENABLED" = false
+      changed_when: false
 
     - name: List registered Harbor scanners
       ansible.builtin.uri:

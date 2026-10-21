@@ -70,6 +70,8 @@
           - (harbor_rendered_files.results[0].content | from_yaml).trivy.security_check == 'vuln'
           - not (harbor_rendered_files.results[0].content | from_yaml).trivy.insecure
           - (harbor_rendered_files.results[0].content | from_yaml).proxy.components is contains('trivy')
+          - (harbor_rendered_files.results[0].content | from_yaml).network.allow_private_network_access is false
+          - (harbor_rendered_files.results[0].content | from_yaml).content_trust.legacy_signer_pull_enabled is false
           - (harbor_rendered_files.results[0].content | from_yaml).jobservice.logger_sweeper_duration == 1
           - (harbor_rendered_files.results[0].content | from_yaml).notification.webhook_job_max_retry == 3
           - harbor_rendered_files.results[1].content is search('/var/lib/harbor/secret/cert/server\.crt')

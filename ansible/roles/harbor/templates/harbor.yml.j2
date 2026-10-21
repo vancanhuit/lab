@@ -71,6 +71,13 @@ proxy:
     - jobservice
     - trivy
 
+# Preserve the stricter 2.15.3 behavior despite 2.15.4's changed defaults.
+network:
+  allow_private_network_access: false
+
+content_trust:
+  legacy_signer_pull_enabled: false
+
 upload_purging:
   enabled: true
   age: 168h

@@ -97,7 +97,7 @@ directory on the root filesystem does not satisfy the guard.
 
 ## 4. Deploy Harbor
 
-Harbor 2.15.3 runs on Docker Engine and Docker Compose installed from
+Harbor 2.15.4 runs on Docker Engine and Docker Compose installed from
 [Docker's official Debian repository](https://docs.docker.com/engine/install/debian/).
 The playbook creates the `harbor` PostgreSQL role and database, along with the
 `homelab-harbor` SeaweedFS bucket with a bucket-scoped identity. It deploys Harbor

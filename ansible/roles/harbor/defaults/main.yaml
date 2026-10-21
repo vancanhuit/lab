@@ -1,6 +1,6 @@
 ---
-harbor_version: "2.15.3"
-harbor_installer_checksum: sha256:b44dad3d0f0ca1426f82d1db3597bc4b82af4c7ec58e3dd96703eeedee7e7a5b
+harbor_version: "2.15.4"
+harbor_installer_checksum: sha256:eeb899cf7b626c925790adba87db9008dd1d73a693a72442651b5bdece9805c6
 harbor_installer_url: >-
   https://github.com/goharbor/harbor/releases/download/v{{ harbor_version }}/harbor-online-installer-v{{ harbor_version }}.tgz
 harbor_install_directory: /opt/harbor
