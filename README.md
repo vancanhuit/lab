@@ -16,6 +16,30 @@ private DNS, storage, identity, Kubernetes packet paths, and recovery.
 [Editable Excalidraw sources and SVG previews](docs/diagrams/README.md) accompany
 each diagram.
 
+## Service showcase
+
+Screenshots from the private lab. Select an image to view it at full size.
+
+| Technitium DNS — query traffic | Gitea — Actions workflows |
+| --- | --- |
+| [![Technitium DNS dashboard showing query totals, response types, and traffic over the last hour.](docs/images/services/technitium-dns.webp)](docs/images/services/technitium-dns.webp) | [![Gitea Actions workflow history for the runner smoke-test repository.](docs/images/services/gitea-actions.webp)](docs/images/services/gitea-actions.webp) |
+
+| Harbor — registry projects | Argo CD — Kubernetes applications |
+| --- | --- |
+| [![Harbor projects overview with Docker Hub, GCR, and Quay proxy caches and registry usage.](docs/images/services/harbor-projects.webp)](docs/images/services/harbor-projects.webp) | [![Argo CD applications overview showing cert-manager, External Secrets, the shared Gateway, Hubble UI, and Vault integrations as Healthy and Synced.](docs/images/services/argocd-applications.webp)](docs/images/services/argocd-applications.webp) |
+
+| Uptime Kuma — service monitoring | Uptime Kuma — Gitea monitor details |
+| --- | --- |
+| [![Uptime Kuma HomeLab group showing Gitea, Harbor, PostgreSQL, and Technitium DNS monitors, uptime percentages, and response-time history.](docs/images/services/uptime-kuma.webp)](docs/images/services/uptime-kuma.webp) | [![Uptime Kuma Gitea monitor showing response times, uptime, certificate and domain expiry, and response-time history.](docs/images/services/uptime-kuma-gitea.webp)](docs/images/services/uptime-kuma-gitea.webp) |
+
+| SeaweedFS Master — cluster topology | SeaweedFS Filer — S3 buckets |
+| --- | --- |
+| [![SeaweedFS Master showing cluster status, system statistics, and storage topology with 16 volumes.](docs/images/services/seaweedfs-master.webp)](docs/images/services/seaweedfs-master.webp) | [![SeaweedFS Filer browsing the buckets directory with Gitea and Harbor storage buckets.](docs/images/services/seaweedfs-filer.webp)](docs/images/services/seaweedfs-filer.webp) |
+
+| SeaweedFS Volume — storage usage |
+| --- |
+| [![SeaweedFS Volume showing disk usage, read-request statistics, and all 16 volumes including Gitea and Harbor collections.](docs/images/services/seaweedfs-volume.webp)](docs/images/services/seaweedfs-volume.webp) |
+
 ## Environment
 
 | Component | Configuration |
