@@ -1,4 +1,4 @@
-# Debian homelab with Incus and Kubernetes
+# HomeLab with Tailscale VPN and Incus
 
 This repository configures a private Debian 13 homelab on Incus, accessible
 through Tailscale. It contains Ansible roles, Kubernetes manifests and Helm
