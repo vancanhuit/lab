@@ -1,7 +1,10 @@
 # Argo CD
 
 Deploy Argo CD at https://argocd.lab.canhdinh.com/ with the official
-`argo-cd` Helm chart 10.10.5 (Argo CD v3.5.5), pinned by OCI digest below.
+`argo-cd` Helm chart 10.10.5, pinned by OCI digest below, and Argo CD v3.5.6.
+The chart defaults to v3.5.5; `global.image.tag` in `values.yaml` pins v3.5.6
+for all Argo CD components and the Redis secret-init hook. This patch release
+does not change the CRDs, so the existing chart remains compatible.
 The non-HA installation runs in namespace `argocd` and uses Gitea OpenID Connect
 (OIDC) for single sign-on (SSO). The [ESO Application](#external-secrets-operator-application)
 tracks the External Secrets Operator deployment. [Vault integrations](#vault-integrations-application)
@@ -12,7 +15,7 @@ The [cert-manager, Gateway, and Hubble UI Applications](#cert-manager-gateway-an
 track the existing certificate controller, issuer, shared Gateway, and Hubble
 routing/TLS configuration. Cilium retains the Hubble UI and Relay workloads.
 
-`mise install` installs the matching Argo CD CLI 3.5.5. Run commands from the
+`mise install` installs the matching Argo CD CLI 3.5.6. Run commands from the
 repository root after the [cluster and cert-manager setup](../README.md).
 Adding these files to Git does not deploy Argo CD; run the installation commands below.
 
@@ -108,6 +111,8 @@ Helm owns the Argo CD workloads, RBAC, CRDs, and HTTPS HTTPRoute to
 `argocd-server:80` (UI/REST) or `argocd-server:8080` (RPC).
 `redirect.yaml` redirects HTTP to HTTPS. The SSO credential is a separate
 Vault-sourced, ESO-managed Secret, not a Helm value or part of Helm release history.
+Helm's `APP VERSION` column still shows the chart's default v3.5.5; verify the
+running version with `argocd version` and the workload images instead.
 Uninstall can remove resources even when CRDs are retained. Back up Argo CD
 resources and Secrets before upgrades. Check an Application's finalizer before
 deleting it: the finalizer may delete the workloads it manages.
@@ -240,7 +245,7 @@ writes. Argo will not recreate it automatically. Restore Vault's intended value
 before manually syncing again. Never prune the namespace or authentication
 resources to troubleshoot. Remove the Application without cascading to stop tracking.
 
-Argo CD 3.5.5's bundled health checks map `Ready=True` to Healthy and
+Argo CD 3.5.6's bundled health checks map `Ready=True` to Healthy and
 `Ready=False` to Degraded for both SecretStore and ExternalSecret. Sync status
 tracks Git mappings; Vault manages secret values and history. ESO alone writes
 target Secret data.
@@ -459,6 +464,7 @@ SSO, and subject-based permissions before returning to normal use.
 
 ## References
 
+- [Argo CD v3.5.6 release notes](https://github.com/argoproj/argo-cd/releases/tag/v3.5.6)
 - [Argo CD Gateway API and TLS termination](https://argo-cd.readthedocs.io/en/release-3.5/operator-manual/ingress/#gateway-api-example)
 - [Pinned Helm chart documentation](https://github.com/argoproj/argo-helm/tree/argo-cd-10.10.5/charts/argo-cd)
 - [Argo CD existing OIDC provider and Secret references](https://argo-cd.readthedocs.io/en/release-3.5/operator-manual/user-management/#existing-oidc-provider)

@@ -1,5 +1,8 @@
 global:
   domain: argocd.lab.canhdinh.com
+  image:
+    # Chart 10.10.5 still defaults to v3.5.5; match the pinned CLI patch release.
+    tag: v3.5.6
 
 configs:
   cm:

@@ -154,6 +154,22 @@
       register: argocd_render
       changed_when: false
 
+    - name: Assert all Argo CD containers and hooks use the pinned patch release
+      ansible.builtin.assert:
+        that:
+          - images | length >= 6
+          - images | unique | list == ['quay.io/argoproj/argocd:v3.5.6']
+      vars:
+        rendered: "{{ argocd_render.stdout | from_yaml_all | list }}"
+        pod_specs: >-
+          {{ rendered | selectattr('kind', 'in', ['Deployment', 'StatefulSet', 'Job']) |
+             map(attribute='spec.template.spec') | list }}
+        containers: >-
+          {{ (pod_specs | map(attribute='containers') | flatten) +
+             (pod_specs | selectattr('initContainers', 'defined') | map(attribute='initContainers') | flatten) }}
+        images: >-
+          {{ containers | map(attribute='image') | select('match', '^quay.io/argoproj/argocd:') | list }}
+
     - name: Assert Argo CD uses authenticated HTTP behind the existing TLS Gateway
       ansible.builtin.assert:
         that:
