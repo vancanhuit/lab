@@ -28,6 +28,14 @@ Screenshots from the private lab. Select an image to view it at full size.
 | --- | --- |
 | [![Harbor projects overview with Docker Hub, GCR, and Quay proxy caches and registry usage.](docs/images/services/harbor-projects.webp)](docs/images/services/harbor-projects.webp) | [![Argo CD applications overview showing cert-manager, External Secrets, the shared Gateway, Hubble UI, and Vault integrations as Healthy and Synced.](docs/images/services/argocd-applications.webp)](docs/images/services/argocd-applications.webp) |
 
+| Harbor — Trivy scanner | Harbor — Security Hub |
+| --- | --- |
+| [![Harbor Scanners tab showing Trivy as the healthy, enabled default scanner with vulnerability and SBOM capabilities.](docs/images/services/harbor-trivy-scanner.webp)](docs/images/services/harbor-trivy-scanner.webp) | [![Harbor Security Hub showing scan coverage, vulnerability severity totals, high-risk artifacts, and CVE findings.](docs/images/services/harbor-security-hub.webp)](docs/images/services/harbor-security-hub.webp) |
+
+| Harbor — vulnerability scanning |
+| --- |
+| [![Harbor Vulnerability tab showing the vulnerability database update, daily scan schedule, and three successful scheduled scans.](docs/images/services/harbor-vulnerability.webp)](docs/images/services/harbor-vulnerability.webp) |
+
 | Uptime Kuma — service monitoring | Uptime Kuma — Gitea monitor details |
 | --- | --- |
 | [![Uptime Kuma HomeLab group showing Gitea, Harbor, PostgreSQL, and Technitium DNS monitors, uptime percentages, and response-time history.](docs/images/services/uptime-kuma.webp)](docs/images/services/uptime-kuma.webp) | [![Uptime Kuma Gitea monitor showing response times, uptime, certificate and domain expiry, and response-time history.](docs/images/services/uptime-kuma-gitea.webp)](docs/images/services/uptime-kuma-gitea.webp) |
