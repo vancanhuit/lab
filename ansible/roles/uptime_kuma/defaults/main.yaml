@@ -1,6 +1,6 @@
 ---
-uptime_kuma_version: "2.5.5"
-uptime_kuma_release_commit: "c98982ac60eccb74cdab1d04c30e18057895ce87"
+uptime_kuma_version: "2.5.7"
+uptime_kuma_release_commit: "d54e4619e52553416e292549f435cc7e57330c29"
 uptime_kuma_repository_url: https://github.com/louislam/uptime-kuma.git
 uptime_kuma_node_major: 24
 uptime_kuma_node_version: "24.21.0"
