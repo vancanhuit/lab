@@ -312,7 +312,7 @@ VAULT_ADDR=https://vault.lab.canhdinh.com vault status
 Do not disable TLS verification to fix a DNS or certificate problem. Inspect
 lego's renewal logs without printing `/etc/lego/cloudflare.env` or private keys.
 
-Vault 2.2.0 has an upstream UI response-length bug when compression is not
+Vault 2.2.1 still has an upstream UI response-length bug when compression is not
 negotiated: Content Security Policy (CSP) nonce injection changes the HTML body
 without updating its length. Use a browser that offers gzip/zstd. For a complete
 UI transfer check, use
