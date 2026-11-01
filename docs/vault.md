@@ -2,7 +2,7 @@
 
 Vault runs as a single-node systemd service in a Debian 13 Linux container (LXC)
 at [vault.lab.canhdinh.com](https://vault.lab.canhdinh.com/), outside Kubernetes.
-The Ansible role pins Vault 2.2.0 for amd64 and verifies its release archive
+The Ansible role pins Vault 2.2.1 for amd64 and verifies its release archive
 against the committed SHA-256 digest. Vault runs as the unprivileged `vault`
 account, with only
 `CAP_NET_BIND_SERVICE` to serve TLS directly on port 443. There is no reverse
@@ -41,7 +41,7 @@ initialization only if Vault reports that it is uninitialized.
 
 ## Control-node CLI
 
-`mise.toml` pins the matching Vault CLI 2.2.0 and sets
+`mise.toml` pins the matching Vault CLI 2.2.1 and sets
 `VAULT_ADDR=https://vault.lab.canhdinh.com` within this repository. From the
 repository root:
 
@@ -322,7 +322,7 @@ is installed; recheck uncompressed UI transfers when upgrading Vault.
 
 ## References
 
-- [Vault 2.2.0 release checksums](https://releases.hashicorp.com/vault/2.2.0/vault_2.2.0_SHA256SUMS)
+- [Vault 2.2.1 release checksums](https://releases.hashicorp.com/vault/2.2.1/vault_2.2.1_SHA256SUMS)
 - [Integrated storage deployment guide](https://developer.hashicorp.com/vault/tutorials/day-one-raft/raft-deployment-guide)
 - [Configuration and mlock guidance](https://developer.hashicorp.com/vault/docs/configuration)
 - [TCP listener and TLS reload](https://developer.hashicorp.com/vault/docs/configuration/listener/tcp)

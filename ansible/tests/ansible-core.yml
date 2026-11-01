@@ -48,7 +48,7 @@
         vars: {}
       - file: verify-vault.yaml
         name: Check Vault version
-        stdout: 'Vault v2.2.0 (test-build)'
+        stdout: 'Vault v2.2.1 (test-build)'
         vars: {}
   tasks:
     - name: Require namespaced facts without deprecated injection

@@ -6,8 +6,8 @@
       - ansible_facts.distribution_major_version == '13'
       - ansible_facts.architecture == 'x86_64'
       - vault_domain == 'vault.lab.canhdinh.com'
-      - vault_version == '2.2.0'
-      - vault_archive_sha256 == '05d78b0ac842ca7c522fc297df91527cd43c15420c4c5c0a969d48a7b0ff7b6d'
+      - vault_version == '2.2.1'
+      - vault_archive_sha256 == '079435de8ff146bdec4cdbe3be71d672ef4e59e4df6af0f2dba672e71be21a68'
     quiet: true
 
 - name: Require swap to be disabled for Raft storage
