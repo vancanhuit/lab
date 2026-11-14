@@ -1,6 +1,6 @@
 ---
-gitea_runner_version: "5.3.0"
-gitea_runner_checksum: sha256:825b70a7b6fb18565209c6b7501af92ba6ffc83ec5cbab294e72f58cd4780bdb
+gitea_runner_version: "6.0.0"
+gitea_runner_checksum: sha256:62ecab223535968ba3fa46cf32f8f50279f0664ba14c6d3848c2f02210f9828e
 gitea_runner_download_url: >-
   https://dl.gitea.com/gitea-runner/{{ gitea_runner_version }}/gitea-runner-{{ gitea_runner_version }}-linux-amd64
 gitea_runner_user: gitea-runner

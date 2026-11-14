@@ -45,7 +45,7 @@ removes the temporary token file. The persistent `/var/lib/gitea-runner/.runner`
 file contains the runner identity and API credentials, with permissions
 restricted to mode `0600`.
 
-The deployment installs Gitea Runner 5.3.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
+The deployment installs Gitea Runner 6.0.0, Node.js 24 LTS from NodeSource, Docker Engine, Buildx, Compose, Git LFS, build tools, and common command-line utilities.
 
 ## Use the runner
 
@@ -108,10 +108,14 @@ curl --fail http://127.0.0.1:9101/readyz
 ```
 
 The runner runs one job at a time. It performs its normal workspace cleanup, but
-does not reset the VM after each job. Host jobs can leave files, processes,
-images, and other state behind.
+does not reset the VM after each job. The runner cleans up tracked background
+processes, but host jobs can still leave files, images, and other state behind.
 
 ### Upgrade
+
+Runner [6.0.0](https://gitea.com/gitea/runner/releases/tag/v6.0.0) requires
+Gitea 1.26.2 or newer. It removes `builtin:checkout`; replace any workflows using
+it with `actions/checkout`, as in the smoke test above, before upgrading.
 
 1. Review the [runner upgrade guide](https://docs.gitea.com/runner/upgrade/) and
    release notes, then drain running jobs before changing the runner.
