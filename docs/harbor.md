@@ -23,7 +23,7 @@ Assign users the narrowest suitable project role. See Harbor's [user and project
 
 Harbor connects to `postgres.lab.canhdinh.com` with `ssl_mode: verify-full`.
 The PostgreSQL server must present its lego-managed Let's Encrypt certificate
-before Harbor starts. Harbor 2.15.4 uses [pgx](https://github.com/goharbor/harbor/blob/v2.15.4/src/common/dao/pgsql.go)
+before Harbor starts. Harbor 2.15.5 uses [pgx](https://github.com/goharbor/harbor/blob/v2.15.5/src/common/dao/pgsql.go)
 for database connections and migrations; its [TLS implementation](https://github.com/jackc/pgx/blob/v5.11.0/pgconn/config.go)
 verifies the certificate chain and hostname using system trust when no custom CA
 is configured. The Harbor core image provides its CA bundle at
@@ -32,12 +32,21 @@ is configured. The Harbor core image provides its CA bundle at
 `verify-harbor.yaml` checks the running core container's database hostname,
 `verify-full` setting, and readable, nonempty CA bundle alongside Harbor API health.
 
+## SeaweedFS writes
+
+Harbor's registry sends an explicit `private` ACL on S3 uploads. The SeaweedFS
+role grants `s3:PutObject` and `s3:PutObjectAcl` to the `harbor` identity for
+requests with that ACL under `docker/registry/v2/`. SeaweedFS 4.50 uses the
+`s3:PutObject` grant when it checks the ACL on multipart initiation. The artifact
+push in the upgrade smoke test checks both upload paths.
+
 ## Vulnerability scanning
 
 The bundled Trivy adapter is enabled as Harbor's default scanner. It downloads
 vulnerability and Java databases from Aqua Security's OCI repositories and
 verifies registry certificates. The managed configuration scans for known
 vulnerabilities, including those without an available fix.
+The 20-minute scan timeout gives database downloads time to finish on the lab link.
 
 To scan an artifact, open its project and repository, select the artifact, and click **Scan**. Configure scheduled scans or scan-on-push in Harbor to automate scanning. Check scanner registration and container health with:
 

@@ -9,6 +9,7 @@
   ansible.builtin.apt:
     name:
       - ca-certificates
+      - curl
       - nginx
       - openssl
       - ssl-cert
@@ -214,3 +215,7 @@
     label: "{{ item.bucket }}"
   when: seaweedfs_bucket_list.stdout_lines | select('match', '^\s*' ~ (item.bucket | regex_escape) ~ '(\s|$)') | length == 0
   changed_when: true
+
+- name: Allow Harbor registry writes that set a private S3 ACL
+  ansible.builtin.import_tasks: harbor-bucket-policy.yaml
+  when: not ansible_check_mode

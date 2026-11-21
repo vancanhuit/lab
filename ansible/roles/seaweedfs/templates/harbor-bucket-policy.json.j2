@@ -1,0 +1,18 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowHarborPrivateObjectAcl",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": ["s3:PutObject", "s3:PutObjectAcl"],
+      "Resource": "arn:aws:s3:::{{ seaweedfs_harbor_bucket }}/docker/registry/v2/*",
+      "Condition": {
+        "StringEquals": {
+          "aws:username": "harbor",
+          "s3:x-amz-acl": "private"
+        }
+      }
+    }
+  ]
+}

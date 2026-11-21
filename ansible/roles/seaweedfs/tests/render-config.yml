@@ -134,6 +134,17 @@
           - seaweedfs_hook is search('openssl x509')
           - seaweedfs_hook is search('systemctl reload nginx\.service')
 
+    - name: Assert the Harbor policy grants only its registry objects a private ACL
+      ansible.builtin.assert:
+        that:
+          - harbor_policy.Statement | length == 1
+          - harbor_policy.Statement[0].Effect == 'Allow'
+          - harbor_policy.Statement[0].Action == ['s3:PutObject', 's3:PutObjectAcl']
+          - harbor_policy.Statement[0].Resource == 'arn:aws:s3:::homelab-harbor/docker/registry/v2/*'
+          - 'harbor_policy.Statement[0].Condition.StringEquals == {"aws:username": "harbor", "s3:x-amz-acl": "private"}'
+      vars:
+        harbor_policy: "{{ lookup('ansible.builtin.template', (playbook_dir | dirname) ~ '/templates/harbor-bucket-policy.json.j2') | from_json }}"
+
     - name: Assert UI authentication and correct upstream routing
       ansible.builtin.assert:
         that:

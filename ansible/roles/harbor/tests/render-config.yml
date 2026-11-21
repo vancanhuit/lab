@@ -69,6 +69,7 @@
           - not (harbor_rendered_files.results[0].content | from_yaml).trivy.skip_update
           - (harbor_rendered_files.results[0].content | from_yaml).trivy.security_check == 'vuln'
           - not (harbor_rendered_files.results[0].content | from_yaml).trivy.insecure
+          - (harbor_rendered_files.results[0].content | from_yaml).trivy.timeout == '20m0s'
           - (harbor_rendered_files.results[0].content | from_yaml).proxy.components is contains('trivy')
           - (harbor_rendered_files.results[0].content | from_yaml).network.allow_private_network_access is false
           - (harbor_rendered_files.results[0].content | from_yaml).content_trust.legacy_signer_pull_enabled is false

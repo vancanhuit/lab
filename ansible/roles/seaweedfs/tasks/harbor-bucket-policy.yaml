@@ -1,0 +1,49 @@
+---
+- name: Ensure the Harbor bucket has the private ACL policy
+  vars:
+    seaweedfs_harbor_policy: "{{ lookup('ansible.builtin.template', 'harbor-bucket-policy.json.j2') | from_json }}"
+    seaweedfs_harbor_policy_request: |-
+      url = {{ ('http://' ~ seaweedfs_s3_bind_address ~ ':' ~ seaweedfs_s3_internal_port ~
+        '/' ~ seaweedfs_harbor_bucket ~ '?policy') | to_json }}
+      aws-sigv4 = "aws:amz:us-east-1:s3"
+      user = {{ (seaweedfs_s3_access_key ~ ':' ~ seaweedfs_s3_secret_key) | to_json }}
+      silent
+      show-error
+      max-time = 20
+    seaweedfs_harbor_policy_status: "{{ seaweedfs_harbor_policy_response.stdout_lines | last | default('') }}"
+  block:
+    - name: Read the Harbor bucket policy through the loopback S3 endpoint
+      ansible.builtin.command:
+        argv: [curl, --config, '-', --write-out, '\n%{http_code}']
+        stdin: "{{ seaweedfs_harbor_policy_request }}"
+      register: seaweedfs_harbor_policy_response
+      changed_when: false
+      failed_when: >-
+        seaweedfs_harbor_policy_response.rc != 0 or
+        seaweedfs_harbor_policy_status not in ['200', '404'] or
+        (seaweedfs_harbor_policy_status == '404' and 'NoSuchBucketPolicy' not in seaweedfs_harbor_policy_response.stdout)
+      no_log: true
+
+    - name: Reconcile the private ACL statement in the Harbor bucket policy
+      vars:
+        seaweedfs_harbor_policy_existing: >-
+          {{ (seaweedfs_harbor_policy_response.stdout_lines[0] | from_json)
+             if seaweedfs_harbor_policy_status == '200' else {'Version': seaweedfs_harbor_policy.Version, 'Statement': []} }}
+        seaweedfs_harbor_policy_statement: "{{ seaweedfs_harbor_policy.Statement[0] }}"
+        seaweedfs_harbor_policy_other_statements: >-
+          {{ (seaweedfs_harbor_policy_existing.Statement | rejectattr('Sid', 'defined') | list) +
+             (seaweedfs_harbor_policy_existing.Statement | selectattr('Sid', 'defined') |
+              rejectattr('Sid', 'equalto', seaweedfs_harbor_policy_statement.Sid) | list) }}
+        seaweedfs_harbor_policy_updated: >-
+          {{ seaweedfs_harbor_policy_existing |
+             combine({'Statement': (seaweedfs_harbor_policy_other_statements | list) + [seaweedfs_harbor_policy_statement]}) }}
+      ansible.builtin.command:
+        argv: [curl, --config, '-', --fail]
+        stdin: |-
+          {{ seaweedfs_harbor_policy_request }}
+          request = "PUT"
+          header = "Content-Type: application/json"
+          data = {{ seaweedfs_harbor_policy_updated | to_json | to_json }}
+      when: seaweedfs_harbor_policy_statement not in seaweedfs_harbor_policy_existing.Statement
+      changed_when: true
+      no_log: true
